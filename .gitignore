@@ -1,0 +1,16 @@
+.DS_Store
+**/.DS_Store
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Flutter/Dart (repo-level; Flutter app has its own .gitignore too)
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/build/
