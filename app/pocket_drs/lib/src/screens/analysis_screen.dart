@@ -1,6 +1,5 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../analysis/ball_track_models.dart';
 import '../analysis/ball_tracker.dart';
@@ -10,12 +9,12 @@ import 'ball_seed_screen.dart';
 class AnalysisScreen extends StatefulWidget {
   const AnalysisScreen({
     super.key,
-    required this.videoFile,
+    required this.videoPath,
     required this.start,
     required this.end,
   });
 
-  final File videoFile;
+  final String videoPath;
   final Duration start;
   final Duration end;
 
@@ -36,6 +35,14 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
   }
 
   Future<void> _chooseSeedThenRun() async {
+    if (kIsWeb) {
+      setState(() {
+        _running = false;
+        _error = 'Analysis is not supported on Web/Desktop. Run on Android/iOS.';
+      });
+      return;
+    }
+
     setState(() {
       _running = true;
       _error = null;
@@ -46,7 +53,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
       final seed = await Navigator.of(context).push<Offset?>(
         MaterialPageRoute(
           builder: (_) => BallSeedScreen(
-            videoPath: widget.videoFile.path,
+            videoPath: widget.videoPath,
             timeMs: widget.start.inMilliseconds,
           ),
         ),
@@ -58,7 +65,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
 
       final tracker = BallTracker();
       final req = BallTrackRequest(
-        videoPath: widget.videoFile.path,
+        videoPath: widget.videoPath,
         startMs: widget.start.inMilliseconds,
         endMs: widget.end.inMilliseconds,
         sampleFps: 30,

@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -94,7 +92,7 @@ class _CameraRecordScreenState extends State<CameraRecordScreen> {
     try {
       final file = await c.stopVideoRecording();
       if (!mounted) return;
-      Navigator.of(context).pop(File(file.path));
+      Navigator.of(context).pop(file);
     } catch (e) {
       if (!mounted) return;
       setState(() {

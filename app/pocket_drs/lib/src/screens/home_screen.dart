@@ -1,6 +1,5 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'camera_record_screen.dart';
@@ -17,10 +16,16 @@ class _HomeScreenState extends State<HomeScreen> {
   final _picker = ImagePicker();
   bool _busy = false;
 
-  Future<void> _openReview(File file) async {
+  bool get _supportsCaptureAndFiles {
+    // This app is designed for Android/iOS. Web/desktop runs are supported only
+    // as a UI preview; camera + local file video analysis are disabled there.
+    return !kIsWeb;
+  }
+
+  Future<void> _openReview(XFile xfile) async {
     if (!mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => ReviewScreen(videoFile: file)),
+      MaterialPageRoute(builder: (_) => ReviewScreen(videoPath: xfile.path)),
     );
   }
 
@@ -28,7 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final file = await Navigator.of(context).push<File?>(
+      final file = await Navigator.of(context).push<XFile?>(
         MaterialPageRoute(builder: (_) => const CameraRecordScreen()),
       );
       if (file != null) {
@@ -45,7 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final picked = await _picker.pickVideo(source: ImageSource.gallery);
       if (picked == null) return;
-      await _openReview(File(picked.path));
+      await _openReview(picked);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -54,6 +59,36 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    if (!_supportsCaptureAndFiles) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('PocketDRS'),
+          backgroundColor: theme.colorScheme.surface,
+        ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'This build is running on Web/Desktop.',
+                  style: theme.textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Video import/recording and analysis are supported on Android/iOS only.\n\n'
+                  'Connect a phone (or start an emulator) and run the app there.',
+                  style: theme.textTheme.bodyLarge,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('PocketDRS'),

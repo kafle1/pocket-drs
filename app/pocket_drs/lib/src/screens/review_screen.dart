@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -7,9 +8,9 @@ import '../utils/format.dart';
 import 'analysis_screen.dart';
 
 class ReviewScreen extends StatefulWidget {
-  const ReviewScreen({super.key, required this.videoFile});
+  const ReviewScreen({super.key, required this.videoPath});
 
-  final File videoFile;
+  final String videoPath;
 
   @override
   State<ReviewScreen> createState() => _ReviewScreenState();
@@ -33,7 +34,13 @@ class _ReviewScreenState extends State<ReviewScreen> {
     });
 
     try {
-      final c = VideoPlayerController.file(widget.videoFile);
+      if (kIsWeb) {
+        throw UnsupportedError(
+          'Video review is not supported on Web/Desktop. Run the app on Android/iOS.',
+        );
+      }
+
+      final c = VideoPlayerController.file(File(widget.videoPath));
       await c.initialize();
       final d = c.value.duration;
 
@@ -180,7 +187,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                                 Navigator.of(context).push(
                                   MaterialPageRoute(
                                     builder: (_) => AnalysisScreen(
-                                      videoFile: widget.videoFile,
+                                      videoPath: widget.videoPath,
                                       start: start,
                                       end: end,
                                     ),
