@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -14,6 +16,11 @@ class _CameraRecordScreenState extends State<CameraRecordScreen> {
   bool _initializing = true;
   bool _recording = false;
   String? _error;
+  int _initId = 0;
+  
+  DateTime? _recordingStartTime;
+  Timer? _recordingTimer;
+  Duration _recordingDuration = Duration.zero;
 
   @override
   void initState() {
@@ -22,12 +29,26 @@ class _CameraRecordScreenState extends State<CameraRecordScreen> {
   }
 
   Future<void> _init() async {
+    final initId = ++_initId;
+
     setState(() {
       _initializing = true;
       _error = null;
+      _recording = false;
     });
 
     try {
+      // Release any previous controller early to avoid camera resource contention.
+      final old = _controller;
+      _controller = null;
+      if (old != null) {
+        try {
+          await old.dispose();
+        } catch (_) {
+          // Ignore; we'll surface the next meaningful error.
+        }
+      }
+
       final camStatus = await Permission.camera.request();
       if (!camStatus.isGranted) {
         throw Exception('Camera permission denied');
@@ -55,6 +76,12 @@ class _CameraRecordScreenState extends State<CameraRecordScreen> {
       );
       await controller.initialize();
 
+      // If a newer init started while we were waiting, discard this controller.
+      if (!mounted || initId != _initId) {
+        await controller.dispose();
+        return;
+      }
+
       if (!mounted) return;
       setState(() {
         _controller = controller;
@@ -75,10 +102,19 @@ class _CameraRecordScreenState extends State<CameraRecordScreen> {
     setState(() {
       _recording = true;
       _error = null;
+      _recordingStartTime = DateTime.now();
+      _recordingDuration = Duration.zero;
+    });
+    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _recordingStartTime == null) return;
+      setState(() {
+        _recordingDuration = DateTime.now().difference(_recordingStartTime!);
+      });
     });
     try {
       await c.startVideoRecording();
     } catch (e) {
+      _recordingTimer?.cancel();
       setState(() {
         _recording = false;
         _error = e.toString();
@@ -89,6 +125,7 @@ class _CameraRecordScreenState extends State<CameraRecordScreen> {
   Future<void> _stopRecording() async {
     final c = _controller;
     if (c == null || !_recording) return;
+    _recordingTimer?.cancel();
     try {
       final file = await c.stopVideoRecording();
       if (!mounted) return;
@@ -104,8 +141,16 @@ class _CameraRecordScreenState extends State<CameraRecordScreen> {
 
   @override
   void dispose() {
+    _recordingTimer?.cancel();
     _controller?.dispose();
     super.dispose();
+  }
+  
+  String _formatDuration(Duration d) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    final m = d.inMinutes.remainder(60);
+    final s = d.inSeconds.remainder(60);
+    return '${two(m)}:${two(s)}';
   }
 
   @override
@@ -150,12 +195,57 @@ class _CameraRecordScreenState extends State<CameraRecordScreen> {
                 : Column(
                     children: [
                       Expanded(
-                        child: Container(
-                          width: double.infinity,
-                          color: Colors.black,
-                          child: controller == null
-                              ? const SizedBox.shrink()
-                              : CameraPreview(controller),
+                        child: Stack(
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              color: Colors.black,
+                              child: controller == null
+                                  ? const SizedBox.shrink()
+                                  : CameraPreview(controller),
+                            ),
+                            // Recording indicator overlay
+                            if (_recording)
+                              Positioned(
+                                top: 16,
+                                left: 0,
+                                right: 0,
+                                child: Center(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 12,
+                                          height: 12,
+                                          decoration: const BoxDecoration(
+                                            color: Colors.red,
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          _formatDuration(_recordingDuration),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                       Padding(

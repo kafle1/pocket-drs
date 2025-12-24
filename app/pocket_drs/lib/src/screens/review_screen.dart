@@ -1,11 +1,16 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../analysis/calibration_config.dart';
 import '../utils/format.dart';
+import '../utils/calibration_store.dart';
+import '../utils/route_interactive.dart';
+import '../utils/video_controller_factory.dart';
+import '../widgets/review_layout.dart';
 import 'analysis_screen.dart';
+import 'calibration_screen.dart';
+import 'pitch_calibration_screen.dart';
 
 class ReviewScreen extends StatefulWidget {
   const ReviewScreen({super.key, required this.videoPath});
@@ -21,6 +26,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
   Duration _duration = Duration.zero;
   RangeValues _range = const RangeValues(0, 0);
   String? _error;
+  bool _navigating = false;
+  final _calibrationStore = CalibrationStore();
 
   @override
   void initState() {
@@ -40,7 +47,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         );
       }
 
-      final c = VideoPlayerController.file(File(widget.videoPath));
+      final c = createVideoPlayerController(widget.videoPath);
       await c.initialize();
       final d = c.value.duration;
 
@@ -55,6 +62,16 @@ class _ReviewScreenState extends State<ReviewScreen> {
       if (!mounted) return;
       setState(() => _error = e.toString());
     }
+  }
+
+  Future<void> _releaseController() async {
+    final c = _controller;
+    if (c == null) return;
+    try {
+      await c.pause();
+    } catch (_) {}
+    await c.dispose();
+    _controller = null;
   }
 
   @override
@@ -106,109 +123,169 @@ class _ReviewScreenState extends State<ReviewScreen> {
               )
             : c == null || !c.value.isInitialized
                 ? const Center(child: CircularProgressIndicator())
-                : Column(
-                    children: [
-                      AspectRatio(
-                        aspectRatio: c.value.aspectRatio,
-                        child: VideoPlayer(c),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              tooltip: c.value.isPlaying ? 'Pause' : 'Play',
-                              onPressed: () {
-                                setState(() {
-                                  c.value.isPlaying ? c.pause() : c.play();
-                                });
-                              },
-                              icon: Icon(c.value.isPlaying ? Icons.pause : Icons.play_arrow),
-                            ),
-                            Expanded(
-                              child: VideoProgressIndicator(
-                                c,
-                                allowScrubbing: true,
-                                colors: VideoProgressColors(
-                                  playedColor: theme.colorScheme.primary,
-                                  bufferedColor: theme.colorScheme.surfaceContainerHighest,
-                                  backgroundColor: theme.colorScheme.surfaceContainer,
+                : ReviewLayout(
+                    video: AspectRatio(
+                      aspectRatio: c.value.aspectRatio,
+                      child: VideoPlayer(c),
+                    ),
+                    controls: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              IconButton(
+                                tooltip: c.value.isPlaying ? 'Pause' : 'Play',
+                                onPressed: () async {
+                                  if (c.value.isPlaying) {
+                                    await c.pause();
+                                  } else {
+                                    await c.play();
+                                  }
+                                  if (mounted) setState(() {});
+                                },
+                                icon: Icon(
+                                  c.value.isPlaying ? Icons.pause : Icons.play_arrow,
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              'Select delivery segment (release → impact)',
-                              style: theme.textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 8),
-                            RangeSlider(
-                              min: 0,
-                              max: maxMs,
-                              divisions: _duration.inMilliseconds > 0
-                                  ? _duration.inMilliseconds
-                                  : null,
-                              values: RangeValues(startMs, endMs),
-                              labels: RangeLabels(
-                                formatDuration(Duration(milliseconds: startMs.round())),
-                                formatDuration(Duration(milliseconds: endMs.round())),
-                              ),
-                              onChanged: (v) {
-                                final safe = v.start <= v.end
-                                    ? v
-                                    : RangeValues(v.end, v.start);
-                                setState(() => _range = safe);
-                              },
-                              onChangeEnd: (v) => _seekToMs(v.start.round()),
-                            ),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Start: ${formatDuration(Duration(milliseconds: startMs.round()))}',
-                                ),
-                                Text(
-                                  'End: ${formatDuration(Duration(milliseconds: endMs.round()))}',
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            FilledButton.icon(
-                              onPressed: () {
-                                final start = Duration(milliseconds: startMs.round());
-                                final end = Duration(milliseconds: endMs.round());
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => AnalysisScreen(
-                                      videoPath: widget.videoPath,
-                                      start: start,
-                                      end: end,
-                                    ),
+                              Expanded(
+                                child: VideoProgressIndicator(
+                                  c,
+                                  allowScrubbing: true,
+                                  colors: VideoProgressColors(
+                                    playedColor: theme.colorScheme.primary,
+                                    bufferedColor:
+                                        theme.colorScheme.surfaceContainerHighest,
+                                    backgroundColor:
+                                        theme.colorScheme.surfaceContainer,
                                   ),
-                                );
-                              },
-                              icon: const Icon(Icons.check),
-                              label: const Text('Use this segment'),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Tip: keep the segment short (1–2 seconds). It makes tracking + calibration much more reliable.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
+                                ),
                               ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Select delivery segment (release → impact)',
+                            style: theme.textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          RangeSlider(
+                            min: 0,
+                            max: maxMs,
+                            divisions: _duration.inMilliseconds > 0
+                                ? (_duration.inMilliseconds / 100).ceil().clamp(10, 500)
+                                : null,
+                            values: RangeValues(startMs, endMs),
+                            labels: RangeLabels(
+                              formatDuration(Duration(milliseconds: startMs.round())),
+                              formatDuration(Duration(milliseconds: endMs.round())),
                             ),
-                          ],
-                        ),
+                            onChanged: (v) {
+                              final safe = v.start <= v.end
+                                  ? v
+                                  : RangeValues(v.end, v.start);
+                              setState(() => _range = safe);
+                            },
+                            onChangeEnd: (v) => _seekToMs(v.start.round()),
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Start: ${formatDuration(Duration(milliseconds: startMs.round()))}',
+                              ),
+                              Text(
+                                'End: ${formatDuration(Duration(milliseconds: endMs.round()))}',
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton.icon(
+                            onPressed: _navigating
+                                ? null
+                                : () async {
+                                    setState(() => _navigating = true);
+                                    try {
+                                      if (!context.mounted) return;
+                                      await waitForRouteInteractive(context);
+                                      if (!context.mounted) return;
+                                      final start = Duration(milliseconds: startMs.round());
+                                      final end = Duration(milliseconds: endMs.round());
+                                      await _releaseController();
+                                      if (!context.mounted) return;
+
+                                      final initialCalibration =
+                                          await _calibrationStore.loadOrDefault();
+                                      if (!context.mounted) return;
+                                      final calibration =
+                                          await Navigator.of(context).push<CalibrationConfig?>(
+                                        MaterialPageRoute(
+                                          builder: (_) => CalibrationScreen(
+                                            initial: initialCalibration,
+                                          ),
+                                        ),
+                                      );
+                                      if (!context.mounted) return;
+                                      if (calibration == null) {
+                                        return;
+                                      }
+
+                                      var finalCalibration = calibration;
+
+                                      // Pitch-plane tap calibration (optional for now).
+                                      // This enables mapping pixels -> meters for Hawkeye/LBW style outputs.
+                                      if (finalCalibration.pitchCalibration == null) {
+                                        await waitForRouteInteractive(context);
+                                        if (!context.mounted) return;
+                                        final pitchCalibrated =
+                                            await Navigator.of(context).push<
+                                                CalibrationConfig?>(
+                                          MaterialPageRoute(
+                                            builder: (_) => PitchCalibrationScreen(
+                                              videoPath: widget.videoPath,
+                                              frameTimeMs: startMs.round(),
+                                              config: finalCalibration,
+                                            ),
+                                          ),
+                                        );
+                                        if (!context.mounted) return;
+                                        if (pitchCalibrated != null) {
+                                          finalCalibration = pitchCalibrated;
+                                        }
+                                      }
+
+                                      await Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => AnalysisScreen(
+                                            videoPath: widget.videoPath,
+                                            start: start,
+                                            end: end,
+                                            calibration: finalCalibration,
+                                          ),
+                                        ),
+                                      );
+                                      if (!context.mounted) return;
+                                      await _init();
+                                    } finally {
+                                      if (mounted) {
+                                        setState(() => _navigating = false);
+                                      }
+                                    }
+                                  },
+                            icon: const Icon(Icons.check),
+                            label: const Text('Use this segment'),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Tip: keep the segment short (1–2 seconds). It makes tracking + calibration much more reliable.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                    ],
+                    ),
                   ),
       ),
     );

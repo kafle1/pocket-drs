@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
+import '../utils/analysis_logger.dart';
 import 'ball_track_models.dart';
 import 'kalman_2d.dart';
 import 'video_frame_provider.dart';
@@ -10,13 +11,37 @@ import 'video_frame_provider.dart';
 class BallTracker {
   const BallTracker();
 
-  Future<BallTrackResult> track(BallTrackRequest req) {
-    return compute(_trackInIsolate, req);
+  Future<BallTrackResult> track(BallTrackRequest req) async {
+    await AnalysisLogger.instance.log(
+      'track start video=${req.videoPath} range=${req.startMs}-${req.endMs} seed=(${req.initialBallPixel.dx},${req.initialBallPixel.dy}) fps=${req.sampleFps}',
+    );
+    try {
+      final res = await compute(_trackInIsolate, req);
+      await AnalysisLogger.instance.log(
+        'track success points=${res.points.length} size=${res.width}x${res.height}',
+      );
+      return res;
+    } catch (e) {
+      await AnalysisLogger.instance.log('track failed: $e');
+      rethrow;
+    }
   }
 }
 
 Future<BallTrackResult> _trackInIsolate(BallTrackRequest req) async {
   final provider = VideoFrameProvider(videoPath: req.videoPath);
+  return _track(req, provider);
+}
+
+@visibleForTesting
+Future<BallTrackResult> trackInSameIsolateForTest(
+  BallTrackRequest req,
+  FrameProvider provider,
+) {
+  return _track(req, provider);
+}
+
+Future<BallTrackResult> _track(BallTrackRequest req, FrameProvider provider) async {
   final dtMs = (1000 / req.sampleFps).round().clamp(1, 1000);
   final times = <int>[];
   for (var t = req.startMs; t <= req.endMs; t += dtMs) {
@@ -24,7 +49,10 @@ Future<BallTrackResult> _trackInIsolate(BallTrackRequest req) async {
   }
 
   // Decode first frame to set size and optional color signature.
-  final firstBytes = await provider.getFrameJpeg(timeMs: times.first);
+  final firstBytes = await _safeFrame(provider, times.first);
+  if (firstBytes == null) {
+    throw StateError('Failed to decode first frame at ${times.first}ms');
+  }
   final firstImage = img.decodeImage(firstBytes);
   if (firstImage == null) {
     throw StateError('Failed to decode first frame');
@@ -49,7 +77,8 @@ Future<BallTrackResult> _trackInIsolate(BallTrackRequest req) async {
   final out = <BallTrackPoint>[];
   for (var i = 0; i < times.length; i++) {
     final t = times[i];
-    final bytes = i == 0 ? firstBytes : await provider.getFrameJpeg(timeMs: t);
+    final bytes = i == 0 ? firstBytes : await _safeFrame(provider, t);
+    if (bytes == null) continue;
     final frame = i == 0 ? firstImage : img.decodeImage(bytes);
     if (frame == null) continue;
 
@@ -88,6 +117,14 @@ Future<BallTrackResult> _trackInIsolate(BallTrackRequest req) async {
   return BallTrackResult(points: out, width: width, height: height);
 }
 
+Future<Uint8List?> _safeFrame(FrameProvider provider, int timeMs) async {
+  try {
+    return await provider.getFrameJpeg(timeMs: timeMs, quality: 90);
+  } catch (_) {
+    return null;
+  }
+}
+
 Offset _clampOffset(Offset p, {required int width, required int height}) {
   final x = p.dx.clamp(0.0, (width - 1).toDouble()).toDouble();
   final y = p.dy.clamp(0.0, (height - 1).toDouble()).toDouble();
@@ -102,8 +139,8 @@ class _ColorSignature {
   final double b;
 
   static _ColorSignature fromImage(img.Image image, Offset seed) {
-    final x = seed.dx.round();
-    final y = seed.dy.round();
+    final x = seed.dx.round().clamp(0, image.width - 1);
+    final y = seed.dy.round().clamp(0, image.height - 1);
     final px = image.getPixel(x, y);
     return _ColorSignature(
       r: px.r.toDouble(),

@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'camera_record_screen.dart';
 import 'review_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -51,6 +52,11 @@ class _HomeScreenState extends State<HomeScreen> {
       final picked = await _picker.pickVideo(source: ImageSource.gallery);
       if (picked == null) return;
       await _openReview(picked);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to import video: ${e.toString().replaceAll(RegExp(r'^\w+Error: '), '')}')),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -93,6 +99,19 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('PocketDRS'),
         backgroundColor: theme.colorScheme.surface,
+        actions: [
+          IconButton(
+            tooltip: 'Settings',
+            onPressed: _busy
+                ? null
+                : () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                    );
+                  },
+            icon: const Icon(Icons.settings),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Padding(
