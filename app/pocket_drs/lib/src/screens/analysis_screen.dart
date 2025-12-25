@@ -5,13 +5,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../analysis/ball_track_models.dart';
-import '../analysis/ball_tracker.dart';
 import '../analysis/calibration_config.dart';
+import '../api/analysis_result.dart';
 import '../api/pocket_drs_api.dart';
 import '../utils/analysis_logger.dart';
 import '../utils/app_settings.dart';
 import '../utils/format.dart';
 import '../utils/route_interactive.dart';
+import '../models/video_source.dart';
 import 'ball_seed_screen.dart';
 import 'lbw_review_screen.dart';
 
@@ -22,19 +23,21 @@ class AnalysisScreen extends StatefulWidget {
     required this.start,
     required this.end,
     required this.calibration,
+    required this.videoSource,
   });
 
   final String videoPath;
   final Duration start;
   final Duration end;
   final CalibrationConfig calibration;
+  final VideoSource videoSource;
 
   @override
   State<AnalysisScreen> createState() => _AnalysisScreenState();
 }
 
 class _AnalysisScreenState extends State<AnalysisScreen> {
-  BallTrackResult? _result;
+  AnalysisResult? _result;
   String? _error;
   bool _running = false;
   Offset _seedPixel = const Offset(-1, -1);
@@ -54,12 +57,39 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     });
   }
 
+  bool get _supportsAnalysis {
+    if (kIsWeb) return false;
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+  }
+
+  String _userMessageFor(Object e) {
+    if (e is TimeoutException) {
+      return 'Timed out while talking to the server.\n\n'
+          'Make sure your phone and server are on the same Wi‑Fi and the server is running.';
+    }
+    if (e is SocketException) {
+      return 'Could not reach the server.\n\n'
+          'Check the Server URL in Settings (use your laptop IP, not localhost) and confirm the server is running.';
+    }
+    if (e is HttpException) {
+      return e.message;
+    }
+    if (e is FormatException) {
+      return 'Server returned an unexpected response.\n\n'
+          'Check server logs and ensure client/server versions match.';
+    }
+
+    final msg = e.toString().replaceAll(RegExp(r'^\w+Error: '), '');
+    return msg.isEmpty ? 'Unknown error' : msg;
+  }
+
   Future<void> _chooseSeedThenRun() async {
     if (_running) return;
-    if (kIsWeb) {
+    if (!_supportsAnalysis) {
       setState(() {
         _running = false;
-        _error = 'Analysis is not supported on Web/Desktop. Run on Android/iOS.';
+        _error = 'Analysis is supported on Android/iOS only.';
       });
       return;
     }
@@ -109,72 +139,40 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
       }
       _seedPixel = seed;
 
-      final res = await _runBackendOrLocal(seed: _seedPixel);
-      await logger.log('analysis complete points=${res.points.length}');
+      final res = await _runBackend(seed: _seedPixel);
+      await logger.log('analysis complete points=${res.track.points.length}');
 
       if (!mounted) return;
       setState(() {
         _result = res;
         _running = false;
       });
-    } catch (e) {
-      await AnalysisLogger.instance.log('analysis error: $e');
+    } catch (e, st) {
+      await AnalysisLogger.instance.logException(e, st, context: 'analysis');
       if (!mounted) return;
-      String msg = e.toString();
-      if (msg.contains('Ball selection cancelled')) {
+      final raw = e.toString();
+      if (raw.contains('Ball selection cancelled')) {
         // User cancelled, not an error - just go back
         if (mounted) Navigator.of(context).pop();
         return;
       }
-      msg = msg.replaceAll(RegExp(r'^\\w+Error: '), '');
-      if (msg.contains('decode first frame')) {
-        msg = 'Could not read the video file. The file may be corrupted or in an unsupported format.';
-      }
       setState(() {
-        _error = msg;
+        _error = _userMessageFor(e);
         _running = false;
       });
     }
   }
 
-  Future<BallTrackResult> _runBackendOrLocal({required Offset seed}) async {
-    final useBackend = await AppSettings.getUseBackend();
-    final url = await AppSettings.getServerUrl();
-
-    if (useBackend && url.trim().isNotEmpty) {
-      try {
-        return await _runBackend(url: url.trim(), seed: seed);
-      } catch (e) {
-        await AnalysisLogger.instance.log('backend analysis failed; falling back to on-device: $e');
-        if (mounted) {
-          setState(() {
-            _progressStage = null;
-            _progressPct = null;
-            _jobId = null;
-          });
-        }
-        // Fall back to local analysis to avoid leaving the user stuck.
-        return _runLocal(seed: seed);
-      }
+  Future<AnalysisResult> _runBackend({required Offset seed}) async {
+    final url = (await AppSettings.getServerUrl()).trim();
+    if (url.isEmpty) {
+      throw StateError('Server URL is not set. Open Settings and enter your laptop/server URL.');
     }
 
-    return _runLocal(seed: seed);
-  }
-
-  Future<BallTrackResult> _runLocal({required Offset seed}) async {
-    final tracker = BallTracker();
-    final req = BallTrackRequest(
-      videoPath: widget.videoPath,
-      startMs: widget.start.inMilliseconds,
-      endMs: widget.end.inMilliseconds,
-      sampleFps: 30,
-      initialBallPixel: seed,
-      searchRadiusPx: 160,
+    await AnalysisLogger.instance.logAndPrint(
+      'backend start baseUrl=$url source=${widget.videoSource.wireValue} video=${widget.videoPath} segment=${widget.start.inMilliseconds}-${widget.end.inMilliseconds}',
     );
-    return tracker.track(req);
-  }
 
-  Future<BallTrackResult> _runBackend({required String url, required Offset seed}) async {
     final api = PocketDrsApi(baseUrl: url);
     try {
       if (mounted) {
@@ -207,7 +205,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
           'app_version': '1.0.0',
         },
         'video': <String, Object?>{
-          'source': 'import',
+          'source': widget.videoSource.wireValue,
           'rotation_deg': 0,
         },
         'segment': <String, Object?>{
@@ -237,6 +235,8 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         requestJson: requestJson,
       );
 
+      await AnalysisLogger.instance.logAndPrint('backend createJob ok jobId=$jobId');
+
       if (mounted) {
         setState(() {
           _jobId = jobId;
@@ -245,9 +245,15 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         });
       }
 
+      JobStatus? last;
       final deadline = DateTime.now().add(const Duration(minutes: 2));
       while (DateTime.now().isBefore(deadline)) {
         final status = await api.getJobStatus(jobId);
+        last = status;
+
+        await AnalysisLogger.instance.log(
+          'backend poll jobId=$jobId status=${status.status} pct=${status.pct ?? '-'} stage=${status.stage ?? '-'} err=${status.errorMessage ?? '-'}',
+        );
         if (mounted) {
           setState(() {
             _progressStage = status.stage ?? status.status;
@@ -263,54 +269,18 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         await Future<void>.delayed(const Duration(milliseconds: 300));
       }
 
-      final result = await api.getJobResult(jobId);
-
-      final imageSize = result['image_size'];
-      int width = 0;
-      int height = 0;
-      if (imageSize is Map) {
-        final w = imageSize['width'];
-        final h = imageSize['height'];
-        if (w is num) width = w.round();
-        if (h is num) height = h.round();
+      if (last == null) {
+        throw TimeoutException('No status received from server');
+      }
+      if (last.status != 'succeeded') {
+        throw TimeoutException('Server job did not finish in time (last=${last.status}, stage=${last.stage ?? '-'})');
       }
 
-      final track = result['track'];
-      if (track is! Map) throw const FormatException('Server result missing track');
-      final points = track['points'];
-      if (points is! List) throw const FormatException('Server result missing track.points');
-
-      final out = <BallTrackPoint>[];
-      for (final v in points) {
-        if (v is! Map) continue;
-        final t = v['t_ms'];
-        final x = v['x_px'];
-        final y = v['y_px'];
-        final c = v['confidence'];
-        if (t is num && x is num && y is num && c is num) {
-          out.add(
-            BallTrackPoint(
-              t: t.round(),
-              p: Offset(x.toDouble(), y.toDouble()),
-              confidence: c.toDouble(),
-            ),
-          );
-        }
-      }
-
-      if (out.isEmpty) {
-        throw StateError('Server returned zero track points');
-      }
-
-      // If server didn't provide dimensions, infer from points to keep UI usable.
-      if (width <= 0 || height <= 0) {
-        final maxX = out.map((p) => p.p.dx).fold<double>(0, (a, b) => a > b ? a : b);
-        final maxY = out.map((p) => p.p.dy).fold<double>(0, (a, b) => a > b ? a : b);
-        width = maxX.ceil().clamp(1, 100000);
-        height = maxY.ceil().clamp(1, 100000);
-      }
-
-      return BallTrackResult(points: out, width: width, height: height);
+      final res = await api.getJobResult(jobId);
+      await AnalysisLogger.instance.logAndPrint(
+        'backend result ok jobId=$jobId points=${res.track.points.length} warnings=${res.warnings.length}',
+      );
+      return res;
     } finally {
       api.close();
     }
@@ -397,20 +367,29 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: CustomPaint(
-                                  painter: _TrajectoryPainter(result: _result!),
+                                  painter: _TrajectoryPainter(result: _result!.track),
                                   child: const SizedBox.expand(),
                                 ),
                               ),
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              'Tracked points: ${_result!.points.length}',
+                              'Tracked points: ${_result!.track.points.length}',
                               style: theme.textTheme.titleMedium,
                             ),
+                            if (_result!.warnings.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Warnings: ${_result!.warnings.join(' · ')}',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 4),
                             _CalibrationSummary(calibration: widget.calibration),
                             const SizedBox(height: 8),
-                            if (widget.calibration.pitchCalibration != null) ...[
+                            if (_result!.lbw != null && _result!.pitchPlane.isNotEmpty) ...[
                               FilledButton.icon(
                                 onPressed: () async {
                                   final res = _result;
@@ -418,25 +397,25 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                                   await Navigator.of(context).push(
                                     MaterialPageRoute(
                                       builder: (_) => LbwReviewScreen(
-                                        track: res,
+                                        analysis: res,
                                         calibration: widget.calibration,
                                       ),
                                     ),
                                   );
                                 },
                                 icon: const Icon(Icons.sports_cricket),
-                                label: const Text('LBW assist (prototype)'),
+                                label: const Text('LBW review'),
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                'You can tweak the pitch/bounce point and see a top‑down prediction at the stumps (x=0).',
+                                'Uses backend pipeline outputs (events + pitch plane + LBW decision).',
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
                             ] else
                               Text(
-                                'Tip: add pitch calibration (4 corner taps) to enable LBW assist.',
+                                'Tip: add pitch calibration (4 corner taps) to enable LBW review.',
                                 style: theme.textTheme.bodyMedium?.copyWith(
                                   color: theme.colorScheme.onSurfaceVariant,
                                 ),

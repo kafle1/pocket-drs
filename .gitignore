@@ -14,3 +14,11 @@
 **/.flutter-plugins-dependencies
 **/.packages
 **/build/
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+
+# Runtime job outputs
+data/jobs/

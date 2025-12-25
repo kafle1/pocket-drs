@@ -93,11 +93,7 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
 
     try {
       final calibration = PitchCalibration(imagePoints: List<Offset>.unmodifiable(_taps));
-      // Validate by trying to build homography.
-      calibration.homography(
-        pitchLengthM: widget.config.pitchLengthM,
-        pitchWidthM: widget.config.pitchWidthM,
-      );
+      calibration.validateImageQuad();
 
       final next = widget.config.copyWith(pitchCalibration: calibration);
       await CalibrationStore().save(next);
@@ -107,9 +103,7 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
     } catch (e) {
       if (!mounted) return;
       String msg = e.toString().replaceAll(RegExp(r'^\\w+Error: '), '');
-      if (msg.contains('Singular')) {
-        msg = 'The 4 corners form an invalid shape. Make sure they form a proper quadrilateral (not all on one line).';
-      }
+      msg = msg.replaceAll('StateError: ', '');
       setState(() => _error = msg);
     } finally {
       if (mounted) setState(() => _saving = false);

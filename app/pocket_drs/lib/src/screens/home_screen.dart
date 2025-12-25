@@ -5,6 +5,8 @@ import 'package:image_picker/image_picker.dart';
 import 'camera_record_screen.dart';
 import 'review_screen.dart';
 import 'settings_screen.dart';
+import '../models/video_source.dart';
+import '../utils/analysis_logger.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,13 +22,18 @@ class _HomeScreenState extends State<HomeScreen> {
   bool get _supportsCaptureAndFiles {
     // This app is designed for Android/iOS. Web/desktop runs are supported only
     // as a UI preview; camera + local file video analysis are disabled there.
-    return !kIsWeb;
+    if (kIsWeb) return false;
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
   }
 
-  Future<void> _openReview(XFile xfile) async {
+  Future<void> _openReview(XFile xfile, VideoSource source) async {
     if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => ReviewScreen(videoPath: xfile.path)),
+    final navigator = Navigator.of(context);
+    await AnalysisLogger.instance.logAndPrint('home openReview source=${source.wireValue} path=${xfile.path}');
+    if (!mounted) return;
+    await navigator.push(
+      MaterialPageRoute(builder: (_) => ReviewScreen(videoPath: xfile.path, videoSource: source)),
     );
   }
 
@@ -34,11 +41,17 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final file = await Navigator.of(context).push<XFile?>(
+      await AnalysisLogger.instance.logAndPrint('home recordVideo start');
+      if (!mounted) return;
+      final navigator = Navigator.of(context);
+      final file = await navigator.push<XFile?>(
         MaterialPageRoute(builder: (_) => const CameraRecordScreen()),
       );
+      if (!mounted) return;
       if (file != null) {
-        await _openReview(file);
+        await _openReview(file, VideoSource.record);
+      } else {
+        await AnalysisLogger.instance.logAndPrint('home recordVideo cancelled');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -49,10 +62,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
+      await AnalysisLogger.instance.logAndPrint('home importVideo start');
       final picked = await _picker.pickVideo(source: ImageSource.gallery);
       if (picked == null) return;
-      await _openReview(picked);
+      await _openReview(picked, VideoSource.import);
     } catch (e) {
+      await AnalysisLogger.instance.logAndPrint('home importVideo failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to import video: ${e.toString().replaceAll(RegExp(r'^\w+Error: '), '')}')),
@@ -104,8 +119,8 @@ class _HomeScreenState extends State<HomeScreen> {
             tooltip: 'Settings',
             onPressed: _busy
                 ? null
-                : () async {
-                    await Navigator.of(context).push(
+                : () {
+                    Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const SettingsScreen()),
                     );
                   },

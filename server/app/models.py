@@ -157,7 +157,8 @@ class LbwResponse(BaseModel):
     likely_out: bool
     checks: LbwChecks
     prediction: dict[str, float]
-    decision: str
+    decision: Literal["out", "not_out", "umpires_call"]
+    reason: str
 
 
 class VideoMeta(BaseModel):

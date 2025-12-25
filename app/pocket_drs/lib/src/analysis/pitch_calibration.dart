@@ -1,7 +1,5 @@
 import 'dart:ui';
 
-import 'homography.dart';
-
 class PitchCalibration {
   const PitchCalibration({
     required this.imagePoints,
@@ -14,22 +12,41 @@ class PitchCalibration {
   /// 3: bowler end - left
   final List<Offset> imagePoints;
 
-  Homography homography({required double pitchLengthM, required double pitchWidthM}) {
+  /// Validates that the 4 taps form a non-degenerate, convex quadrilateral.
+  ///
+  /// This does **not** compute a homography. The authoritative pitch-plane
+  /// mapping is produced by the backend pipeline.
+  void validateImageQuad() {
     if (imagePoints.length != 4) {
-      throw StateError('PitchCalibration requires 4 image points');
+      throw StateError('Pitch calibration requires exactly 4 taps');
     }
 
-    // World coordinates on pitch plane (meters). Origin at striker stumps,
-    // X increases towards bowler stumps.
-    final halfW = pitchWidthM / 2.0;
-    final dst = <Offset>[
-      Offset(0, -halfW),
-      Offset(0, halfW),
-      Offset(pitchLengthM, halfW),
-      Offset(pitchLengthM, -halfW),
-    ];
+    // Shoelace area (in px^2)
+    var area2 = 0.0;
+    for (var i = 0; i < 4; i++) {
+      final a = imagePoints[i];
+      final b = imagePoints[(i + 1) % 4];
+      area2 += (a.dx * b.dy - b.dx * a.dy);
+    }
+    if (area2.abs() < 250.0) {
+      throw StateError('Pitch taps are too close together (degenerate quad)');
+    }
 
-    return Homography.fromFourPoints(src: imagePoints, dst: dst);
+    // Convexity check: all cross products should have the same sign.
+    double? sign;
+    for (var i = 0; i < 4; i++) {
+      final p0 = imagePoints[i];
+      final p1 = imagePoints[(i + 1) % 4];
+      final p2 = imagePoints[(i + 2) % 4];
+      final cross = (p1.dx - p0.dx) * (p2.dy - p1.dy) - (p1.dy - p0.dy) * (p2.dx - p1.dx);
+      if (cross.abs() < 1e-6) {
+        throw StateError('Pitch taps are nearly collinear');
+      }
+      sign ??= cross.sign;
+      if (cross.sign != sign) {
+        throw StateError('Pitch taps must form a convex quadrilateral');
+      }
+    }
   }
 
   Map<String, Object?> toJson() {

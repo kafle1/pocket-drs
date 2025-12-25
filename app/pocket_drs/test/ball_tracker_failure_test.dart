@@ -1,63 +1,50 @@
-import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
-import 'package:image/image.dart' as img;
-import 'package:pocket_drs/src/analysis/ball_track_models.dart';
-import 'package:pocket_drs/src/analysis/ball_tracker.dart';
-import 'package:pocket_drs/src/analysis/video_frame_provider.dart';
-
-class _FakeFrameProvider implements FrameProvider {
-  _FakeFrameProvider({required this.frames, this.failAt = const {}});
-
-  final Map<int, img.Image> frames;
-  final Set<int> failAt;
-
-  @override
-  Future<Uint8List> getFrameJpeg({required int timeMs, int quality = 75}) async {
-    if (failAt.contains(timeMs)) {
-      throw StateError('fail at $timeMs');
-    }
-    final frame = frames[timeMs];
-    if (frame == null) {
-      throw StateError('missing frame $timeMs');
-    }
-    return Uint8List.fromList(img.encodeJpg(frame, quality: quality));
-  }
-}
-
-img.Image _solidFrame(int r, int g, int b) {
-  final image = img.Image(width: 4, height: 4);
-  for (var y = 0; y < image.height; y++) {
-    for (var x = 0; x < image.width; x++) {
-      image.setPixelRgba(x, y, r, g, b, 255);
-    }
-  }
-  return image;
-}
+import 'package:pocket_drs/src/api/analysis_result.dart';
 
 void main() {
-  test('BallTracker skips frames that fail to decode', () async {
-    final frames = <int, img.Image>{
-      0: _solidFrame(255, 0, 0),
-      33: _solidFrame(0, 255, 0),
-      66: _solidFrame(0, 0, 255),
-      99: _solidFrame(255, 255, 0),
+  test('AnalysisResult parses server response', () {
+    final json = <String, Object?>{
+      'image_size': <String, Object?>{'width': 1920, 'height': 1080},
+      'track': <String, Object?>{
+        'points': [
+          <String, Object?>{'t_ms': 0, 'x_px': 100.0, 'y_px': 200.0, 'confidence': 0.9},
+          <String, Object?>{'t_ms': 33, 'x_px': 110.0, 'y_px': 205.0, 'confidence': 0.8},
+        ],
+      },
+      'pitch_plane': <String, Object?>{
+        'points_m': [
+          <String, Object?>{'t_ms': 0, 'x_m': 10.0, 'y_m': 0.02},
+          <String, Object?>{'t_ms': 33, 'x_m': 9.8, 'y_m': 0.025},
+        ],
+      },
+      'events': <String, Object?>{
+        'bounce': <String, Object?>{'index': 0, 'confidence': 0.7},
+        'impact': <String, Object?>{'index': 1, 'confidence': 0.8},
+      },
+      'lbw': <String, Object?>{
+        'likely_out': true,
+        'checks': <String, Object?>{
+          'pitching_in_line': true,
+          'impact_in_line': true,
+          'wickets_hitting': true,
+        },
+        'prediction': <String, Object?>{'y_at_stumps_m': 0.01},
+        'decision': 'out',
+        'reason': 'Hitting stumps',
+      },
+      'diagnostics': <String, Object?>{
+        'warnings': ['tracker_low_confidence'],
+        'log_id': null,
+      },
     };
 
-    final provider = _FakeFrameProvider(frames: frames, failAt: {33});
-    final req = BallTrackRequest(
-      videoPath: 'fake.mp4',
-      startMs: 0,
-      endMs: 99,
-      sampleFps: 30,
-      initialBallPixel: const Offset(2, 2),
-      searchRadiusPx: 8,
-    );
-
-    final result = await trackInSameIsolateForTest(req, provider);
-
-    expect(result.points, isNotEmpty);
-    expect(result.width, equals(4));
-    expect(result.height, equals(4));
+    final parsed = AnalysisResult.fromServerJson(json);
+    expect(parsed.track.width, 1920);
+    expect(parsed.track.height, 1080);
+    expect(parsed.track.points.length, 2);
+    expect(parsed.pitchPlane.length, 2);
+    expect(parsed.events?.bounceIndex, 0);
+    expect(parsed.lbw?.decision, LbwDecisionKey.out);
+    expect(parsed.warnings, contains('tracker_low_confidence'));
   });
 }

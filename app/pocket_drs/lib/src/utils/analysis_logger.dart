@@ -40,12 +40,36 @@ class AnalysisLogger {
     await file.writeAsString(line, mode: FileMode.append, flush: true);
   }
 
+  /// Logs and also prints to console (useful during hit-and-trial debugging).
+  Future<void> logAndPrint(String message) async {
+    // Keep console output readable and consistent.
+    debugPrint('[PocketDRS] $message');
+    await log(message);
+  }
+
+  Future<void> logException(
+    Object error,
+    StackTrace stack, {
+    String context = 'uncaught',
+  }) async {
+    await logAndPrint('$context error=$error');
+    // Stack traces can be large; still capture them because you asked for detailed logs.
+    await log(stack.toString());
+  }
+
   Future<void> clear() async {
     final file = await _ensureFile();
     if (file == null) return;
     if (await file.exists()) {
       await file.writeAsString('');
     }
+  }
+
+  Future<String> readAll() async {
+    final file = await _ensureFile();
+    if (file == null) return '';
+    if (!await file.exists()) return '';
+    return file.readAsString();
   }
 
   Future<String?> logPath() async {

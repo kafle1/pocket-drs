@@ -196,14 +196,15 @@ def run_pipeline(
                     "wickets_hitting": bool(assessment.wickets_hitting),
                 },
                 "prediction": {"y_at_stumps_m": float(assessment.y_at_stumps_m)},
-                "decision": assessment.decision,
+                "decision": assessment.decision_key,
+                "reason": assessment.reason,
             }
 
         _progress(progress, 98, "finalize")
 
         result = {
             "video": {"duration_ms": int(meta.duration_ms), "fps_est": float(meta.fps)},
-            "diagnostics": {"warnings": warnings, "log_id": None},
+            "diagnostics": {"warnings": warnings, "log_id": "server.log"},
             "track": {"points": track_points_payload},
             "calibration": calibration_payload,
             "pitch_plane": pitch_plane_payload,

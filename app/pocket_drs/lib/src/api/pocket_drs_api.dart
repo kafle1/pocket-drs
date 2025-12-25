@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import 'analysis_result.dart';
+
 class PocketDrsApi {
   PocketDrsApi({required this.baseUrl, http.Client? client}) : _client = client ?? http.Client();
 
@@ -43,7 +45,7 @@ class PocketDrsApi {
     return JobStatus.fromJson(decoded.cast<String, Object?>());
   }
 
-  Future<Map<String, Object?>> getJobResult(String jobId) async {
+  Future<AnalysisResult> getJobResult(String jobId) async {
     final res = await _client.get(_u('/v1/jobs/$jobId/result')).timeout(const Duration(seconds: 30));
     if (res.statusCode != 200) {
       throw HttpException('Result request failed (${res.statusCode}): ${res.body}');
@@ -57,7 +59,7 @@ class PocketDrsApi {
     }
     final result = decoded['result'];
     if (result is! Map) throw const FormatException('Missing result');
-    return result.cast<String, Object?>();
+    return AnalysisResult.fromServerJson(result.cast<String, Object?>());
   }
 
   void close() => _client.close();

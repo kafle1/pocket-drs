@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../utils/app_settings.dart';
+import 'logs_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -11,7 +12,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final _urlController = TextEditingController();
-  bool _useBackend = false;
   bool _loading = true;
   String? _error;
 
@@ -22,11 +22,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _load() async {
-    final use = await AppSettings.getUseBackend();
     final url = await AppSettings.getServerUrl();
     if (!mounted) return;
     setState(() {
-      _useBackend = use;
       _urlController.text = url;
       _loading = false;
     });
@@ -46,13 +44,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _save() async {
     final url = _urlController.text.trim();
-    if (_useBackend && !_looksLikeUrl(url)) {
+    if (!_looksLikeUrl(url)) {
       setState(() => _error = 'Enter a valid server URL like http://192.168.1.10:8000');
       return;
     }
 
     setState(() => _error = null);
-    await AppSettings.setUseBackend(_useBackend);
     await AppSettings.setServerUrl(url);
 
     if (!mounted) return;
@@ -81,13 +78,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    SwitchListTile(
-                      value: _useBackend,
-                      onChanged: (v) => setState(() => _useBackend = v),
-                      title: const Text('Use backend server'),
-                      subtitle: const Text('Upload the clip to a laptop server for analysis.'),
-                    ),
-                    const SizedBox(height: 12),
                     TextField(
                       controller: _urlController,
                       keyboardType: TextInputType.url,
@@ -96,15 +86,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         hintText: 'http://192.168.1.10:8000',
                         border: OutlineInputBorder(),
                       ),
-                      enabled: _useBackend,
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: 12),
                       Text(_error!, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.error)),
                     ],
                     const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const LogsScreen()),
+                        );
+                      },
+                      icon: const Icon(Icons.receipt_long),
+                      label: const Text('View logs'),
+                    ),
+                    const SizedBox(height: 12),
                     Text(
-                      'Tip: for a physical Android phone, use your laptop\'s LAN IP (not localhost).',
+                      'Tip: for a physical Android phone, use your laptop\'s LAN IP (not localhost).\n\nExample: start the server on your laptop and set this to http://<laptop-ip>:8000',
                       style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                     ),
                   ],

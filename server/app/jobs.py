@@ -73,12 +73,25 @@ class JobStore:
     def exists(self, job_id: str) -> bool:
         return (self._data_dir / "jobs" / job_id).exists()
 
+    def _atomic_write_text(self, path: Path, text: str) -> None:
+        """Write a file atomically to avoid readers seeing partial/empty JSON.
+
+        We write to a temp file in the same directory then replace.
+        """
+        tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        tmp.write_text(text)
+        os.replace(tmp, path)
+
+    def _atomic_write_json(self, path: Path, payload: dict[str, Any]) -> None:
+        self._atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True))
+
     def write_request(self, paths: JobPaths, request_obj: dict[str, Any]) -> None:
         with self._lock:
-            paths.request_path.write_text(json.dumps(request_obj, indent=2, sort_keys=True))
+            self._atomic_write_json(paths.request_path, request_obj)
 
     def read_request(self, paths: JobPaths) -> dict[str, Any]:
-        return json.loads(paths.request_path.read_text())
+        with self._lock:
+            return json.loads(paths.request_path.read_text())
 
     def write_status(
         self,
@@ -96,17 +109,28 @@ class JobStore:
             "error": error.model_dump() if error else None,
         }
         with self._lock:
-            paths.status_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+            self._atomic_write_json(paths.status_path, payload)
 
     def read_status(self, paths: JobPaths) -> dict[str, Any]:
-        return json.loads(paths.status_path.read_text())
+        # Polling can hit while a background thread updates status; keep reads consistent.
+        with self._lock:
+            raw = paths.status_path.read_text()
+        if not raw.strip():
+            # Extremely defensive: empty file should not happen with atomic writes, but
+            # return a helpful error rather than a JSONDecodeError.
+            raise RuntimeError("Job status unavailable (empty status file)")
+        return json.loads(raw)
 
     def write_result(self, paths: JobPaths, payload: dict[str, Any]) -> None:
         with self._lock:
-            paths.result_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+            self._atomic_write_json(paths.result_path, payload)
 
     def read_result(self, paths: JobPaths) -> dict[str, Any]:
-        return json.loads(paths.result_path.read_text())
+        with self._lock:
+            raw = paths.result_path.read_text()
+        if not raw.strip():
+            raise RuntimeError("Job result unavailable (empty result file)")
+        return json.loads(raw)
 
 
 def default_job_store() -> JobStore:

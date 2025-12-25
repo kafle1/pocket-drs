@@ -12,6 +12,7 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
     #container { width: 100vw; height: 100vh; }
+    #canvas { width: 100%; height: 100%; display: block; }
     #decision {
       position: fixed;
       top: 16px;
@@ -45,14 +46,15 @@
   </style>
 </head>
 <body>
-  <div id="container"></div>
+  <div id="container">
+    <canvas id="canvas"></canvas>
+  </div>
   <div id="decision"></div>
   <div id="legend">
     <div class="legend-item"><div class="legend-dot bounce"></div>Bounce</div>
     <div class="legend-item"><div class="legend-dot impact"></div>Impact</div>
     <div class="legend-item"><div class="legend-dot predicted"></div>Predicted</div>
   </div>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="hawkeye.js"></script>
 </body>
 </html>

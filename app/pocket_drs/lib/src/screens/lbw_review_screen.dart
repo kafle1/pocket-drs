@@ -1,21 +1,18 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
-import '../analysis/ball_track_models.dart';
 import '../analysis/calibration_config.dart';
-import '../analysis/lbw_assessor.dart';
-import '../analysis/lbw_models.dart';
 import '../analysis/trajectory_3d.dart';
+import '../api/analysis_result.dart';
 import '../widgets/hawkeye_3d_view.dart';
 
 class LbwReviewScreen extends StatefulWidget {
   const LbwReviewScreen({
     super.key,
-    required this.track,
+    required this.analysis,
     required this.calibration,
   });
 
-  final BallTrackResult track;
+  final AnalysisResult analysis;
   final CalibrationConfig calibration;
 
   @override
@@ -23,69 +20,37 @@ class LbwReviewScreen extends StatefulWidget {
 }
 
 class _LbwReviewScreenState extends State<LbwReviewScreen> {
-  List<PitchPlaneTrackPoint> _plane = const [];
   String? _error;
-  int _pitchIndex = 0;
-  bool _fullToss = false;
+  late final int _bounceIndex;
+  late final int _impactIndex;
 
   @override
   void initState() {
     super.initState();
-    _buildPitchPlaneTrack();
-  }
 
-  void _buildPitchPlaneTrack() {
-    setState(() {
-      _error = null;
-      _plane = const [];
-    });
-
-    final pitchCal = widget.calibration.pitchCalibration;
-    if (pitchCal == null) {
-      setState(() => _error = 'Pitch calibration required');
+    final events = widget.analysis.events;
+    final n = widget.analysis.pitchPlane.length;
+    if (events == null || n == 0) {
+      _error = 'LBW data missing. Re-run analysis with pitch calibration (4 corner taps).';
+      _bounceIndex = 0;
+      _impactIndex = 0;
       return;
     }
 
-    try {
-      final H = pitchCal.homography(
-        pitchLengthM: widget.calibration.pitchLengthM,
-        pitchWidthM: widget.calibration.pitchWidthM,
-      );
-
-      final out = <PitchPlaneTrackPoint>[];
-      for (final p in widget.track.points) {
-        final world = H.transform(p.p);
-        if (world.dx.isNaN || world.dy.isNaN || world.dx.isInfinite || world.dy.isInfinite) {
-          continue;
-        }
-        out.add(PitchPlaneTrackPoint(
-          tMs: p.t,
-          imagePx: p.p,
-          worldM: world,
-          confidence: p.confidence,
-        ));
-      }
-
-      if (out.length < 4) {
-        throw StateError('Not enough points (${out.length})');
-      }
-
-      final defaultPitch = (out.length * 0.35).round().clamp(0, out.length - 2);
-      setState(() {
-        _plane = List.unmodifiable(out);
-        _pitchIndex = defaultPitch;
-      });
-    } catch (e) {
-      setState(() => _error = e.toString());
+    _bounceIndex = events.bounceIndex.clamp(0, n - 1);
+    _impactIndex = events.impactIndex.clamp(0, n - 1);
+    if (_impactIndex <= _bounceIndex) {
+      _error = 'Invalid event indices returned by server (bounce >= impact).';
     }
   }
 
   List<TrajectoryPoint3D> _build3D(int bounceIdx, int impactIdx) {
-    if (_plane.isEmpty) return [];
+    final plane = widget.analysis.pitchPlane;
+    if (plane.isEmpty) return [];
 
     final est = Trajectory3DEstimator();
-    final pts = _plane.map((p) => p.worldM).toList();
-    final times = _plane.map((p) => p.tMs).toList();
+    final pts = plane.map((p) => p.worldM).toList();
+    final times = plane.map((p) => p.tMs).toList();
 
     final traj = est.estimate(
       points: pts,
@@ -97,34 +62,43 @@ class _LbwReviewScreenState extends State<LbwReviewScreen> {
     return est.extendToStumps(track: traj, impactIndex: impactIdx);
   }
 
-  String _decisionKey(LbwDecision d) {
-    switch (d) {
-      case LbwDecision.out:
-        return 'out';
-      case LbwDecision.notOut:
-        return 'not_out';
-      case LbwDecision.umpiresCall:
-        return 'umpires_call';
-    }
-  }
+  String _decisionKey(LbwDecisionKey d) => switch (d) {
+        LbwDecisionKey.out => 'out',
+        LbwDecisionKey.notOut => 'not_out',
+        LbwDecisionKey.umpiresCall => 'umpires_call',
+      };
 
   @override
   Widget build(BuildContext context) {
-    final impactIdx = _plane.isEmpty ? 0 : _plane.length - 1;
-    final maxPitch = math.max(0, impactIdx - 1);
-    final bounceIdx = _fullToss ? 0 : _pitchIndex.clamp(0, maxPitch);
-
-    LbwAssessment? assessment;
-    if (_error == null && _plane.isNotEmpty && impactIdx > bounceIdx) {
-      assessment = const LbwAssessor().assess(
-        points: _plane,
-        pitchIndex: bounceIdx,
-        impactIndex: impactIdx,
+    final lbw = widget.analysis.lbw;
+    if (lbw == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0f172a),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          title: const Text('Decision Review', style: TextStyle(fontWeight: FontWeight.w600)),
+          centerTitle: true,
+        ),
+        body: const SafeArea(
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Text(
+                'No LBW decision available for this clip.\n\nRe-run analysis with pitch calibration (4 corner taps).',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white70),
+              ),
+            ),
+          ),
+        ),
       );
     }
 
+    final bounceIdx = _bounceIndex;
+    final impactIdx = _impactIndex;
     final trajectory3D = _build3D(bounceIdx, impactIdx);
-    final decisionKey = assessment != null ? _decisionKey(assessment.wicketDecision) : '';
+    final decisionKey = _decisionKey(lbw.decision);
 
     return Scaffold(
       backgroundColor: const Color(0xFF0f172a),
@@ -136,8 +110,8 @@ class _LbwReviewScreenState extends State<LbwReviewScreen> {
       ),
       body: SafeArea(
         child: _error != null
-            ? _ErrorView(error: _error!, onRetry: _buildPitchPlaneTrack)
-            : _plane.isEmpty
+            ? _ErrorView(error: _error!)
+            : widget.analysis.pitchPlane.isEmpty
                 ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
                 : Column(
                     children: [
@@ -168,45 +142,13 @@ class _LbwReviewScreenState extends State<LbwReviewScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                // Decision card
-                                if (assessment != null) _DecisionCard(assessment: assessment),
+                                _DecisionCard(lbw: lbw),
 
-                                const SizedBox(height: 20),
-
-                                // Controls
-                                _ControlRow(
-                                  label: 'Full toss',
-                                  child: Switch.adaptive(
-                                    value: _fullToss,
-                                    onChanged: (v) => setState(() => _fullToss = v),
-                                    activeColor: const Color(0xFF3b82f6),
-                                  ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Bounce index: $bounceIdx · Impact index: $impactIdx',
+                                  style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 12),
                                 ),
-
-                                if (!_fullToss) ...[
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    'Bounce point',
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(alpha: 0.7),
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                  SliderTheme(
-                                    data: SliderTheme.of(context).copyWith(
-                                      activeTrackColor: const Color(0xFF3b82f6),
-                                      inactiveTrackColor: const Color(0xFF334155),
-                                      thumbColor: const Color(0xFF3b82f6),
-                                    ),
-                                    child: Slider(
-                                      min: 0,
-                                      max: maxPitch.toDouble(),
-                                      value: bounceIdx.toDouble(),
-                                      divisions: math.max(1, maxPitch),
-                                      onChanged: (v) => setState(() => _pitchIndex = v.round()),
-                                    ),
-                                  ),
-                                ],
                               ],
                             ),
                           ),
@@ -220,9 +162,8 @@ class _LbwReviewScreenState extends State<LbwReviewScreen> {
 }
 
 class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.error, required this.onRetry});
+  const _ErrorView({required this.error});
   final String error;
-  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -240,7 +181,11 @@ class _ErrorView extends StatelessWidget {
               style: const TextStyle(color: Colors.white70),
             ),
             const SizedBox(height: 24),
-            FilledButton(onPressed: onRetry, child: const Text('Retry')),
+            const Text(
+              'Go back and re-run analysis.',
+              style: TextStyle(color: Colors.white54),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),
@@ -249,24 +194,24 @@ class _ErrorView extends StatelessWidget {
 }
 
 class _DecisionCard extends StatelessWidget {
-  const _DecisionCard({required this.assessment});
-  final LbwAssessment assessment;
+  const _DecisionCard({required this.lbw});
+  final LbwResult lbw;
 
   @override
   Widget build(BuildContext context) {
     Color color;
     IconData icon;
 
-    switch (assessment.wicketDecision) {
-      case LbwDecision.out:
+    switch (lbw.decision) {
+      case LbwDecisionKey.out:
         color = const Color(0xFFdc2626);
         icon = Icons.close;
         break;
-      case LbwDecision.umpiresCall:
+      case LbwDecisionKey.umpiresCall:
         color = const Color(0xFFf59e0b);
         icon = Icons.help_outline;
         break;
-      case LbwDecision.notOut:
+      case LbwDecisionKey.notOut:
         color = const Color(0xFF16a34a);
         icon = Icons.check;
         break;
@@ -295,7 +240,7 @@ class _DecisionCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  assessment.decisionText,
+                  _decisionText(lbw.decision),
                   style: TextStyle(
                     color: color,
                     fontSize: 18,
@@ -304,7 +249,7 @@ class _DecisionCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  _checksText(),
+                  _subtitleText(),
                   style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 12),
                 ),
               ],
@@ -315,28 +260,18 @@ class _DecisionCard extends StatelessWidget {
     );
   }
 
-  String _checksText() {
+  String _decisionText(LbwDecisionKey d) => switch (d) {
+        LbwDecisionKey.out => 'OUT',
+        LbwDecisionKey.notOut => 'NOT OUT',
+        LbwDecisionKey.umpiresCall => 'UMPIRE\'S CALL',
+      };
+
+  String _subtitleText() {
     final checks = <String>[];
-    if (assessment.pitchedInLine) checks.add('Pitched ✓');
-    if (assessment.impactInLine) checks.add('Impact ✓');
-    if (assessment.wouldHitStumps) checks.add('Hitting ✓');
-    return checks.join('  ·  ');
-  }
-}
-
-class _ControlRow extends StatelessWidget {
-  const _ControlRow({required this.label, required this.child});
-  final String label;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: const TextStyle(color: Colors.white, fontSize: 15)),
-        child,
-      ],
-    );
+    if (lbw.pitchedInLine) checks.add('Pitched ✓');
+    if (lbw.impactInLine) checks.add('Impact ✓');
+    if (lbw.wicketsHitting) checks.add('Hitting ✓');
+    final s = checks.join('  ·  ');
+    return lbw.reason.isEmpty ? s : '$s\n${lbw.reason}';
   }
 }

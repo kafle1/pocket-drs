@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -10,6 +12,7 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadF
 from fastapi.responses import FileResponse
 
 from .jobs import JobStore, default_job_store
+from .job_logging import job_log_context
 from .models import (
     ApiError,
     CreateJobRequest,
@@ -25,6 +28,7 @@ from .pipeline.process_job import map_exception_to_api_error, run_pipeline
 app = FastAPI(title="PocketDRS Server", version="1.0")
 _store: JobStore = default_job_store()
 _executor = ThreadPoolExecutor(max_workers=2)
+_log = logging.getLogger("pocket_drs")
 
 
 def _load_json(s: str) -> dict[str, Any]:
@@ -45,37 +49,60 @@ def healthz() -> dict[str, str]:
 def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], artifacts_dir: Path) -> None:
     paths = _store.job_paths(job_id)
 
-    def progress(pct: int, stage: str) -> None:
-        _store.write_status(
-            paths,
-            status=JobStatus.running,
-            progress=ProgressInfo(pct=pct, stage=stage),
-            error=None,
+    last_stage: str | None = None
+    last_pct: int | None = None
+
+    with job_log_context(job_id=job_id, artifacts_dir=artifacts_dir) as job_log:
+        job_log.info(
+            "start video=%s artifacts=%s",
+            str(video_path),
+            str(artifacts_dir),
         )
 
-    try:
-        progress(1, "starting")
-        out = run_pipeline(
-            video_path=video_path,
-            request_json=request_json,
-            artifacts_dir=artifacts_dir,
-            progress=progress,
-        )
-        _store.write_result(paths, out.result)
-        _store.write_status(
-            paths,
-            status=JobStatus.succeeded,
-            progress=ProgressInfo(pct=100, stage="succeeded"),
-            error=None,
-        )
-    except Exception as e:  # noqa: BLE001
-        err = map_exception_to_api_error(e)
-        _store.write_status(
-            paths,
-            status=JobStatus.failed,
-            progress=ProgressInfo(pct=100, stage="failed"),
-            error=err,
-        )
+        def progress(pct: int, stage: str) -> None:
+            nonlocal last_stage, last_pct
+            _store.write_status(
+                paths,
+                status=JobStatus.running,
+                progress=ProgressInfo(pct=pct, stage=stage),
+                error=None,
+            )
+
+            # Keep logs readable: record stage changes and meaningful pct jumps.
+            if stage != last_stage or last_pct is None or abs(pct - last_pct) >= 10:
+                job_log.info("progress pct=%s stage=%s", pct, stage)
+                last_stage = stage
+                last_pct = pct
+
+        try:
+            progress(1, "starting")
+            out = run_pipeline(
+                video_path=video_path,
+                request_json=request_json,
+                artifacts_dir=artifacts_dir,
+                progress=progress,
+            )
+            _store.write_result(paths, out.result)
+            _store.write_status(
+                paths,
+                status=JobStatus.succeeded,
+                progress=ProgressInfo(pct=100, stage="succeeded"),
+                error=None,
+            )
+            warnings = out.result.get("diagnostics", {}).get("warnings", [])
+            n_points = len(out.result.get("track", {}).get("points", []))
+            job_log.info("done points=%s warnings=%s", n_points, len(warnings) if isinstance(warnings, list) else "-")
+        except Exception as e:  # noqa: BLE001
+            tb = traceback.format_exc()
+            job_log.error("failed error=%s\n%s", str(e) if str(e) else e.__class__.__name__, tb)
+            err = map_exception_to_api_error(e)
+            _store.write_status(
+                paths,
+                status=JobStatus.failed,
+                progress=ProgressInfo(pct=100, stage="failed"),
+                error=err,
+            )
+            _log.error("job failed job_id=%s code=%s message=%s", job_id, err.code, err.message)
 
 
 @app.post("/v1/jobs", response_model=CreateJobResponse)

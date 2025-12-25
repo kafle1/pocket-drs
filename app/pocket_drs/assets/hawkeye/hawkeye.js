@@ -1,11 +1,10 @@
-// Hawk-Eye 3D Visualization using Three.js
-(function() {
+// Hawk-Eye visualization (offline-friendly)
+//
+// We intentionally avoid external dependencies (e.g., Three.js via CDN) so the
+// WebView works without internet access. This renderer draws a clean isometric
+// “3D-like” scene on a 2D canvas.
+(function () {
   'use strict';
-
-  // Scene setup
-  let scene, camera, renderer;
-  let pitch, stumps = [], trajectory = null;
-  let animationFrame = null;
 
   // Default dimensions (meters)
   const PITCH_LENGTH = 20.12;
@@ -13,190 +12,243 @@
   const STUMP_HEIGHT = 0.71;
   const STUMP_SPACING = 0.057;
 
+  const COLORS = {
+    bg: '#0f172a',
+    ground: '#12310b',
+    pitch: '#2d5016',
+    crease: 'rgba(255,255,255,0.9)',
+    stumps: '#d4a574',
+    preBounce: '#3b82f6',
+    postBounce: '#22c55e',
+    predicted: '#f59e0b',
+    bounce: '#ef4444',
+    impact: '#8b5cf6'
+  };
+
+  /** @type {HTMLCanvasElement | null} */
+  let canvas = null;
+  /** @type {CanvasRenderingContext2D | null} */
+  let ctx = null;
+  let dpr = 1;
+
+  let current = null; // latest trajectory payload from Flutter
+
   function init() {
+    canvas = document.getElementById('canvas');
+    if (!canvas) return;
+    ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    window.addEventListener('resize', resize, { passive: true });
+    resize();
+    render();
+  }
+
+  function resize() {
+    if (!canvas || !ctx) return;
+
     const container = document.getElementById('container');
-    const width = container.clientWidth;
-    const height = container.clientHeight;
+    const w = container ? container.clientWidth : window.innerWidth;
+    const h = container ? container.clientHeight : window.innerHeight;
 
-    // Scene
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0f172a);
+    dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Camera - positioned behind stumps looking down the pitch
-    camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
-    camera.position.set(-3, 2.5, 0);
-    camera.lookAt(10, 0.5, 0);
-
-    // Renderer
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    container.appendChild(renderer.domElement);
-
-    // Lighting
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambient);
-
-    const directional = new THREE.DirectionalLight(0xffffff, 0.8);
-    directional.position.set(10, 20, 5);
-    scene.add(directional);
-
-    // Create pitch
-    createPitch();
-    createStumps();
-    createCreaseLines();
-
-    // Handle resize
-    window.addEventListener('resize', onResize);
-
-    // Start render loop
-    animate();
+    render();
   }
 
-  function createPitch() {
-    const geometry = new THREE.PlaneGeometry(PITCH_LENGTH, PITCH_WIDTH);
-    const material = new THREE.MeshLambertMaterial({ 
-      color: 0x2d5016,
-      side: THREE.DoubleSide
-    });
-    pitch = new THREE.Mesh(geometry, material);
-    pitch.rotation.x = -Math.PI / 2;
-    pitch.rotation.z = Math.PI / 2;
-    pitch.position.set(PITCH_LENGTH / 2, 0, 0);
-    scene.add(pitch);
+  /**
+   * Isometric-ish projection from world (x along pitch, y lateral, z height)
+   * to screen (px).
+   */
+  function project(p, view) {
+    const angle = Math.PI / 6; // 30deg
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
 
-    // Ground plane (darker)
-    const groundGeometry = new THREE.PlaneGeometry(50, 20);
-    const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x1a3d0a });
-    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.set(10, -0.01, 0);
-    scene.add(ground);
+    const x = p.x;
+    const y = p.y;
+    const z = p.z || 0;
+
+    const isoX = (x - y) * cos;
+    const isoY = (x + y) * sin;
+
+    return {
+      x: view.originX + isoX * view.scale,
+      y: view.originY - isoY * view.scale - z * view.zScale
+    };
   }
 
-  function createStumps() {
-    const stumpGeometry = new THREE.CylinderGeometry(0.015, 0.015, STUMP_HEIGHT, 8);
-    const stumpMaterial = new THREE.MeshLambertMaterial({ color: 0xd4a574 });
-    const bailGeometry = new THREE.CylinderGeometry(0.008, 0.008, STUMP_SPACING * 2, 6);
-    const bailMaterial = new THREE.MeshLambertMaterial({ color: 0xd4a574 });
+  function computeView(width, height) {
+    // Fit pitch comfortably with a bit of margin.
+    const margin = 24;
+    const usableW = Math.max(1, width - margin * 2);
+    const usableH = Math.max(1, height - margin * 2);
 
-    // Create 3 stumps
+    // Scale tuned for the isometric projection.
+    const scaleX = usableW / (PITCH_LENGTH * 1.35);
+    const scaleY = usableH / (PITCH_LENGTH * 0.85);
+    const scale = Math.max(10, Math.min(scaleX, scaleY) * 1.25);
+
+    return {
+      originX: margin + usableW * 0.25,
+      originY: margin + usableH * 0.78,
+      scale: scale,
+      zScale: scale * 0.9
+    };
+  }
+
+  function clear(width, height) {
+    if (!ctx) return;
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  function drawPolygon(points, fillStyle, strokeStyle, lineWidth) {
+    if (!ctx || points.length < 3) return;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.closePath();
+    if (fillStyle) {
+      ctx.fillStyle = fillStyle;
+      ctx.fill();
+    }
+    if (strokeStyle) {
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = lineWidth || 1;
+      ctx.stroke();
+    }
+  }
+
+  function drawLine(a, b, strokeStyle, lineWidth) {
+    if (!ctx) return;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = lineWidth || 1;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
+
+  function drawCircle(p, radius, fillStyle) {
+    if (!ctx) return;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = fillStyle;
+    ctx.fill();
+  }
+
+  function render() {
+    if (!canvas || !ctx) return;
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    const view = computeView(width, height);
+
+    clear(width, height);
+
+    // Ground (bigger plane under pitch)
+    const ground = [
+      project({ x: -6, y: -10, z: 0 }, view),
+      project({ x: -6, y: 10, z: 0 }, view),
+      project({ x: PITCH_LENGTH + 18, y: 10, z: 0 }, view),
+      project({ x: PITCH_LENGTH + 18, y: -10, z: 0 }, view)
+    ];
+    drawPolygon(ground, COLORS.ground, null, 0);
+
+    // Pitch rectangle
+    const halfW = PITCH_WIDTH / 2;
+    const pitch = [
+      project({ x: 0, y: -halfW, z: 0 }, view),
+      project({ x: 0, y: halfW, z: 0 }, view),
+      project({ x: PITCH_LENGTH, y: halfW, z: 0 }, view),
+      project({ x: PITCH_LENGTH, y: -halfW, z: 0 }, view)
+    ];
+    drawPolygon(pitch, COLORS.pitch, 'rgba(255,255,255,0.12)', 1);
+
+    // Crease lines
+    drawLine(project({ x: 0, y: -halfW, z: 0.002 }, view), project({ x: 0, y: halfW, z: 0.002 }, view), COLORS.crease, 2);
+    drawLine(project({ x: PITCH_LENGTH, y: -halfW, z: 0.002 }, view), project({ x: PITCH_LENGTH, y: halfW, z: 0.002 }, view), COLORS.crease, 2);
+
+    // Stumps at x=0
     for (let i = -1; i <= 1; i++) {
-      const stump = new THREE.Mesh(stumpGeometry, stumpMaterial);
-      stump.position.set(0, STUMP_HEIGHT / 2, i * STUMP_SPACING);
-      scene.add(stump);
-      stumps.push(stump);
+      const y = i * STUMP_SPACING;
+      const base = project({ x: 0, y: y, z: 0 }, view);
+      const top = project({ x: 0, y: y, z: STUMP_HEIGHT }, view);
+      drawLine(base, top, COLORS.stumps, 4);
     }
 
-    // Bails
-    const bail = new THREE.Mesh(bailGeometry, bailMaterial);
-    bail.rotation.x = Math.PI / 2;
-    bail.position.set(0, STUMP_HEIGHT + 0.02, 0);
-    scene.add(bail);
+    // Bail (simple line)
+    const bailL = project({ x: 0, y: -STUMP_SPACING, z: STUMP_HEIGHT + 0.02 }, view);
+    const bailR = project({ x: 0, y: STUMP_SPACING, z: STUMP_HEIGHT + 0.02 }, view);
+    drawLine(bailL, bailR, COLORS.stumps, 3);
+
+    // Trajectory (if present)
+    if (!current || !current.points || current.points.length < 2) return;
+
+    const pts = current.points
+      .filter(p => p && isFinite(p.x) && isFinite(p.y) && isFinite(p.z))
+      .map(p => ({ x: Number(p.x), y: Number(p.y), z: Number(p.z) }));
+    if (pts.length < 2) return;
+
+    const bounceIndex = clampInt(current.bounceIndex, 0, pts.length - 1);
+    const impactIndex = clampInt(current.impactIndex, 0, pts.length - 1);
+
+    // Segments
+    drawTrackSegment(pts, 0, Math.min(bounceIndex, pts.length - 1), COLORS.preBounce, view);
+    drawTrackSegment(pts, Math.max(0, bounceIndex), Math.min(impactIndex, pts.length - 1), COLORS.postBounce, view);
+    if (impactIndex < pts.length - 1) {
+      drawTrackSegment(pts, impactIndex, pts.length - 1, COLORS.predicted, view);
+    }
+
+    // Markers
+    drawCircle(project(pts[bounceIndex], view), 6, COLORS.bounce);
+    drawCircle(project(pts[impactIndex], view), 6, COLORS.impact);
+
+    // If the predicted tail reaches close to stumps, highlight last point.
+    const last = pts[pts.length - 1];
+    if (last.x <= 0.5) {
+      drawCircle(project(last, view), 6, COLORS.predicted);
+    }
+
+    updateDecision(current.decision);
   }
 
-  function createCreaseLines() {
-    const lineMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
-    
-    // Popping crease at stumps
-    const creasePoints = [
-      new THREE.Vector3(0, 0.01, -PITCH_WIDTH / 2),
-      new THREE.Vector3(0, 0.01, PITCH_WIDTH / 2)
-    ];
-    const creaseGeometry = new THREE.BufferGeometry().setFromPoints(creasePoints);
-    const crease = new THREE.Line(creaseGeometry, lineMaterial);
-    scene.add(crease);
-
-    // Far crease
-    const farCreasePoints = [
-      new THREE.Vector3(PITCH_LENGTH, 0.01, -PITCH_WIDTH / 2),
-      new THREE.Vector3(PITCH_LENGTH, 0.01, PITCH_WIDTH / 2)
-    ];
-    const farCreaseGeometry = new THREE.BufferGeometry().setFromPoints(farCreasePoints);
-    const farCrease = new THREE.Line(farCreaseGeometry, lineMaterial);
-    scene.add(farCrease);
+  function drawTrackSegment(points, startIdx, endIdx, color, view) {
+    if (!ctx) return;
+    if (endIdx - startIdx < 1) return;
+    ctx.beginPath();
+    const p0 = project(points[startIdx], view);
+    ctx.moveTo(p0.x, p0.y);
+    for (let i = startIdx + 1; i <= endIdx; i++) {
+      const p = project(points[i], view);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.stroke();
   }
 
-  function updateTrajectory(data) {
-    // Remove old trajectory
-    if (trajectory) {
-      scene.remove(trajectory);
-      trajectory = null;
-    }
-
-    if (!data || !data.points || data.points.length < 2) return;
-
-    const { points, bounceIndex, impactIndex, decision } = data;
-
-    // Create trajectory line with color segments
-    const group = new THREE.Group();
-
-    // Pre-bounce (blue)
-    if (bounceIndex > 0) {
-      const preBounce = points.slice(0, bounceIndex + 1);
-      const line = createSegment(preBounce, 0x3b82f6);
-      group.add(line);
-    }
-
-    // Post-bounce to impact (green)
-    if (impactIndex > bounceIndex) {
-      const postBounce = points.slice(Math.max(0, bounceIndex), impactIndex + 1);
-      const line = createSegment(postBounce, 0x22c55e);
-      group.add(line);
-    }
-
-    // Prediction to stumps (orange)
-    if (points.length > impactIndex + 1) {
-      const prediction = points.slice(impactIndex);
-      const line = createSegment(prediction, 0xf59e0b);
-      group.add(line);
-    }
-
-    // Add markers
-    if (bounceIndex >= 0 && bounceIndex < points.length) {
-      group.add(createMarker(points[bounceIndex], 0xef4444));
-    }
-    if (impactIndex >= 0 && impactIndex < points.length) {
-      group.add(createMarker(points[impactIndex], 0x8b5cf6));
-    }
-    if (points.length > 0) {
-      const last = points[points.length - 1];
-      if (last.x <= 0.5) {
-        group.add(createMarker(last, 0xf59e0b));
-      }
-    }
-
-    scene.add(group);
-    trajectory = group;
-
-    // Update decision display
-    updateDecision(decision);
-  }
-
-  function createSegment(points, color) {
-    const curve = [];
-    for (const p of points) {
-      curve.push(new THREE.Vector3(p.x, p.z, p.y));
-    }
-    
-    const geometry = new THREE.BufferGeometry().setFromPoints(curve);
-    const material = new THREE.LineBasicMaterial({ color: color, linewidth: 3 });
-    return new THREE.Line(geometry, material);
-  }
-
-  function createMarker(point, color) {
-    const geometry = new THREE.SphereGeometry(0.04, 16, 16);
-    const material = new THREE.MeshBasicMaterial({ color: color });
-    const sphere = new THREE.Mesh(geometry, material);
-    sphere.position.set(point.x, point.z, point.y);
-    return sphere;
+  function clampInt(v, lo, hi) {
+    const n = Number(v);
+    if (!isFinite(n)) return lo;
+    return Math.max(lo, Math.min(hi, Math.round(n)));
   }
 
   function updateDecision(decision) {
     const el = document.getElementById('decision');
+    if (!el) return;
     el.className = '';
     el.style.display = 'none';
-    
+
     if (decision === 'out') {
       el.textContent = 'OUT';
       el.className = 'out';
@@ -209,26 +261,15 @@
     }
   }
 
-  function onResize() {
-    const container = document.getElementById('container');
-    const width = container.clientWidth;
-    const height = container.clientHeight;
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
-    renderer.setSize(width, height);
-  }
-
-  function animate() {
-    animationFrame = requestAnimationFrame(animate);
-    renderer.render(scene, camera);
+  function updateTrajectory(data) {
+    current = data || null;
+    updateDecision(current && current.decision);
+    render();
   }
 
   // Expose API to Flutter
-  window.hawkeye = {
-    updateTrajectory: updateTrajectory
-  };
+  window.hawkeye = { updateTrajectory: updateTrajectory };
 
-  // Initialize on load
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {

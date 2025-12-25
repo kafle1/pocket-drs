@@ -8,14 +8,17 @@ import '../utils/calibration_store.dart';
 import '../utils/route_interactive.dart';
 import '../utils/video_controller_factory.dart';
 import '../widgets/review_layout.dart';
+import '../models/video_source.dart';
+import '../utils/analysis_logger.dart';
 import 'analysis_screen.dart';
 import 'calibration_screen.dart';
 import 'pitch_calibration_screen.dart';
 
 class ReviewScreen extends StatefulWidget {
-  const ReviewScreen({super.key, required this.videoPath});
+  const ReviewScreen({super.key, required this.videoPath, required this.videoSource});
 
   final String videoPath;
+  final VideoSource videoSource;
 
   @override
   State<ReviewScreen> createState() => _ReviewScreenState();
@@ -41,6 +44,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
     });
 
     try {
+      await AnalysisLogger.instance.logAndPrint(
+        'review init path=${widget.videoPath} source=${widget.videoSource.wireValue}',
+      );
       if (kIsWeb) {
         throw UnsupportedError(
           'Video review is not supported on Web/Desktop. Run the app on Android/iOS.',
@@ -59,6 +65,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         _range = RangeValues(0, d.inMilliseconds.toDouble());
       });
     } catch (e) {
+      await AnalysisLogger.instance.logAndPrint('review init failed: $e');
       if (!mounted) return;
       setState(() => _error = e.toString());
     }
@@ -262,6 +269,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                                             start: start,
                                             end: end,
                                             calibration: finalCalibration,
+                                            videoSource: widget.videoSource,
                                           ),
                                         ),
                                       );

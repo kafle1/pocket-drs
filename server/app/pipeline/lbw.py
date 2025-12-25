@@ -17,7 +17,8 @@ class LbwAssessment:
     impact_in_line: bool
     wickets_hitting: bool
     y_at_stumps_m: float
-    decision: str
+    decision_key: str
+    reason: str
 
 
 def _in_line_y(y_m: float) -> bool:
@@ -91,24 +92,27 @@ def assess_lbw(
     stumps_zone = WICKET_WIDTH_M / 2.0
     umpires_call_outer = stumps_zone + UMPIRES_CALL_ZONE_M
 
-    if y_abs <= stumps_zone:
-        wicket_decision = "OUT"
-    elif y_abs <= umpires_call_outer:
-        wicket_decision = "UMPIRE'S CALL - Clipping stumps"
-    else:
-        wicket_decision = "NOT OUT - Missing stumps"
-
     if not pitched_in_line:
-        decision = "NOT OUT - Pitched outside leg"
+        decision_key = "not_out"
+        reason = "Pitched outside leg"
     elif not impact_in_line:
-        decision = "NOT OUT - Impact outside line"
+        decision_key = "not_out"
+        reason = "Impact outside line"
+    elif y_abs <= stumps_zone:
+        decision_key = "out"
+        reason = "Hitting stumps"
+    elif y_abs <= umpires_call_outer:
+        decision_key = "umpires_call"
+        reason = "Clipping stumps"
     else:
-        decision = wicket_decision
+        decision_key = "not_out"
+        reason = "Missing stumps"
 
     return LbwAssessment(
         pitched_in_line=pitched_in_line,
         impact_in_line=impact_in_line,
         wickets_hitting=wickets_hitting,
         y_at_stumps_m=y_at_stumps,
-        decision=decision,
+        decision_key=decision_key,
+        reason=reason,
     )
