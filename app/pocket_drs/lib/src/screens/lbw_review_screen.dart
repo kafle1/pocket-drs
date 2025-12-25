@@ -1,11 +1,12 @@
 import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../analysis/ball_track_models.dart';
 import '../analysis/calibration_config.dart';
 import '../analysis/lbw_assessor.dart';
 import '../analysis/lbw_models.dart';
+import '../analysis/trajectory_3d.dart';
+import '../widgets/hawkeye_3d_view.dart';
 
 class LbwReviewScreen extends StatefulWidget {
   const LbwReviewScreen({
@@ -24,7 +25,6 @@ class LbwReviewScreen extends StatefulWidget {
 class _LbwReviewScreenState extends State<LbwReviewScreen> {
   List<PitchPlaneTrackPoint> _plane = const [];
   String? _error;
-
   int _pitchIndex = 0;
   bool _fullToss = false;
 
@@ -42,9 +42,7 @@ class _LbwReviewScreenState extends State<LbwReviewScreen> {
 
     final pitchCal = widget.calibration.pitchCalibration;
     if (pitchCal == null) {
-      setState(() {
-        _error = 'Pitch calibration is missing. Go back and tap the 4 pitch corners first.';
-      });
+      setState(() => _error = 'Pitch calibration required');
       return;
     }
 
@@ -60,233 +58,189 @@ class _LbwReviewScreenState extends State<LbwReviewScreen> {
         if (world.dx.isNaN || world.dy.isNaN || world.dx.isInfinite || world.dy.isInfinite) {
           continue;
         }
-        out.add(
-          PitchPlaneTrackPoint(
-            tMs: p.t,
-            imagePx: p.p,
-            worldM: world,
-            confidence: p.confidence,
-          ),
-        );
+        out.add(PitchPlaneTrackPoint(
+          tMs: p.t,
+          imagePx: p.p,
+          worldM: world,
+          confidence: p.confidence,
+        ));
       }
 
       if (out.length < 4) {
-        throw StateError('Not enough valid mapped points (${out.length}). Recalibrate pitch corners and try again.');
+        throw StateError('Not enough points (${out.length})');
       }
 
-      // Default pitch index around first third (common bounce location).
       final defaultPitch = (out.length * 0.35).round().clamp(0, out.length - 2);
-
       setState(() {
-        _plane = List<PitchPlaneTrackPoint>.unmodifiable(out);
+        _plane = List.unmodifiable(out);
         _pitchIndex = defaultPitch;
       });
     } catch (e) {
-      setState(() {
-        _error = e.toString();
-      });
+      setState(() => _error = e.toString());
+    }
+  }
+
+  List<TrajectoryPoint3D> _build3D(int bounceIdx, int impactIdx) {
+    if (_plane.isEmpty) return [];
+
+    final est = Trajectory3DEstimator();
+    final pts = _plane.map((p) => p.worldM).toList();
+    final times = _plane.map((p) => p.tMs).toList();
+
+    final traj = est.estimate(
+      points: pts,
+      timesMs: times,
+      bounceIndex: bounceIdx,
+      impactIndex: impactIdx,
+    );
+
+    return est.extendToStumps(track: traj, impactIndex: impactIdx);
+  }
+
+  String _decisionKey(LbwDecision d) {
+    switch (d) {
+      case LbwDecision.out:
+        return 'out';
+      case LbwDecision.notOut:
+        return 'not_out';
+      case LbwDecision.umpiresCall:
+        return 'umpires_call';
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    final plane = _plane;
-    final impactIndex = plane.isEmpty ? 0 : (plane.length - 1);
-    final maxPitchIndex = math.max(0, impactIndex - 1);
-    final pitchIndex = _fullToss ? 0 : _pitchIndex.clamp(0, maxPitchIndex).toInt();
+    final impactIdx = _plane.isEmpty ? 0 : _plane.length - 1;
+    final maxPitch = math.max(0, impactIdx - 1);
+    final bounceIdx = _fullToss ? 0 : _pitchIndex.clamp(0, maxPitch);
 
     LbwAssessment? assessment;
-    if (_error == null && plane.isNotEmpty && impactIndex > pitchIndex) {
+    if (_error == null && _plane.isNotEmpty && impactIdx > bounceIdx) {
       assessment = const LbwAssessor().assess(
-        points: plane,
-        pitchIndex: pitchIndex,
-        impactIndex: impactIndex,
+        points: _plane,
+        pitchIndex: bounceIdx,
+        impactIndex: impactIdx,
       );
     }
 
+    final trajectory3D = _build3D(bounceIdx, impactIdx);
+    final decisionKey = assessment != null ? _decisionKey(assessment.wicketDecision) : '';
+
     return Scaffold(
+      backgroundColor: const Color(0xFF0f172a),
       appBar: AppBar(
-        title: const Text('LBW assist (prototype)'),
-        actions: [
-          IconButton(
-            tooltip: 'Rebuild from calibration',
-            onPressed: _buildPitchPlaneTrack,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text('Decision Review', style: TextStyle(fontWeight: FontWeight.w600)),
+        centerTitle: true,
       ),
       body: SafeArea(
         child: _error != null
-            ? Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text('LBW analysis error', style: theme.textTheme.titleLarge),
-                    const SizedBox(height: 8),
-                    Text(_error!),
-                    const SizedBox(height: 16),
-                    FilledButton(
-                      onPressed: _buildPitchPlaneTrack,
-                      child: const Text('Try again'),
-                    ),
-                  ],
-                ),
-              )
-            : plane.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.surfaceContainer,
-                              borderRadius: BorderRadius.circular(12),
+            ? _ErrorView(error: _error!, onRetry: _buildPitchPlaneTrack)
+            : _plane.isEmpty
+                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                : Column(
+                    children: [
+                      // 3D View
+                      Expanded(
+                        flex: 3,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Hawkeye3DView(
+                            trajectory: trajectory3D,
+                            bounceIndex: bounceIdx,
+                            impactIndex: impactIdx,
+                            decision: decisionKey,
+                          ),
+                        ),
+                      ),
+
+                      // Controls
+                      Expanded(
+                        flex: 2,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1e293b),
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                          ),
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                // Decision card
+                                if (assessment != null) _DecisionCard(assessment: assessment),
+
+                                const SizedBox(height: 20),
+
+                                // Controls
+                                _ControlRow(
+                                  label: 'Full toss',
+                                  child: Switch.adaptive(
+                                    value: _fullToss,
+                                    onChanged: (v) => setState(() => _fullToss = v),
+                                    activeColor: const Color(0xFF3b82f6),
+                                  ),
+                                ),
+
+                                if (!_fullToss) ...[
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Bounce point',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.7),
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      activeTrackColor: const Color(0xFF3b82f6),
+                                      inactiveTrackColor: const Color(0xFF334155),
+                                      thumbColor: const Color(0xFF3b82f6),
+                                    ),
+                                    child: Slider(
+                                      min: 0,
+                                      max: maxPitch.toDouble(),
+                                      value: bounceIdx.toDouble(),
+                                      divisions: math.max(1, maxPitch),
+                                      onChanged: (v) => setState(() => _pitchIndex = v.round()),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
-                            child: CustomPaint(
-                              painter: _TopDownPainter(
-                                points: plane,
-                                pitchLengthM: widget.calibration.pitchLengthM,
-                                pitchWidthM: widget.calibration.pitchWidthM,
-                                pitchIndex: pitchIndex,
-                                impactIndex: impactIndex,
-                                predictedAtStumps: assessment?.predictedAtStumps,
-                              ),
-                              child: const SizedBox.expand(),
-                            ),
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        SwitchListTile.adaptive(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Full toss (no bounce)'),
-                          subtitle: const Text('If the ball didn\'t pitch, use release as the "pitch" point.'),
-                          value: _fullToss,
-                          onChanged: (v) => setState(() => _fullToss = v),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _fullToss
-                              ? 'Pitch point = first tracked point'
-                              : 'Select pitch/bounce point (approx.)',
-                          style: theme.textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        if (!_fullToss)
-                          Slider(
-                            min: 0,
-                            max: math.max(0, impactIndex - 1).toDouble(),
-                            value: pitchIndex.toDouble(),
-                            divisions: math.max(1, impactIndex - 1),
-                            label: 'Index $pitchIndex',
-                            onChanged: (v) => setState(() => _pitchIndex = v.round()),
-                          ),
-                        const SizedBox(height: 8),
-                        _SummaryCard(
-                          assessment: assessment,
-                          pitchLengthM: widget.calibration.pitchLengthM,
-                          pitchWidthM: widget.calibration.pitchWidthM,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Note: this is a pitch-plane approximation using homography. It does not estimate ball height or full 3D physics yet.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
       ),
     );
   }
 }
 
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({
-    required this.assessment,
-    required this.pitchLengthM,
-    required this.pitchWidthM,
-  });
-
-  final LbwAssessment? assessment;
-  final double pitchLengthM;
-  final double pitchWidthM;
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.error, required this.onRetry});
+  final String error;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final a = assessment;
-
-    if (a == null) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Text(
-            'Not enough data to assess. Try re-running tracking and pitch calibration.',
-            style: theme.textTheme.bodyMedium,
-          ),
-        ),
-      );
-    }
-
-    String yesNo(bool v) => v ? 'YES' : 'NO';
-
-    String fmt(Offset p) => 'x=${p.dx.toStringAsFixed(2)}m, y=${p.dy.toStringAsFixed(2)}m';
-
-    Color decisionColor;
-    switch (a.wicketDecision) {
-      case LbwDecision.out:
-        decisionColor = Colors.red.shade700;
-        break;
-      case LbwDecision.umpiresCall:
-        decisionColor = Colors.orange.shade700;
-        break;
-      case LbwDecision.notOut:
-        decisionColor = Colors.green.shade700;
-        break;
-    }
-
-    return Card(
+    return Center(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(32),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: decisionColor.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                a.decisionText,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: decisionColor,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text('Pitch point: ${fmt(a.pitchPoint)}'),
-            Text('Impact point: ${fmt(a.impactPoint)}'),
-            Text('Predicted at stumps (x=0): y=${a.predictedAtStumps.dy.toStringAsFixed(2)}m'),
-            const SizedBox(height: 8),
-            Text('Pitched in line: ${yesNo(a.pitchedInLine)}'),
-            Text('Impact in line: ${yesNo(a.impactInLine)}'),
-            Text('Would hit stumps: ${yesNo(a.wouldHitStumps)}'),
-            const SizedBox(height: 8),
+            Icon(Icons.error_outline, size: 48, color: Colors.red.shade400),
+            const SizedBox(height: 16),
             Text(
-              'Wicket: ${(LbwConstants.wicketWidthM * 100).toStringAsFixed(1)}cm · Ball radius: ${(LbwConstants.ballRadiusM * 100).toStringAsFixed(1)}cm',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+              error,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70),
             ),
+            const SizedBox(height: 24),
+            FilledButton(onPressed: onRetry, child: const Text('Retry')),
           ],
         ),
       ),
@@ -294,122 +248,95 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _TopDownPainter extends CustomPainter {
-  _TopDownPainter({
-    required this.points,
-    required this.pitchLengthM,
-    required this.pitchWidthM,
-    required this.pitchIndex,
-    required this.impactIndex,
-    required this.predictedAtStumps,
-  });
-
-  final List<PitchPlaneTrackPoint> points;
-  final double pitchLengthM;
-  final double pitchWidthM;
-  final int pitchIndex;
-  final int impactIndex;
-  final Offset? predictedAtStumps;
+class _DecisionCard extends StatelessWidget {
+  const _DecisionCard({required this.assessment});
+  final LbwAssessment assessment;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    // World bounds to display.
-    final halfW = pitchWidthM / 2.0;
+  Widget build(BuildContext context) {
+    Color color;
+    IconData icon;
 
-    // Add margins so markers aren't flush to the border.
-    const pad = 18.0;
-
-    Rect world = Rect.fromLTRB(
-      -0.8, // a bit behind stumps
-      -halfW - 0.5,
-      pitchLengthM + 0.8,
-      halfW + 0.5,
-    );
-
-    final sx = (size.width - pad * 2) / world.width;
-    final sy = (size.height - pad * 2) / world.height;
-    final scale = math.min(sx, sy);
-
-    Offset map(Offset w) {
-      final x = pad + (w.dx - world.left) * scale;
-      final y = pad + (w.dy - world.top) * scale;
-      return Offset(x, y);
+    switch (assessment.wicketDecision) {
+      case LbwDecision.out:
+        color = const Color(0xFFdc2626);
+        icon = Icons.close;
+        break;
+      case LbwDecision.umpiresCall:
+        color = const Color(0xFFf59e0b);
+        icon = Icons.help_outline;
+        break;
+      case LbwDecision.notOut:
+        color = const Color(0xFF16a34a);
+        icon = Icons.check;
+        break;
     }
 
-    // Background.
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = const Color(0xFF0B1220).withValues(alpha: 0.03),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  assessment.decisionText,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _checksText(),
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
-
-    // Pitch rectangle (0..L, -W/2..W/2).
-    final pitchRectWorld = Rect.fromLTRB(0, -halfW, pitchLengthM, halfW);
-    final pitchRect = Rect.fromPoints(map(pitchRectWorld.topLeft), map(pitchRectWorld.bottomRight));
-
-    final pitchFill = Paint()..color = const Color(0xFF16A34A).withValues(alpha: 0.10);
-    final pitchStroke = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = const Color(0xFF16A34A).withValues(alpha: 0.45);
-
-    canvas.drawRect(pitchRect, pitchFill);
-    canvas.drawRect(pitchRect, pitchStroke);
-
-    // Stumps line at x=0.
-    final stumpLine = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = const Color(0xFF0F172A).withValues(alpha: 0.55);
-
-    canvas.drawLine(map(Offset(0, -halfW)), map(Offset(0, halfW)), stumpLine);
-
-    // Wicket width band.
-    final tol = LbwConstants.wicketHalfWidthM;
-    final wicketBand = Rect.fromLTRB(0, -tol, 0.20, tol);
-    final wicketRect = Rect.fromPoints(map(wicketBand.topLeft), map(wicketBand.bottomRight));
-    canvas.drawRect(
-      wicketRect,
-      Paint()..color = const Color(0xFFF59E0B).withValues(alpha: 0.12),
-    );
-
-    // Trajectory path.
-    final path = Path();
-    for (var i = 0; i < points.length; i++) {
-      final p = map(points[i].worldM);
-      if (i == 0) {
-        path.moveTo(p.dx, p.dy);
-      } else {
-        path.lineTo(p.dx, p.dy);
-      }
-    }
-    canvas.drawPath(
-      path,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3
-        ..color = const Color(0xFF2563EB),
-    );
-
-    // Markers.
-    void dot(Offset w, Color c, {double r = 6}) {
-      canvas.drawCircle(map(w), r, Paint()..color = c);
-    }
-
-    dot(points[pitchIndex].worldM, const Color(0xFFEF4444), r: 7);
-    dot(points[impactIndex].worldM, const Color(0xFF7C3AED), r: 7);
-
-    if (predictedAtStumps != null) {
-      dot(predictedAtStumps!, const Color(0xFFF59E0B), r: 7);
-    }
   }
 
+  String _checksText() {
+    final checks = <String>[];
+    if (assessment.pitchedInLine) checks.add('Pitched ✓');
+    if (assessment.impactInLine) checks.add('Impact ✓');
+    if (assessment.wouldHitStumps) checks.add('Hitting ✓');
+    return checks.join('  ·  ');
+  }
+}
+
+class _ControlRow extends StatelessWidget {
+  const _ControlRow({required this.label, required this.child});
+  final String label;
+  final Widget child;
+
   @override
-  bool shouldRepaint(covariant _TopDownPainter oldDelegate) {
-    return oldDelegate.points.length != points.length ||
-        oldDelegate.pitchIndex != pitchIndex ||
-        oldDelegate.impactIndex != impactIndex ||
-        oldDelegate.predictedAtStumps != predictedAtStumps ||
-        oldDelegate.pitchLengthM != pitchLengthM ||
-        oldDelegate.pitchWidthM != pitchWidthM;
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white, fontSize: 15)),
+        child,
+      ],
+    );
   }
 }
