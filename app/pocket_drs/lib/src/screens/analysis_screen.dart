@@ -150,15 +150,13 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
 
   Future<AnalysisResult> _runBackend({required Offset seed}) async {
     final url = (await AppSettings.getServerUrl()).trim();
-    if (url.isEmpty) {
-      throw StateError('Server URL is not set. Open Settings and enter your laptop/server URL.');
-    }
+    final effectiveUrl = url.isNotEmpty ? url : AppSettings.defaultServerUrl();
 
     await AnalysisLogger.instance.logAndPrint(
-      'backend start baseUrl=$url source=${widget.videoSource.wireValue} video=${widget.videoFile.path} segment=${widget.start.inMilliseconds}-${widget.end.inMilliseconds}',
+      'backend start baseUrl=$effectiveUrl source=${widget.videoSource.wireValue} video=${widget.videoFile.path} segment=${widget.start.inMilliseconds}-${widget.end.inMilliseconds}',
     );
 
-    final api = PocketDrsApi(baseUrl: url);
+    final api = PocketDrsApi(baseUrl: effectiveUrl);
     try {
       if (mounted) {
         setState(() {

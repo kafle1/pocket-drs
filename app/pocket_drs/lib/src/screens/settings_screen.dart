@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 
 import '../utils/app_settings.dart';
 import 'logs_screen.dart';
@@ -26,9 +25,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final url = await AppSettings.getServerUrl();
     if (!mounted) return;
     setState(() {
-      _urlController.text = url.isNotEmpty
-          ? url
-          : (kIsWeb ? 'http://localhost:8000' : '');
+      _urlController.text = url;
       _loading = false;
     });
   }
@@ -102,7 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                       },
                       icon: const Icon(Icons.receipt_long),
-                      label: const Text('View logs'),
+                      label: const Text('Logs / export'),
                     ),
                     const SizedBox(height: 12),
                     Text(

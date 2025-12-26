@@ -236,8 +236,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
                                       var finalCalibration = calibration;
 
-                                      // Pitch-plane tap calibration (optional for now).
-                                      // This enables mapping pixels -> meters for Hawkeye/LBW style outputs.
+                                      // Pitch-plane tap calibration (required).
+                                      // We map the pitch once and reuse it for future clips on this device.
                                       if (finalCalibration.pitchCalibration == null) {
                                         await waitForRouteInteractive(context);
                                         if (!context.mounted) return;
@@ -253,9 +253,13 @@ class _ReviewScreenState extends State<ReviewScreen> {
                                           ),
                                         );
                                         if (!context.mounted) return;
-                                        if (pitchCalibrated != null) {
-                                          finalCalibration = pitchCalibrated;
+                                        if (pitchCalibrated == null || pitchCalibrated.pitchCalibration == null) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text('Pitch calibration is required to continue')),
+                                          );
+                                          return;
                                         }
+                                        finalCalibration = pitchCalibrated;
                                       }
 
                                       await Navigator.of(context).push(
