@@ -99,6 +99,9 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
       await CalibrationStore().save(next);
 
       if (!mounted) return;
+      // Avoid Navigator assertions if the user somehow hits Save during a transition.
+      await waitForRouteInteractive(context);
+      if (!mounted) return;
       Navigator.of(context).pop(next);
     } catch (e) {
       if (!mounted) return;
@@ -129,8 +132,6 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    final interactive = routeIsInteractive(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -189,7 +190,7 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
 
                                 return GestureDetector(
                                   behavior: HitTestBehavior.opaque,
-                                  onTapUp: !interactive || _taps.length >= 4
+                                  onTapUp: _taps.length >= 4
                                       ? null
                                       : (details) {
                                           final p = toImage(details.localPosition);
