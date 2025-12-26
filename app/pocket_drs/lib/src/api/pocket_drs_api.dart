@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -17,15 +17,25 @@ class PocketDrsApi {
     return Uri.parse(b).resolve(path.startsWith('/') ? path.substring(1) : path);
   }
 
-  Future<String> createJob({required File videoFile, required Map<String, Object?> requestJson}) async {
+  Future<String> createJob({
+    required Uint8List videoBytes,
+    required String videoFilename,
+    required Map<String, Object?> requestJson,
+  }) async {
     final req = http.MultipartRequest('POST', _u('/v1/jobs'));
     req.fields['request_json'] = jsonEncode(requestJson);
-    req.files.add(await http.MultipartFile.fromPath('video_file', videoFile.path));
+    req.files.add(
+      http.MultipartFile.fromBytes(
+        'video_file',
+        videoBytes,
+        filename: videoFilename.isEmpty ? 'video.mp4' : videoFilename,
+      ),
+    );
 
     final res = await _client.send(req).timeout(const Duration(seconds: 60));
     final body = await res.stream.bytesToString();
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw HttpException('Create job failed (${res.statusCode}): $body');
+      throw StateError('Create job failed (${res.statusCode}): $body');
     }
 
     final decoded = jsonDecode(body);
@@ -38,7 +48,7 @@ class PocketDrsApi {
   Future<JobStatus> getJobStatus(String jobId) async {
     final res = await _client.get(_u('/v1/jobs/$jobId')).timeout(const Duration(seconds: 15));
     if (res.statusCode != 200) {
-      throw HttpException('Status request failed (${res.statusCode}): ${res.body}');
+      throw StateError('Status request failed (${res.statusCode}): ${res.body}');
     }
     final decoded = jsonDecode(res.body);
     if (decoded is! Map) throw const FormatException('Invalid status response');
@@ -48,7 +58,7 @@ class PocketDrsApi {
   Future<AnalysisResult> getJobResult(String jobId) async {
     final res = await _client.get(_u('/v1/jobs/$jobId/result')).timeout(const Duration(seconds: 30));
     if (res.statusCode != 200) {
-      throw HttpException('Result request failed (${res.statusCode}): ${res.body}');
+      throw StateError('Result request failed (${res.statusCode}): ${res.body}');
     }
     final decoded = jsonDecode(res.body);
     if (decoded is! Map) throw const FormatException('Invalid result response');

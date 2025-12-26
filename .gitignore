@@ -4,6 +4,10 @@
 # Logs
 *.log
 
+# Local environment (do not commit secrets / machine-specific config)
+.env
+.env.*
+
 # IDE
 .vscode/
 .idea/
@@ -19,6 +23,9 @@
 **/__pycache__/
 **/*.py[cod]
 .pytest_cache/
+
+# Virtualenvs
+**/.venv/
 
 # Runtime job outputs
 data/jobs/

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../utils/app_settings.dart';
 import 'logs_screen.dart';
@@ -25,7 +26,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final url = await AppSettings.getServerUrl();
     if (!mounted) return;
     setState(() {
-      _urlController.text = url;
+      _urlController.text = url.isNotEmpty
+          ? url
+          : (kIsWeb ? 'http://localhost:8000' : '');
       _loading = false;
     });
   }

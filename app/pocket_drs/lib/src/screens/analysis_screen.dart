@@ -1,8 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 
 import '../analysis/ball_track_models.dart';
 import '../analysis/calibration_config.dart';
@@ -19,14 +20,14 @@ import 'lbw_review_screen.dart';
 class AnalysisScreen extends StatefulWidget {
   const AnalysisScreen({
     super.key,
-    required this.videoPath,
+    required this.videoFile,
     required this.start,
     required this.end,
     required this.calibration,
     required this.videoSource,
   });
 
-  final String videoPath;
+  final XFile videoFile;
   final Duration start;
   final Duration end;
   final CalibrationConfig calibration;
@@ -57,23 +58,14 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     });
   }
 
-  bool get _supportsAnalysis {
-    if (kIsWeb) return false;
-    return defaultTargetPlatform == TargetPlatform.android ||
-        defaultTargetPlatform == TargetPlatform.iOS;
-  }
-
   String _userMessageFor(Object e) {
     if (e is TimeoutException) {
       return 'Timed out while talking to the server.\n\n'
           'Make sure your phone and server are on the same Wi‑Fi and the server is running.';
     }
-    if (e is SocketException) {
+    if (e is http.ClientException) {
       return 'Could not reach the server.\n\n'
-          'Check the Server URL in Settings (use your laptop IP, not localhost) and confirm the server is running.';
-    }
-    if (e is HttpException) {
-      return e.message;
+          'Check the Server URL in Settings and confirm the server is running.';
     }
     if (e is FormatException) {
       return 'Server returned an unexpected response.\n\n'
@@ -86,13 +78,6 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
 
   Future<void> _chooseSeedThenRun() async {
     if (_running) return;
-    if (!_supportsAnalysis) {
-      setState(() {
-        _running = false;
-        _error = 'Analysis is supported on Android/iOS only.';
-      });
-      return;
-    }
 
     setState(() {
       _running = true;
@@ -110,7 +95,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
       if (mounted) {
         setState(() => _logPath = path);
       }
-      await logger.log('analysis start video=${widget.videoPath} start=${widget.start.inMilliseconds} end=${widget.end.inMilliseconds}');
+      await logger.log('analysis start video=${widget.videoFile.path} start=${widget.start.inMilliseconds} end=${widget.end.inMilliseconds}');
 
       if (!mounted) return;
 
@@ -126,7 +111,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
       final seed = await Navigator.of(context).push<Offset?>(
         MaterialPageRoute(
           builder: (_) => BallSeedScreen(
-            videoPath: widget.videoPath,
+            videoPath: widget.videoFile.path,
             startMs: startMs,
             endMs: endMs,
             initialMs: initialMs,
@@ -170,7 +155,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     }
 
     await AnalysisLogger.instance.logAndPrint(
-      'backend start baseUrl=$url source=${widget.videoSource.wireValue} video=${widget.videoPath} segment=${widget.start.inMilliseconds}-${widget.end.inMilliseconds}',
+      'backend start baseUrl=$url source=${widget.videoSource.wireValue} video=${widget.videoFile.path} segment=${widget.start.inMilliseconds}-${widget.end.inMilliseconds}',
     );
 
     final api = PocketDrsApi(baseUrl: url);
@@ -231,7 +216,8 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
       };
 
       final jobId = await api.createJob(
-        videoFile: File(widget.videoPath),
+        videoBytes: await widget.videoFile.readAsBytes(),
+        videoFilename: widget.videoFile.name,
         requestJson: requestJson,
       );
 

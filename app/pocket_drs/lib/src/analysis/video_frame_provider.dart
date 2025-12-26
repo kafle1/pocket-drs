@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:video_thumbnail/video_thumbnail.dart';
+import 'frame_decoder.dart';
 
 abstract class FrameProvider {
   Future<Uint8List> getFrameJpeg({required int timeMs, int quality});
@@ -44,12 +44,7 @@ class VideoFrameProvider implements FrameProvider {
     required int timeMs,
     required int quality,
   }) {
-    return VideoThumbnail.thumbnailData(
-      video: videoPath,
-      imageFormat: ImageFormat.JPEG,
-      timeMs: timeMs,
-      quality: quality,
-    );
+    return decodeFrameJpeg(videoPath: videoPath, timeMs: timeMs, quality: quality);
   }
 
   /// Wait for any queued decode work to complete.
@@ -62,6 +57,9 @@ class VideoFrameProvider implements FrameProvider {
     _disposed = true;
     _cache.clear();
     _inFlight.clear();
+
+    // Web-only: drop any associated video element/canvas (no-op on io).
+    releaseWebFrameDecoder(videoPath);
   }
 
   @override

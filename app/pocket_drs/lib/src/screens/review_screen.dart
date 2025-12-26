@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 
 import '../analysis/calibration_config.dart';
@@ -15,9 +16,9 @@ import 'calibration_screen.dart';
 import 'pitch_calibration_screen.dart';
 
 class ReviewScreen extends StatefulWidget {
-  const ReviewScreen({super.key, required this.videoPath, required this.videoSource});
+  const ReviewScreen({super.key, required this.videoFile, required this.videoSource});
 
-  final String videoPath;
+  final XFile videoFile;
   final VideoSource videoSource;
 
   @override
@@ -45,15 +46,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
     try {
       await AnalysisLogger.instance.logAndPrint(
-        'review init path=${widget.videoPath} source=${widget.videoSource.wireValue}',
+        'review init path=${widget.videoFile.path} source=${widget.videoSource.wireValue}',
       );
-      if (kIsWeb) {
-        throw UnsupportedError(
-          'Video review is not supported on Web/Desktop. Run the app on Android/iOS.',
-        );
-      }
 
-      final c = createVideoPlayerController(widget.videoPath);
+      final c = createVideoPlayerController(widget.videoFile.path);
       await c.initialize();
       final d = c.value.duration;
 
@@ -250,7 +246,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                                                 CalibrationConfig?>(
                                           MaterialPageRoute(
                                             builder: (_) => PitchCalibrationScreen(
-                                              videoPath: widget.videoPath,
+                                              videoPath: widget.videoFile.path,
                                               frameTimeMs: startMs.round(),
                                               config: finalCalibration,
                                             ),
@@ -265,7 +261,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                                       await Navigator.of(context).push(
                                         MaterialPageRoute(
                                           builder: (_) => AnalysisScreen(
-                                            videoPath: widget.videoPath,
+                                            videoFile: widget.videoFile,
                                             start: start,
                                             end: end,
                                             calibration: finalCalibration,

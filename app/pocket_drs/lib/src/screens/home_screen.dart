@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'camera_record_screen.dart';
+import 'camera_record_screen.dart'
+  if (dart.library.html) 'camera_record_screen_web_stub.dart';
 import 'review_screen.dart';
 import 'settings_screen.dart';
 import '../models/video_source.dart';
@@ -19,9 +20,9 @@ class _HomeScreenState extends State<HomeScreen> {
   final _picker = ImagePicker();
   bool _busy = false;
 
-  bool get _supportsCaptureAndFiles {
-    // This app is designed for Android/iOS. Web/desktop runs are supported only
-    // as a UI preview; camera + local file video analysis are disabled there.
+  bool get _supportsRecording {
+    // Camera recording may work on some web builds, but reliability varies.
+    // Keep it enabled only on mobile for now.
     if (kIsWeb) return false;
     return defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS;
@@ -33,7 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await AnalysisLogger.instance.logAndPrint('home openReview source=${source.wireValue} path=${xfile.path}');
     if (!mounted) return;
     await navigator.push(
-      MaterialPageRoute(builder: (_) => ReviewScreen(videoPath: xfile.path, videoSource: source)),
+      MaterialPageRoute(builder: (_) => ReviewScreen(videoFile: xfile, videoSource: source)),
     );
   }
 
@@ -81,35 +82,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    if (!_supportsCaptureAndFiles) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('PocketDRS'),
-          backgroundColor: theme.colorScheme.surface,
-        ),
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'This build is running on Web/Desktop.',
-                  style: theme.textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Video import/recording and analysis are supported on Android/iOS only.\n\n'
-                  'Connect a phone (or start an emulator) and run the app there.',
-                  style: theme.textTheme.bodyLarge,
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('PocketDRS'),
@@ -135,12 +107,12 @@ class _HomeScreenState extends State<HomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Record or import a delivery clip, then select the delivery segment (ball release → impact).',
+                'Import a delivery clip, then select the delivery segment (ball release → impact).',
                 style: theme.textTheme.bodyLarge,
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed: _busy ? null : _recordVideo,
+                onPressed: (!_supportsRecording || _busy) ? null : _recordVideo,
                 icon: const Icon(Icons.videocam),
                 label: const Text('Record video'),
               ),
@@ -150,6 +122,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: const Icon(Icons.video_library),
                 label: const Text('Import video'),
               ),
+              if (kIsWeb) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Web tip: set Server URL to http://localhost:8000 in Settings (and start the backend with make dev-web).',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               if (_busy)
                 const Center(

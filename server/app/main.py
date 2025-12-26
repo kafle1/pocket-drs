@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -10,6 +11,7 @@ from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from .jobs import JobStore, default_job_store
 from .job_logging import job_log_context
@@ -26,6 +28,19 @@ from .pipeline.process_job import map_exception_to_api_error, run_pipeline
 
 
 app = FastAPI(title="PocketDRS Server", version="1.0")
+
+# CORS is required for Flutter Web (browser) to call the API.
+# Configure via POCKET_DRS_CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
+_cors_origins_raw = os.environ.get("POCKET_DRS_CORS_ORIGINS", "").strip()
+_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"] ,
+        allow_headers=["*"] ,
+    )
 _store: JobStore = default_job_store()
 _executor = ThreadPoolExecutor(max_workers=2)
 _log = logging.getLogger("pocket_drs")
