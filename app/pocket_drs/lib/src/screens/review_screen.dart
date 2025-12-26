@@ -5,19 +5,23 @@ import 'package:video_player/video_player.dart';
 
 import '../analysis/calibration_config.dart';
 import '../utils/format.dart';
-import '../utils/calibration_store.dart';
 import '../utils/route_interactive.dart';
 import '../utils/video_controller_factory.dart';
 import '../widgets/review_layout.dart';
 import '../models/video_source.dart';
 import '../utils/analysis_logger.dart';
+import '../utils/pitch_store.dart';
 import 'analysis_screen.dart';
-import 'calibration_screen.dart';
-import 'pitch_calibration_screen.dart';
 
 class ReviewScreen extends StatefulWidget {
-  const ReviewScreen({super.key, required this.videoFile, required this.videoSource});
+  const ReviewScreen({
+    super.key,
+    required this.pitchId,
+    required this.videoFile,
+    required this.videoSource,
+  });
 
+  final String pitchId;
   final XFile videoFile;
   final VideoSource videoSource;
 
@@ -31,7 +35,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
   RangeValues _range = const RangeValues(0, 0);
   String? _error;
   bool _navigating = false;
-  final _calibrationStore = CalibrationStore();
+  final _pitchStore = PitchStore();
+  CalibrationConfig? _calibration;
 
   @override
   void initState() {
@@ -53,12 +58,19 @@ class _ReviewScreenState extends State<ReviewScreen> {
       await c.initialize();
       final d = c.value.duration;
 
+      final pitch = await _pitchStore.loadById(widget.pitchId);
+      final cal = pitch?.calibration;
+      if (cal == null || cal.pitchCalibration == null) {
+        throw StateError('This pitch is not calibrated. Calibrate it before analyzing deliveries.');
+      }
+
       if (!mounted) return;
       setState(() {
         _controller?.dispose();
         _controller = c;
         _duration = d;
         _range = RangeValues(0, d.inMilliseconds.toDouble());
+        _calibration = cal;
       });
     } catch (e) {
       await AnalysisLogger.instance.logAndPrint('review init failed: $e');
@@ -93,6 +105,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final c = _controller;
+    final calibration = _calibration;
 
     final maxMs = _duration.inMilliseconds.toDouble().clamp(1.0, double.infinity).toDouble();
     final startMs = _range.start.clamp(0.0, maxMs).toDouble();
@@ -208,6 +221,15 @@ class _ReviewScreenState extends State<ReviewScreen> {
                             onPressed: _navigating
                                 ? null
                                 : () async {
+                                    if (calibration == null || calibration.pitchCalibration == null) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Pitch calibration missing. Go back and calibrate this pitch.'),
+                                        ),
+                                      );
+                                      return;
+                                    }
+
                                     setState(() => _navigating = true);
                                     try {
                                       if (!context.mounted) return;
@@ -218,57 +240,13 @@ class _ReviewScreenState extends State<ReviewScreen> {
                                       await _releaseController();
                                       if (!context.mounted) return;
 
-                                      final initialCalibration =
-                                          await _calibrationStore.loadOrDefault();
-                                      if (!context.mounted) return;
-                                      final calibration =
-                                          await Navigator.of(context).push<CalibrationConfig?>(
-                                        MaterialPageRoute(
-                                          builder: (_) => CalibrationScreen(
-                                            initial: initialCalibration,
-                                          ),
-                                        ),
-                                      );
-                                      if (!context.mounted) return;
-                                      if (calibration == null) {
-                                        return;
-                                      }
-
-                                      var finalCalibration = calibration;
-
-                                      // Pitch-plane tap calibration (required).
-                                      // We map the pitch once and reuse it for future clips on this device.
-                                      if (finalCalibration.pitchCalibration == null) {
-                                        await waitForRouteInteractive(context);
-                                        if (!context.mounted) return;
-                                        final pitchCalibrated =
-                                            await Navigator.of(context).push<
-                                                CalibrationConfig?>(
-                                          MaterialPageRoute(
-                                            builder: (_) => PitchCalibrationScreen(
-                                              videoPath: widget.videoFile.path,
-                                              frameTimeMs: startMs.round(),
-                                              config: finalCalibration,
-                                            ),
-                                          ),
-                                        );
-                                        if (!context.mounted) return;
-                                        if (pitchCalibrated == null || pitchCalibrated.pitchCalibration == null) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(content: Text('Pitch calibration is required to continue')),
-                                          );
-                                          return;
-                                        }
-                                        finalCalibration = pitchCalibrated;
-                                      }
-
                                       await Navigator.of(context).push(
                                         MaterialPageRoute(
                                           builder: (_) => AnalysisScreen(
                                             videoFile: widget.videoFile,
                                             start: start,
                                             end: end,
-                                            calibration: finalCalibration,
+                                            calibration: calibration,
                                             videoSource: widget.videoSource,
                                           ),
                                         ),

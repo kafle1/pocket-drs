@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AppSettings {
   static const _kServerUrl = 'serverUrl';
+  static const _kThemeMode = 'themeMode_v1';
 
   static String defaultServerUrl() {
     // Web runs on the same machine as the backend during development.
@@ -43,5 +45,29 @@ class AppSettings {
   static Future<void> setServerUrl(String v) async {
     final p = await SharedPreferences.getInstance();
     await p.setString(_kServerUrl, v.trim());
+  }
+
+  static Future<ThemeMode> getThemeMode() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final raw = (p.getString(_kThemeMode) ?? 'system').trim();
+      return switch (raw) {
+        'light' => ThemeMode.light,
+        'dark' => ThemeMode.dark,
+        _ => ThemeMode.system,
+      };
+    } catch (_) {
+      return ThemeMode.system;
+    }
+  }
+
+  static Future<void> setThemeMode(ThemeMode mode) async {
+    final p = await SharedPreferences.getInstance();
+    final raw = switch (mode) {
+      ThemeMode.light => 'light',
+      ThemeMode.dark => 'dark',
+      _ => 'system',
+    };
+    await p.setString(_kThemeMode, raw);
   }
 }

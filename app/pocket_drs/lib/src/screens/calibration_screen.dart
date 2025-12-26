@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../analysis/calibration_config.dart';
-import '../utils/calibration_store.dart';
 
 class CalibrationScreen extends StatefulWidget {
   const CalibrationScreen({
@@ -100,8 +99,6 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
         throw StateError(errors.join('\n'));
       }
 
-      await CalibrationStore().save(cfg);
-
       if (!mounted) return;
       Navigator.of(context).pop(cfg);
     } catch (e) {
@@ -138,7 +135,7 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'These values are saved and reused for future clips on this device.',
+                  'These values will be saved on this pitch when you finish calibration.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -210,7 +207,7 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.check),
-                  label: const Text('Continue to tracking'),
+                  label: const Text('Continue'),
                 ),
               ],
             ),

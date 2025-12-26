@@ -46,8 +46,8 @@ def test_create_job_and_fetch_result(tmp_path: Path, monkeypatch):
         "segment": {"start_ms": 0, "end_ms": 1200},
         "calibration": {"mode": "none", "pitch_corners_px": None, "pitch_dimensions_m": None},
         "tracking": {
-            "mode": "seeded",
-            "seed_px": {"x": 30, "y": 30},
+            "mode": "auto",
+            "seed_px": None,
             "max_frames": 60,
             "sample_fps": 30,
         },

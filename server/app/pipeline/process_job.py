@@ -11,7 +11,7 @@ from ..models import ApiError, JobStatus, ProgressInfo
 from .calibration import CalibrationError, homography_from_pitch_taps, map_track_to_pitch_plane
 from .events import estimate_bounce_index, estimate_impact_index
 from .lbw import assess_lbw
-from .tracking import TrackPoint, track_seeded
+from .tracking import TrackPoint, track_auto, track_seeded
 from .video import VideoDecodeError, VideoReader
 
 
@@ -46,12 +46,8 @@ def run_pipeline(
     sample_fps = int(tracking_req.get("sample_fps", 30))
     max_frames = int(tracking_req.get("max_frames", 180))
 
-    if tracking_req.get("mode") != "seeded":
-        raise ValueError("Only tracking.mode='seeded' is supported in MVP")
-
+    tracking_mode = str(tracking_req.get("mode") or "seeded")
     seed = tracking_req.get("seed_px")
-    if not seed:
-        raise ValueError("seed_px is required for seeded tracking")
 
     _progress(progress, 5, "decode")
 
@@ -97,13 +93,24 @@ def run_pipeline(
 
         _progress(progress, 35, "tracking")
 
-        track: list[TrackPoint] = track_seeded(
-            frames_bgr=frames,
-            times_ms=times_ms,
-            seed_x=float(seed["x"]),
-            seed_y=float(seed["y"]),
-            search_radius_px=160,
-        )
+        if tracking_mode == "auto":
+            track = track_auto(
+                frames_bgr=frames,
+                times_ms=times_ms,
+                search_radius_px=160,
+            )
+        elif tracking_mode == "seeded":
+            if not seed:
+                raise ValueError("seed_px is required for seeded tracking")
+            track = track_seeded(
+                frames_bgr=frames,
+                times_ms=times_ms,
+                seed_x=float(seed["x"]),
+                seed_y=float(seed["y"]),
+                search_radius_px=160,
+            )
+        else:
+            raise ValueError("tracking.mode must be 'auto' or 'seeded'")
 
         if not track:
             raise RuntimeError("Tracking produced no points")

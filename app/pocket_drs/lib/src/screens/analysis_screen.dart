@@ -14,7 +14,6 @@ import '../utils/app_settings.dart';
 import '../utils/format.dart';
 import '../utils/route_interactive.dart';
 import '../models/video_source.dart';
-import 'ball_seed_screen.dart';
 import 'lbw_review_screen.dart';
 
 class AnalysisScreen extends StatefulWidget {
@@ -41,8 +40,6 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
   AnalysisResult? _result;
   String? _error;
   bool _running = false;
-  Offset _seedPixel = const Offset(-1, -1);
-  String? _logPath;
 
   int? _progressPct;
   String? _progressStage;
@@ -54,7 +51,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     // Don't navigate during the route push transition.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _chooseSeedThenRun();
+      _run();
     });
   }
 
@@ -76,14 +73,13 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     return msg.isEmpty ? 'Unknown error' : msg;
   }
 
-  Future<void> _chooseSeedThenRun() async {
+  Future<void> _run() async {
     if (_running) return;
 
     setState(() {
       _running = true;
       _error = null;
       _result = null;
-      _logPath = null;
       _progressPct = null;
       _progressStage = null;
       _jobId = null;
@@ -91,40 +87,11 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     try {
       final logger = AnalysisLogger.instance;
       await logger.clear();
-      final path = await logger.logPath();
-      if (mounted) {
-        setState(() => _logPath = path);
-      }
       await logger.log('analysis start video=${widget.videoFile.path} start=${widget.start.inMilliseconds} end=${widget.end.inMilliseconds}');
 
       if (!mounted) return;
 
-      // Ensure we're not trying to push while this route is still animating in.
-      await waitForRouteInteractive(context);
-      if (!mounted) return;
-
-      // Ask the user for a single tap seed in the first frame of the segment.
-      final startMs = widget.start.inMilliseconds;
-      final endMs = widget.end.inMilliseconds;
-      final initialMs = (startMs + 200).clamp(startMs, endMs);
-
-      final seed = await Navigator.of(context).push<Offset?>(
-        MaterialPageRoute(
-          builder: (_) => BallSeedScreen(
-            videoPath: widget.videoFile.path,
-            startMs: startMs,
-            endMs: endMs,
-            initialMs: initialMs,
-          ),
-        ),
-      );
-      if (!mounted) return;
-      if (seed == null) {
-        throw StateError('Ball selection cancelled');
-      }
-      _seedPixel = seed;
-
-      final res = await _runBackend(seed: _seedPixel);
+      final res = await _runBackend();
       await logger.log('analysis complete points=${res.track.points.length}');
 
       if (!mounted) return;
@@ -135,12 +102,6 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     } catch (e, st) {
       await AnalysisLogger.instance.logException(e, st, context: 'analysis');
       if (!mounted) return;
-      final raw = e.toString();
-      if (raw.contains('Ball selection cancelled')) {
-        // User cancelled, not an error - just go back
-        if (mounted) Navigator.of(context).pop();
-        return;
-      }
       setState(() {
         _error = _userMessageFor(e);
         _running = false;
@@ -148,7 +109,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     }
   }
 
-  Future<AnalysisResult> _runBackend({required Offset seed}) async {
+  Future<AnalysisResult> _runBackend() async {
     final url = (await AppSettings.getServerUrl()).trim();
     final effectiveUrl = url.isNotEmpty ? url : AppSettings.defaultServerUrl();
 
@@ -201,8 +162,8 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
           'pitch_dimensions_m': pitchDims,
         },
         'tracking': <String, Object?>{
-          'mode': 'seeded',
-          'seed_px': <String, Object?>{'x': seed.dx, 'y': seed.dy},
+          'mode': 'auto',
+          'seed_px': null,
           'max_frames': 180,
           'sample_fps': 30,
         },
@@ -281,7 +242,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         actions: [
           IconButton(
             tooltip: 'Re-run',
-            onPressed: _running ? null : _chooseSeedThenRun,
+            onPressed: _running ? null : _run,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -325,13 +286,9 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                         Text(_error!),
                         const SizedBox(height: 8),
                         _CalibrationSummary(calibration: widget.calibration),
-                        if (_logPath != null) ...[
-                          const SizedBox(height: 8),
-                          Text('Log saved to: $_logPath'),
-                        ],
                         const SizedBox(height: 16),
                         FilledButton(
-                          onPressed: _chooseSeedThenRun,
+                          onPressed: _run,
                           child: const Text('Try again'),
                         ),
                       ],

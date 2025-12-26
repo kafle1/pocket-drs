@@ -7,7 +7,6 @@ import '../analysis/calibration_config.dart';
 import '../analysis/pitch_calibration.dart';
 import '../analysis/video_frame_provider.dart';
 import '../utils/analysis_logger.dart';
-import '../utils/calibration_store.dart';
 import '../utils/route_interactive.dart';
 
 class PitchCalibrationScreen extends StatefulWidget {
@@ -34,12 +33,15 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
   bool _loading = true;
   bool _saving = false;
 
+  int _frameMs = 0;
+
   final _taps = <Offset>[];
 
   @override
   void initState() {
     super.initState();
     _provider = VideoFrameProvider(videoPath: widget.videoPath);
+    _frameMs = widget.frameTimeMs;
     _load();
   }
 
@@ -57,7 +59,11 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
     });
 
     try {
-      final jpeg = await _provider.getFrameJpeg(timeMs: widget.frameTimeMs, quality: 90);
+      // Frame decoding is best-effort and cross-platform.
+      // We use a safe scrub range (0..5s) which works well for short calibration clips.
+      _frameMs = _frameMs.clamp(0, 5000);
+
+      final jpeg = await _provider.getFrameJpeg(timeMs: _frameMs, quality: 90);
       final image = await _decodeUiImage(jpeg);
       if (!mounted) return;
       setState(() {
@@ -73,6 +79,14 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _loadFrameAt(int timeMs) async {
+    if (!mounted) return;
+    setState(() {
+      _frameMs = timeMs;
+    });
+    await _load();
   }
 
   void _reset() {
@@ -96,7 +110,6 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
       calibration.validateImageQuad();
 
       final next = widget.config.copyWith(pitchCalibration: calibration);
-      await CalibrationStore().save(next);
 
       if (!mounted) return;
       // Avoid Navigator assertions if the user somehow hits Save during a transition.
@@ -132,6 +145,9 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    const durationMs = 5000;
+    final frameMs = _frameMs.clamp(0, durationMs);
 
     return Scaffold(
       appBar: AppBar(
@@ -229,6 +245,23 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
+                                Text(
+                                  'Frame for calibration',
+                                  style: theme.textTheme.titleMedium,
+                                ),
+                                const SizedBox(height: 8),
+                                Slider(
+                                  min: 0,
+                                  max: durationMs.toDouble().clamp(1.0, double.infinity),
+                                  divisions: (durationMs / 200).ceil().clamp(8, 200),
+                                  value: frameMs.toDouble(),
+                                  label: '${(frameMs / 1000).toStringAsFixed(2)}s',
+                                  onChanged: (v) {
+                                    setState(() => _frameMs = v.round());
+                                  },
+                                  onChangeEnd: (v) => _loadFrameAt(v.round()),
+                                ),
+                                const SizedBox(height: 12),
                                 Text(
                                   _instruction(),
                                   style: theme.textTheme.titleMedium,

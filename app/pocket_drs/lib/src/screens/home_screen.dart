@@ -9,6 +9,10 @@ import 'settings_screen.dart';
 import '../models/video_source.dart';
 import '../utils/analysis_logger.dart';
 
+/// Legacy entry screen.
+///
+/// The app now uses a pitch-first workflow (see `PitchesScreen`). This screen
+/// is kept temporarily for reference and may be removed.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 

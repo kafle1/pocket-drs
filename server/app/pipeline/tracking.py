@@ -4,6 +4,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
+try:
+    import cv2  # type: ignore
+except Exception:  # pragma: no cover
+    cv2 = None
+
 
 @dataclass(frozen=True)
 class TrackPoint:
@@ -15,6 +20,11 @@ class TrackPoint:
 
 class TrackingError(RuntimeError):
     pass
+
+
+def _require_cv2() -> None:
+    if cv2 is None:
+        raise TrackingError("OpenCV (cv2) is required for auto tracking")
 
 
 class Kalman2D:
@@ -195,5 +205,132 @@ def track_seeded(
             px, py = float(sx), float(sy)
 
         out.append(TrackPoint(t_ms=t_ms, x_px=float(px), y_px=float(py), confidence=float(confidence)))
+
+    return out
+
+
+def _find_motion_centroids(prev_bgr: np.ndarray, curr_bgr: np.ndarray) -> list[tuple[float, float, float]]:
+    """Return candidate moving object centroids as (x, y, score).
+
+    This is intentionally simple and offline-friendly:
+    - frame differencing
+    - threshold
+    - connected components
+
+    score is proportional to component area.
+    """
+    _require_cv2()
+
+    prev = cv2.cvtColor(prev_bgr, cv2.COLOR_BGR2GRAY)
+    curr = cv2.cvtColor(curr_bgr, cv2.COLOR_BGR2GRAY)
+
+    prev = cv2.GaussianBlur(prev, (5, 5), 0)
+    curr = cv2.GaussianBlur(curr, (5, 5), 0)
+
+    diff = cv2.absdiff(curr, prev)
+    # Automatic-ish threshold based on percentile to handle varying exposure.
+    thr = max(12.0, float(np.percentile(diff, 96)))
+    _, mask = cv2.threshold(diff, thr, 255, cv2.THRESH_BINARY)
+
+    # Clean up speckles.
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1)
+    mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=1)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    out: list[tuple[float, float, float]] = []
+    for c in contours:
+        area = float(cv2.contourArea(c))
+        if area < 6.0 or area > 2500.0:
+            continue
+        m = cv2.moments(c)
+        if m.get("m00", 0.0) == 0.0:
+            continue
+        cx = float(m["m10"] / m["m00"])
+        cy = float(m["m01"] / m["m00"])
+        out.append((cx, cy, area))
+
+    out.sort(key=lambda t: t[2], reverse=True)
+    return out
+
+
+def track_auto(
+    *,
+    frames_bgr: list[np.ndarray],
+    times_ms: list[int],
+    search_radius_px: int = 36,
+) -> list[TrackPoint]:
+    """Track a likely ball without a user-provided seed.
+
+    Strategy:
+    - use frame differencing to find moving blobs
+    - pick an initial centroid from the strongest early motion
+    - then follow using a small constant-velocity Kalman filter and nearest-candidate gating
+    """
+    _require_cv2()
+    if len(frames_bgr) != len(times_ms):
+        raise ValueError("frames_bgr and times_ms must have same length")
+    if not frames_bgr:
+        return []
+
+    if len(frames_bgr) < 2:
+        raise TrackingError("auto tracking requires at least 2 frames")
+
+    # Find initial candidate from the first few diffs.
+    init: tuple[float, float] | None = None
+    for i in range(1, min(6, len(frames_bgr))):
+        cands = _find_motion_centroids(frames_bgr[i - 1], frames_bgr[i])
+        if cands:
+            init = (cands[0][0], cands[0][1])
+            break
+    if init is None:
+        raise TrackingError("auto tracking failed: no moving object detected")
+
+    kf = Kalman2D(initial_x=init[0], initial_y=init[1])
+    last_meas: tuple[float, float] | None = init
+
+    out: list[TrackPoint] = []
+    for i in range(len(frames_bgr)):
+        frame = frames_bgr[i]
+        t_ms = int(times_ms[i])
+
+        dt = 1.0 / 30.0
+        if i > 0:
+            dt = max(0.001, (times_ms[i] - times_ms[i - 1]) / 1000.0)
+        kf.predict(dt)
+
+        meas: tuple[float, float] | None = None
+        confidence = 0.25
+
+        if i > 0:
+            cands = _find_motion_centroids(frames_bgr[i - 1], frame)
+            if cands:
+                px, py = kf.pos
+                best: tuple[float, float, float] | None = None
+                best_cost = float("inf")
+                for (cx, cy, area) in cands[:8]:
+                    dx = cx - px
+                    dy = cy - py
+                    dist2 = dx * dx + dy * dy
+                    if dist2 > float(max(12, search_radius_px)) ** 2:
+                        continue
+                    # Prefer nearer candidates; area breaks ties.
+                    cost = dist2 - 0.15 * area
+                    if cost < best_cost:
+                        best_cost = cost
+                        best = (cx, cy, area)
+                if best is not None:
+                    meas = (best[0], best[1])
+                    confidence = 0.75
+
+        if meas is not None:
+            kf.update(meas[0], meas[1])
+            last_meas = meas
+        else:
+            # Keep prediction; confidence drops.
+            confidence = 0.2 if last_meas is not None else 0.1
+
+        x, y = kf.pos
+        out.append(TrackPoint(t_ms=t_ms, x_px=float(x), y_px=float(y), confidence=float(confidence)))
 
     return out

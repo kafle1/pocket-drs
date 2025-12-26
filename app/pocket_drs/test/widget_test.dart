@@ -12,8 +12,7 @@ import 'package:pocket_drs/src/pocket_drs_app.dart';
 void main() {
   testWidgets('App boots', (WidgetTester tester) async {
     await tester.pumpWidget(const PocketDrsApp());
-    expect(find.text('PocketDRS'), findsWidgets);
-    expect(find.text('Record video'), findsOneWidget);
-    expect(find.text('Import video'), findsOneWidget);
+    expect(find.text('Pitches'), findsOneWidget);
+    expect(find.text('New pitch'), findsOneWidget);
   });
 }

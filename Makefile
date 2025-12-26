@@ -73,7 +73,12 @@ dev-app: setup-app
 # No-setup variants for parallel start.
 
 dev-server-only:
-	@cd "$(SERVER_DIR)" && "$(PYTHON)" run.py
+	@PORT=$${POCKET_DRS_PORT:-8000}; \
+	if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:$$PORT -sTCP:LISTEN >/dev/null 2>&1; then \
+		printf "%s\n" "Backend already listening on port $$PORT; skipping dev server start."; \
+		exit 0; \
+	fi; \
+	cd "$(SERVER_DIR)" && "$(PYTHON)" run.py
 
 dev-app-only:
 	@cd "$(APP_DIR)" && \
