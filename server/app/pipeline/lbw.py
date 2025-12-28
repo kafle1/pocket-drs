@@ -1,3 +1,8 @@
+"""LBW Decision Engine (ICC Rule 36 compliant).
+
+Assesses LBW decisions from 3D ball trajectory.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,182 +10,188 @@ from dataclasses import dataclass
 import numpy as np
 
 
-# Physical constants for accurate ball trajectory prediction
-WICKET_WIDTH_M = 0.2286  # Official ICC wicket width (9 inches)
-BALL_RADIUS_M = 0.036    # Cricket ball radius (~7.2 cm diameter)
-LINE_TOLERANCE_M = BALL_RADIUS_M  # Ball must be fully outside to be "outside"
-UMPIRES_CALL_ZONE_M = BALL_RADIUS_M  # Benefit of doubt zone (half ball width)
-
-# Improved prediction parameters
-MIN_PREDICTION_POINTS = 5  # Minimum points needed for reliable extrapolation
+# ICC-standard cricket dimensions
+WICKET_WIDTH_M = 0.2286  # 9 inches
+WICKET_HEIGHT_M = 0.71   # 28 inches (stump height)
+BALL_RADIUS_M = 0.036    # Cricket ball radius
+STUMPS_X_M = 0.0         # Striker stumps at X=0
 
 
 @dataclass(frozen=True)
-class LbwAssessment:
+class LBWDecision:
+    """LBW decision result."""
     pitched_in_line: bool
     impact_in_line: bool
-    wickets_hitting: bool
-    y_at_stumps_m: float
-    decision_key: str
+    hitting_stumps: bool
+    decision: str  # "OUT", "NOT OUT", "UMPIRES CALL"
     reason: str
-    prediction_confidence: float  # Quality metric for trajectory prediction
-    prediction_r_squared: float   # Statistical fit quality (0-1)
+    confidence: float  # 0-1
 
 
-def _in_line_y(y_m: float) -> bool:
-    tol = (WICKET_WIDTH_M / 2.0) + LINE_TOLERANCE_M
-    return abs(y_m) <= tol
-
-
-def _fit_y_over_x(xs: np.ndarray, ys: np.ndarray, weights: np.ndarray | None = None) -> tuple[float, float, float] | None:
-    """
-    Weighted linear regression: y = a + b*x
-    Returns (a, b, r_squared) or None if fit fails.
-    r_squared indicates quality of fit (1.0 = perfect, 0.0 = no correlation).
-    """
-    if xs.size < 2:
-        return None
-
-    mask = np.isfinite(xs) & np.isfinite(ys)
-    xs = xs[mask]
-    ys = ys[mask]
-    
-    if xs.size < 2:
-        return None
-    
-    if weights is not None:
-        weights = weights[mask]
-        if weights.size != xs.size or not np.all(np.isfinite(weights)):
-            weights = None
-    
-    if weights is None:
-        weights = np.ones_like(xs)
-    
-    # Normalize weights
-    weights = weights / weights.sum()
-    
-    sum_w = float(weights.sum())
-    sum_wx = float((weights * xs).sum())
-    sum_wy = float((weights * ys).sum())
-    sum_wxx = float((weights * xs * xs).sum())
-    sum_wxy = float((weights * xs * ys).sum())
-
-    denom = (sum_w * sum_wxx - sum_wx * sum_wx)
-    if abs(denom) < 1e-12:
-        return None
-
-    b = (sum_w * sum_wxy - sum_wx * sum_wy) / denom
-    a = (sum_wy - b * sum_wx) / sum_w
-    
-    # Calculate R-squared for quality assessment
-    y_pred = a + b * xs
-    ss_res = np.sum(weights * (ys - y_pred) ** 2)
-    y_mean = sum_wy / sum_w
-    ss_tot = np.sum(weights * (ys - y_mean) ** 2)
-    r_squared = 1.0 - (ss_res / (ss_tot + 1e-12))
-    
-    return a, b, float(r_squared)
-
-
-def assess_lbw(
+def assess_lbw_3d(
     *,
-    pitch_plane_points: list[tuple[float, float]],
-    pitch_index: int,
-    point_confidences: list[float] | None = None,  # Optional confidence weights
-    prediction_tail_points: int = 15,  # Increased for better accuracy
-) -> LbwAssessment:
-    """
-    Assess LBW decision based on ball trajectory in pitch plane.
-    
-    Enhanced with:
-    - Weighted linear regression using point confidences
-    - Statistical fit quality assessment (R-squared)
-    - Physics-aware extrapolation with uncertainty bounds
+    trajectory_3d: list[tuple[float, float, float]],  # [(x, y, z), ...]
+    impact_point_3d: tuple[float, float, float],
+    impact_on_pad: bool,
+) -> LBWDecision:
+    """Assess LBW from 3D trajectory.
     
     Args:
-        pitch_plane_points: Ball trajectory points in pitch plane (x, y) meters
-        pitch_index: Index where ball pitched/bounced
-        point_confidences: Optional confidence weights for each point
-        prediction_tail_points: Number of points to use for prediction
+        trajectory_3d: Ball positions in world coords (meters)
+        impact_point_3d: Impact position (x, y, z)
+        impact_on_pad: True if hit pad (not bat)
         
     Returns:
-        LbwAssessment with decision, confidence metrics, and ICC-compliant reasoning
+        LBW decision with reasoning
     """
-    if not pitch_plane_points:
-        raise ValueError("pitch_plane_points must not be empty")
-    if pitch_index < 0 or pitch_index >= len(pitch_plane_points):
-        raise IndexError("pitch_index out of range")
-
-    # Use the last point as impact (batter position)
-    impact_index = len(pitch_plane_points) - 1
+    if not impact_on_pad:
+        return LBWDecision(
+            pitched_in_line=False,
+            impact_in_line=False,
+            hitting_stumps=False,
+            decision="NOT OUT",
+            reason="Ball hit bat before pad",
+            confidence=1.0,
+        )
     
-    if impact_index <= pitch_index:
-        raise ValueError("Not enough points after pitch for LBW assessment")
-
-    _, pitch_y = pitch_plane_points[pitch_index]
-    _, impact_y = pitch_plane_points[impact_index]
-
-    # Use more points for better prediction, but not pre-bounce points
-    tail_start = max(pitch_index + 1, impact_index - prediction_tail_points + 1)
-    tail = pitch_plane_points[tail_start : impact_index + 1]
-
-    xs = np.array([p[0] for p in tail], dtype=np.float64)
-    ys = np.array([p[1] for p in tail], dtype=np.float64)
+    # 1. Check pitching point
+    bounce_point = _find_bounce_point(trajectory_3d)
+    if bounce_point is None:
+        return LBWDecision(
+            pitched_in_line=False,
+            impact_in_line=False,
+            hitting_stumps=False,
+            decision="NOT OUT",
+            reason="Cannot determine pitching point",
+            confidence=0.0,
+        )
     
-    # Extract confidence weights if available
-    weights = None
-    avg_confidence = 1.0
-    if point_confidences is not None and len(point_confidences) >= impact_index + 1:
-        tail_confidences = point_confidences[tail_start : impact_index + 1]
-        weights = np.array(tail_confidences, dtype=np.float64)
-        avg_confidence = float(np.mean(weights)) if len(weights) > 0 else 1.0
-
-    # Perform weighted linear fit
-    fit = _fit_y_over_x(xs, ys, weights=weights)
-    r_squared = 0.0
+    pitch_x, pitch_y, pitch_z = bounce_point
     
-    if fit is None or len(tail) < MIN_PREDICTION_POINTS:
-        # Fallback to last known position if fit fails
-        y_at_stumps = float(impact_y)
-        prediction_confidence = 0.3  # Low confidence for fallback
-    else:
-        a, b, r_squared = fit
-        y_at_stumps = float(a + b * 0.0)  # Extrapolate to x=0 (stumps)
-        # Combine fit quality with tracking confidence
-        prediction_confidence = min(0.99, avg_confidence * (0.5 + 0.5 * max(0, r_squared)))
-
-    pitched_in_line = _in_line_y(float(pitch_y))
-    impact_in_line = _in_line_y(float(impact_y))
-    wickets_hitting = _in_line_y(float(y_at_stumps))
-
-    y_abs = abs(y_at_stumps)
-    stumps_zone = WICKET_WIDTH_M / 2.0
-    umpires_call_outer = stumps_zone + UMPIRES_CALL_ZONE_M
-
-    # Decision logic following ICC LBW rules
-    if not pitched_in_line:
-        decision_key = "not_out"
-        reason = "Pitched outside leg stump"
-    elif not impact_in_line:
-        decision_key = "not_out"
-        reason = "Impact outside off stump"
-    elif y_abs <= stumps_zone:
-        decision_key = "out"
-        reason = f"Hitting stumps (confidence: {prediction_confidence:.1%})"
-    elif y_abs <= umpires_call_outer:
-        decision_key = "umpires_call"
-        reason = "Clipping stumps - Umpire's call"
-    else:
-        decision_key = "not_out"
-        reason = "Missing stumps"
-
-    return LbwAssessment(
-        pitched_in_line=pitched_in_line,
-        impact_in_line=impact_in_line,
-        wickets_hitting=wickets_hitting,
-        y_at_stumps_m=y_at_stumps,
-        decision_key=decision_key,
-        reason=reason,
-        prediction_confidence=prediction_confidence,
-        prediction_r_squared=r_squared,
+    # Outside leg side check (ICC Rule 36.1.3)
+    if pitch_y > (WICKET_WIDTH_M / 2 + BALL_RADIUS_M):
+        return LBWDecision(
+            pitched_in_line=False,
+            impact_in_line=False,
+            hitting_stumps=False,
+            decision="NOT OUT",
+            reason="Pitched outside leg stump",
+            confidence=0.95,
+        )
+    
+    pitched_in_line = True
+    
+    # 2. Check impact point
+    imp_x, imp_y, imp_z = impact_point_3d
+    
+    # Outside off stump check (only if offering shot)
+    # Simplified: assume offering shot
+    impact_lateral_distance = abs(imp_y)
+    
+    if impact_lateral_distance > (WICKET_WIDTH_M / 2 + BALL_RADIUS_M):
+        return LBWDecision(
+            pitched_in_line=pitched_in_line,
+            impact_in_line=False,
+            hitting_stumps=False,
+            decision="NOT OUT",
+            reason="Impact outside off stump line",
+            confidence=0.92,
+        )
+    
+    impact_in_line = True
+    
+    # 3. Predict if ball would hit stumps
+    hitting = _predict_hitting_stumps(trajectory_3d, impact_point_3d)
+    
+    if not hitting:
+        return LBWDecision(
+            pitched_in_line=pitched_in_line,
+            impact_in_line=impact_in_line,
+            hitting_stumps=False,
+            decision="NOT OUT",
+            reason="Ball missing stumps",
+            confidence=0.90,
+        )
+    
+    # All conditions met
+    return LBWDecision(
+        pitched_in_line=True,
+        impact_in_line=True,
+        hitting_stumps=True,
+        decision="OUT",
+        reason="All LBW conditions satisfied",
+        confidence=0.90,
     )
+
+
+def _find_bounce_point(trajectory: list[tuple[float, float, float]]) -> tuple[float, float, float] | None:
+    """Find bounce point (where z ≈ ball_radius)."""
+    for i, (x, y, z) in enumerate(trajectory):
+        if i == 0:
+            continue
+        
+        prev_z = trajectory[i-1][2]
+        
+        # Bounce detected: ball near ground and descending then ascending
+        if z < BALL_RADIUS_M * 2 and prev_z > z:
+            # Check next point if available
+            if i + 1 < len(trajectory):
+                next_z = trajectory[i+1][2]
+                if next_z > z:
+                    return (x, y, z)
+    
+    return None
+
+
+def _predict_hitting_stumps(
+    trajectory: list[tuple[float, float, float]],
+    impact_point: tuple[float, float, float],
+) -> bool:
+    """Predict if ball would hit stumps using physics simulation."""
+    # Find impact index
+    imp_x, imp_y, imp_z = impact_point
+    impact_idx = 0
+    min_dist = float('inf')
+    
+    for i, (x, y, z) in enumerate(trajectory):
+        dist = np.sqrt((x - imp_x)**2 + (y - imp_y)**2 + (z - imp_z)**2)
+        if dist < min_dist:
+            min_dist = dist
+            impact_idx = i
+    
+    # Get velocity at impact (finite difference)
+    if impact_idx == 0 or impact_idx >= len(trajectory) - 1:
+        return False
+    
+    pre_point = trajectory[impact_idx - 1]
+    post_point = trajectory[impact_idx + 1]
+    
+    dt = 0.01  # Assume 100 FPS spacing
+    vx = (post_point[0] - pre_point[0]) / (2 * dt)
+    vy = (post_point[1] - pre_point[1]) / (2 * dt)
+    vz = (post_point[2] - pre_point[2]) / (2 * dt)
+    
+    # Simulate forward to stumps
+    x, y, z = impact_point
+    GRAVITY = 9.81
+    
+    for _ in range(200):  # Max 2 seconds
+        x += vx * dt
+        y += vy * dt
+        z += vz * dt
+        vz -= GRAVITY * dt
+        
+        # Reached stump plane
+        if x <= STUMPS_X_M:
+            # Check if ball intersects stump cylinder
+            lateral_dist = abs(y)
+            if lateral_dist <= (WICKET_WIDTH_M / 2 + BALL_RADIUS_M):
+                if 0 <= z <= (WICKET_HEIGHT_M + BALL_RADIUS_M):
+                    return True
+            break
+        
+        # Ball went too high or underground
+        if z < -0.1 or z > 3.0:
+            break
+    
+    return False

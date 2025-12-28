@@ -39,6 +39,9 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
   void initState() {
     super.initState();
     _initializeController();
+    // Ensure the first render gets data without relying on didUpdateWidget.
+    // We queue immediately; delivery to JS is gated on pageLoaded/jsReady.
+    _queuePayload();
   }
 
   void _initializeController() {

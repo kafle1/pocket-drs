@@ -26,6 +26,29 @@
 
 # Virtualenvs
 **/.venv/
+**/venv/
+
+# Calibration data (machine-specific)
+**/calibration_data/
+*.npy
+intrinsic_calib_*.json
+
+# Training data and models
+**/datasets/
+**/models/*.pt
+**/models/*.onnx
 
 # Runtime job outputs
 data/jobs/
+**/output/
+**/temp/
+
+# Test videos
+*.mp4
+*.avi
+*.mov
+!test_sample.mp4
+
+# Generated documentation
+site/
+

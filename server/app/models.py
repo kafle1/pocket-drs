@@ -208,6 +208,11 @@ class VideoMeta(BaseModel):
     fps_est: float
 
 
+class ImageSize(BaseModel):
+    width: int
+    height: int
+
+
 class Diagnostics(BaseModel):
     warnings: list[str] = []
     log_id: str | None = None
@@ -221,6 +226,7 @@ class JobResultPayload(BaseModel):
     pitch_plane: dict[str, list[PitchPlanePoint]] | None = None
     events: EventsResponse | None = None
     lbw: LbwResponse | None = None
+    image_size: ImageSize | None = None
 
 
 class JobResultResponse(BaseModel):

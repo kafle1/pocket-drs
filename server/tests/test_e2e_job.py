@@ -8,7 +8,11 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
+
+
+# These tests exercise the public FastAPI job endpoints end-to-end.
 
 
 def _make_synthetic_video(path: Path, *, fps: int = 30, frames: int = 45) -> None:
@@ -82,6 +86,7 @@ def test_create_job_and_fetch_result(tmp_path: Path, monkeypatch):
     payload = result.json()
     assert payload["status"] == "succeeded"
     assert payload["result"]["track"]["points"]
+    assert payload["result"].get("image_size"), "image_size missing (Flutter client requires it)"
 
 
 def test_create_job_with_tap_calibration_and_stump_bases(tmp_path: Path, monkeypatch):
@@ -177,3 +182,6 @@ def test_create_job_with_tap_calibration_and_stump_bases(tmp_path: Path, monkeyp
 
     # LBW payload should be present when pitch_plane exists.
     assert res.get("lbw") is not None
+
+    # Decision key must be one of the API enums used by the client.
+    assert res["lbw"]["decision"] in {"out", "not_out", "umpires_call"}

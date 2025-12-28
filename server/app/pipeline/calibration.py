@@ -1,121 +1,165 @@
+"""Camera calibration for cricket pitch tracking.
+
+Provides:
+- Extrinsic calibration: Camera pose (R, T) via solvePnP
+- Homography: Image plane → pitch ground plane mapping
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import numpy as np
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 
 
 class CalibrationError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True)
-class Homography:
-    matrix: np.ndarray  # 3x3
-
-    def to_list(self) -> list[list[float]]:
-        return [[float(v) for v in row] for row in self.matrix.tolist()]
-
-    def apply(self, x: float, y: float) -> tuple[float, float]:
-        p = np.array([[x], [y], [1.0]], dtype=np.float64)
-        q = self.matrix @ p
-        w = float(q[2, 0])
-        if abs(w) < 1e-12:
-            return float("nan"), float("nan")
-        return float(q[0, 0] / w), float(q[1, 0] / w)
-
-
-def homography_from_pitch_taps(
+def calibrate_extrinsic(
     *,
-    image_points_px: list[tuple[float, float]],
-    pitch_length_m: float,
-    pitch_width_m: float,
-    stump_bases_px: list[tuple[float, float]] | None = None,
-) -> Homography:
-    if len(image_points_px) != 4:
-        raise CalibrationError("Expected 4 pitch corner points")
-
-    half_w = pitch_width_m / 2.0
-    dst = [
-        (0.0, -half_w),
-        (0.0, half_w),
-        (pitch_length_m, half_w),
-        (pitch_length_m, -half_w),
-    ]
-
-    def _dlt(src_pts: list[tuple[float, float]], dst_pts: list[tuple[float, float]]) -> Homography:
-        if len(src_pts) != len(dst_pts):
-            raise CalibrationError("Source/destination point count mismatch")
-        if len(src_pts) < 4:
-            raise CalibrationError("Need at least 4 point correspondences")
-
-        src_np = np.array(src_pts, dtype=np.float64)
-        dst_np = np.array(dst_pts, dtype=np.float64)
-
-        a_rows: list[list[float]] = []
-        for (x, y), (X, Y) in zip(src_np.tolist(), dst_np.tolist()):
-            a_rows.append([-x, -y, -1.0, 0.0, 0.0, 0.0, x * X, y * X, X])
-            a_rows.append([0.0, 0.0, 0.0, -x, -y, -1.0, x * Y, y * Y, Y])
-
-        a = np.array(a_rows, dtype=np.float64)
-        try:
-            _, _, vt = np.linalg.svd(a)
-        except np.linalg.LinAlgError as e:
-            raise CalibrationError(f"SVD failed while computing homography: {e}")
-
-        h = vt[-1, :].reshape(3, 3)
-        if abs(h[2, 2]) > 1e-12:
-            h = h / h[2, 2]
-
-        if not np.isfinite(h).all():
-            raise CalibrationError("Homography contains non-finite values")
-
-        det = float(np.linalg.det(h))
-        if abs(det) < 1e-12:
-            raise CalibrationError("Homography is degenerate (determinant near 0)")
-
-        return Homography(matrix=h)
-
-    # Base homography from corners.
-    H0 = _dlt(image_points_px, dst)
-
-    # Optional refinement using stump bases.
-    if stump_bases_px and len(stump_bases_px) == 2:
-        try:
-            # Order the provided bases as (striker, bowler) by projecting with H0.
-            p0 = H0.apply(float(stump_bases_px[0][0]), float(stump_bases_px[0][1]))
-            p1 = H0.apply(float(stump_bases_px[1][0]), float(stump_bases_px[1][1]))
-            if not (np.isfinite(p0[0]) and np.isfinite(p1[0])):
-                raise CalibrationError("Non-finite stump projection")
-
-            striker_src, bowler_src = stump_bases_px
-            if p0[0] > p1[0]:
-                striker_src, bowler_src = stump_bases_px[1], stump_bases_px[0]
-
-            src_pts = list(image_points_px) + [
-                (float(striker_src[0]), float(striker_src[1])),
-                (float(bowler_src[0]), float(bowler_src[1])),
-            ]
-            dst_pts = list(dst) + [
-                (0.0, 0.0),
-                (float(pitch_length_m), 0.0),
-            ]
-
-            return _dlt(src_pts, dst_pts)
-        except Exception:
-            # If refinement fails (bad taps / occluded stumps), fall back.
-            return H0
-
-    return H0
+    image_points: list[tuple[float, float]],
+    world_points: list[tuple[float, float, float]],
+    camera_matrix: np.ndarray,
+    dist_coeffs: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute camera pose (extrinsic parameters) using solvePnP.
+    
+    Args:
+        image_points: 2D pixel coordinates [(u, v), ...]
+        world_points: 3D world coordinates [(X, Y, Z), ...]
+        camera_matrix: 3x3 intrinsic camera matrix K
+        dist_coeffs: Distortion coefficients
+        
+    Returns:
+        (R, T): Rotation matrix (3x3) and translation vector (3x1)
+        
+    Example:
+        # Define pitch landmarks in world coordinates (meters)
+        world_points = [
+            (0.0, -1.52, 0.0),      # Striker crease left
+            (0.0, 1.52, 0.0),       # Striker crease right
+            (20.12, 1.52, 0.0),     # Bowler crease right
+            (20.12, -1.52, 0.0),    # Bowler crease left
+            (0.0, 0.0, 0.71),       # Striker stump top
+            (20.12, 0.0, 0.71),     # Bowler stump top
+        ]
+        # User taps corresponding points in image
+        image_points = [(x1, y1), (x2, y2), ...]
+        R, T = calibrate_extrinsic(
+            image_points=image_points,
+            world_points=world_points,
+            camera_matrix=K,
+            dist_coeffs=dist,
+        )
+    """
+    if cv2 is None:
+        raise CalibrationError("OpenCV required for extrinsic calibration")
+    
+    if len(image_points) != len(world_points):
+        raise CalibrationError("Image points and world points count mismatch")
+    
+    if len(image_points) < 4:
+        raise CalibrationError("Need at least 4 point correspondences")
+    
+    object_pts = np.array(world_points, dtype=np.float32)
+    image_pts = np.array(image_points, dtype=np.float32)
+    
+    success, rvec, tvec = cv2.solvePnP(
+        object_pts,
+        image_pts,
+        camera_matrix,
+        dist_coeffs,
+        flags=cv2.SOLVEPNP_ITERATIVE,
+    )
+    
+    if not success:
+        raise CalibrationError("solvePnP failed to converge")
+    
+    # Convert rotation vector to matrix
+    R, _ = cv2.Rodrigues(rvec)
+    
+    return R, tvec
 
 
-def map_track_to_pitch_plane(
+def compute_homography(
     *,
-    H: Homography,
-    track_points_px: list[tuple[int, float, float, float]],
-) -> list[tuple[int, float, float, float]]:
-    out: list[tuple[int, float, float, float]] = []
-    for t_ms, x_px, y_px, conf in track_points_px:
-        x_m, y_m = H.apply(x_px, y_px)
-        out.append((t_ms, x_m, y_m, conf))
-    return out
+    image_points: list[tuple[float, float]],
+    world_points: list[tuple[float, float]],
+) -> np.ndarray:
+    """Compute homography from image to world ground plane.
+    
+    Args:
+        image_points: Pixel coordinates [(u, v), ...]
+        world_points: Ground plane coordinates [(X, Y), ...]
+        
+    Returns:
+        3x3 homography matrix H such that world_point ~ H @ image_point
+        
+    Example:
+        # Define 4 pitch corners in world coords (meters)
+        world_points = [
+            (0.0, -1.52),       # Striker end left
+            (0.0, 1.52),        # Striker end right
+            (20.12, 1.52),      # Bowler end right
+            (20.12, -1.52),     # Bowler end left
+        ]
+        # User taps corners in image
+        image_points = [(u1, v1), (u2, v2), (u3, v3), (u4, v4)]
+        H = compute_homography(image_points=image_points, world_points=world_points)
+    """
+    if cv2 is None:
+        raise CalibrationError("OpenCV required for homography computation")
+    
+    if len(image_points) != len(world_points):
+        raise CalibrationError("Point count mismatch")
+    
+    if len(image_points) < 4:
+        raise CalibrationError("Need at least 4 correspondences")
+    
+    src_pts = np.array(image_points, dtype=np.float32)
+    dst_pts = np.array(world_points, dtype=np.float32)
+    
+    H, mask = cv2.findHomography(src_pts, dst_pts, method=cv2.RANSAC, ransacReprojThreshold=5.0)
+    
+    if H is None:
+        raise CalibrationError("Homography computation failed")
+    
+    return H
+
+
+def apply_homography(H: np.ndarray, x: float, y: float) -> tuple[float, float]:
+    """Apply homography to a single point."""
+    p = np.array([[x], [y], [1.0]])
+    q = H @ p
+    if abs(q[2, 0]) < 1e-12:
+        return float('nan'), float('nan')
+    return float(q[0, 0] / q[2, 0]), float(q[1, 0] / q[2, 0])
+
+
+def project_3d_to_image(
+    *,
+    world_point: np.ndarray,  # (3,) or (3,1)
+    camera_matrix: np.ndarray,
+    rotation: np.ndarray,
+    translation: np.ndarray,
+) -> tuple[float, float]:
+    """Project 3D world point to 2D image coordinates.
+    
+    Returns:
+        (u, v): Pixel coordinates
+    """
+    P = world_point.reshape(3, 1)
+    P_cam = rotation @ P + translation
+    
+    if P_cam[2, 0] < 0.01:
+        return float('nan'), float('nan')
+    
+    P_img = camera_matrix @ P_cam
+    u = P_img[0, 0] / P_img[2, 0]
+    v = P_img[1, 0] / P_img[2, 0]
+    
+    return float(u), float(v)
