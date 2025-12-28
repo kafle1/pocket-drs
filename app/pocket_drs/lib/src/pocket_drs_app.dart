@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'screens/pitches_screen.dart';
+import 'home_shell.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
 
@@ -25,10 +25,11 @@ class _PocketDrsAppState extends State<PocketDrsApp> {
       builder: (context, mode, _) {
         return MaterialApp(
           title: 'PocketDRS',
+          debugShowCheckedModeBanner: false,
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: mode,
-          home: const PitchesScreen(),
+          home: const HomeShell(),
         );
       },
     );

@@ -10,7 +10,6 @@ class PitchStore {
   PitchStore({SharedPreferences? prefs}) : _prefs = prefs;
 
   static const _pitchesKey = 'pitches_v1';
-  static const _activePitchIdKey = 'active_pitch_id_v1';
 
   final SharedPreferences? _prefs;
 
@@ -70,7 +69,6 @@ class PitchStore {
     final all = await loadAll();
     all.insert(0, pitch);
     await saveAll(all);
-    await setActivePitchId(pitch.id);
     return pitch;
   }
 
@@ -91,27 +89,6 @@ class PitchStore {
     final all = await loadAll();
     all.removeWhere((p) => p.id == id);
     await saveAll(all);
-
-    final active = await getActivePitchId();
-    if (active == id) {
-      await setActivePitchId(all.isEmpty ? null : all.first.id);
-    }
-  }
-
-  Future<String?> getActivePitchId() async {
-    final prefs = await _getPrefs();
-    final id = prefs.getString(_activePitchIdKey);
-    final normalized = id?.trim() ?? '';
-    return normalized.isEmpty ? null : normalized;
-  }
-
-  Future<void> setActivePitchId(String? id) async {
-    final prefs = await _getPrefs();
-    if (id == null || id.trim().isEmpty) {
-      await prefs.remove(_activePitchIdKey);
-      return;
-    }
-    await prefs.setString(_activePitchIdKey, id);
   }
 
   static CalibrationConfig defaultCalibration() => CalibrationConfig.defaults();

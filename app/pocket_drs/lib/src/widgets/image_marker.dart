@@ -14,6 +14,7 @@ class ImageMarker extends StatefulWidget {
     this.initialMarkers,
     this.guides,
     this.highlightGuideIndex,
+    this.showHeader = true,
   });
 
   final String imagePath;
@@ -36,6 +37,12 @@ class ImageMarker extends StatefulWidget {
 
   /// If set, the guide at this index will be emphasized.
   final int? highlightGuideIndex;
+
+  /// Whether to show the built-in header (title/subtitle/progress).
+  ///
+  /// Some flows (e.g. multi-step screens) may provide their own top app bar and
+  /// prefer a more compact canvas.
+  final bool showHeader;
 
   @override
   State<ImageMarker> createState() => _ImageMarkerState();
@@ -137,48 +144,49 @@ class _ImageMarkerState extends State<ImageMarker> {
 
     return Column(
       children: [
-        // Compact header
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                theme.colorScheme.surface,
-                theme.colorScheme.surface.withValues(alpha: 0.95),
+        if (widget.showHeader)
+          // Compact header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  theme.colorScheme.surface,
+                  theme.colorScheme.surface.withValues(alpha: 0.95),
+                ],
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.title,
+                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.subtitle,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        done ? 'All points marked' : 'Next: $nextLabel · Pinch to zoom for precision',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                _ProgressRing(current: _markers.length, total: widget.maxMarkers),
               ],
             ),
           ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.title,
-                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.subtitle,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      done ? 'All points marked' : 'Next: $nextLabel · Pinch to zoom for precision',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              _ProgressRing(current: _markers.length, total: widget.maxMarkers),
-            ],
-          ),
-        ),
         // Image canvas
         Expanded(
           child: _loading
@@ -199,7 +207,7 @@ class _ImageMarkerState extends State<ImageMarker> {
                     if (imgSize == null) return const SizedBox();
 
                     return Container(
-                      color: const Color(0xFF0A0A0A),
+                      color: theme.colorScheme.surfaceContainerLowest,
                       child: GestureDetector(
                         onTapUp: (d) => _onTapUp(d, viewport),
                         behavior: HitTestBehavior.opaque,

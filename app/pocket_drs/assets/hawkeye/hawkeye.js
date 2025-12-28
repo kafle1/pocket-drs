@@ -2,9 +2,11 @@
 (function () {
   'use strict';
 
-  let scene, camera, renderer;
+  let scene, camera, renderer, controls;
   let ballPathGroup, bounceMarker, impactMarker;
   let stumpsGroup;
+  let ballMesh;
+  let anim = null;
   let currentData = null;
 
   // Constants (meters)
@@ -14,20 +16,37 @@
   const STUMP_RADIUS = 0.02; 
   const STUMP_SPACING = 0.057; 
 
+  function postBridge(type, payload) {
+    try {
+      if (typeof window.__hawkeyeBridgePost === 'function') {
+        window.__hawkeyeBridgePost(type, payload);
+      }
+    } catch (_) {
+      // no-op
+    }
+  }
+
+  function clampIndex(value, fallback, maxInclusive) {
+    const n = Number.isFinite(value) ? value : fallback;
+    if (n < 0) return 0;
+    if (n > maxInclusive) return maxInclusive;
+    return Math.floor(n);
+  }
+
   function init() {
-    const container = document.getElementById('container');
-    if (!container) return;
-    const w = container.clientWidth;
-    const h = container.clientHeight;
+    try {
+      const container = document.getElementById('container');
+      if (!container) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
 
     // Scene
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0f172a);
-    scene.fog = new THREE.Fog(0x0f172a, 10, 60);
+    scene.background = new THREE.Color(0x1a2332);
+    scene.fog = new THREE.Fog(0x1a2332, 15, 50);
 
     // Camera
     camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100);
-    // Position: Behind the bowler (approx), looking at the batter's stumps (x=0)
     camera.position.set(PITCH_LENGTH + 4, 2.5, 0); 
     camera.lookAt(0, 0.5, 0);
 
@@ -39,26 +58,47 @@
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+    // OrbitControls for touch/drag interaction (needs renderer to be ready)
+    if (typeof THREE.OrbitControls !== 'undefined') {
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.15;
+      controls.minDistance = 3;
+      controls.maxDistance = 40;
+      controls.maxPolarAngle = Math.PI / 2.1;
+      controls.target.set(PITCH_LENGTH / 2, 0.5, 0);
+      controls.update();
+    }
+
     // Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-    dirLight.position.set(10, 20, 10);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(15, 25, 10);
     dirLight.castShadow = true;
     dirLight.shadow.mapSize.width = 2048;
     dirLight.shadow.mapSize.height = 2048;
     dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 50;
-    dirLight.shadow.camera.left = -15;
-    dirLight.shadow.camera.right = 15;
-    dirLight.shadow.camera.top = 15;
-    dirLight.shadow.camera.bottom = -15;
+    dirLight.shadow.camera.far = 60;
+    dirLight.shadow.camera.left = -20;
+    dirLight.shadow.camera.right = 20;
+    dirLight.shadow.camera.top = 20;
+    dirLight.shadow.camera.bottom = -20;
+    dirLight.shadow.bias = -0.0001;
     scene.add(dirLight);
+
+    const fillLight = new THREE.DirectionalLight(0x7ec8f5, 0.3);
+    fillLight.position.set(-10, 10, -10);
+    scene.add(fillLight);
 
     // Ground
     const groundGeo = new THREE.PlaneGeometry(100, 100);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x12310b, roughness: 0.8 });
+    const groundMat = new THREE.MeshStandardMaterial({ 
+      color: 0x1a4010, 
+      roughness: 0.85,
+      metalness: 0.0
+    });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
@@ -66,11 +106,16 @@
 
     // Pitch
     const pitchGeo = new THREE.PlaneGeometry(PITCH_LENGTH, PITCH_WIDTH);
-    const pitchMat = new THREE.MeshStandardMaterial({ color: 0x2d5016, roughness: 0.9 });
+    const pitchMat = new THREE.MeshStandardMaterial({ 
+      color: 0x3a6020, 
+      roughness: 0.9,
+      metalness: 0.0
+    });
     const pitch = new THREE.Mesh(pitchGeo, pitchMat);
     pitch.rotation.x = -Math.PI / 2;
     pitch.position.set(PITCH_LENGTH / 2, 0.01, 0); 
     pitch.receiveShadow = true;
+    pitch.castShadow = false;
     scene.add(pitch);
 
     // Crease lines
@@ -91,9 +136,21 @@
     createStumps(0); // Batting end
     createStumps(PITCH_LENGTH); // Bowling end
 
-    window.addEventListener('resize', onWindowResize, false);
-    
-    animate();
+      window.addEventListener('resize', onWindowResize, false);
+
+      if (currentData && currentData.points && currentData.points.length >= 2) {
+        updateTrajectory(currentData);
+      }
+
+      if (window.hawkeye) {
+        window.hawkeye.isReady = true;
+      }
+      postBridge('ready', { ok: true });
+
+      animate();
+    } catch (e) {
+      postBridge('error', { message: String(e) });
+    }
   }
 
   function createLine(x1, z1, x2, z2, material) {
@@ -106,7 +163,11 @@
   }
 
   function createStumps(xPos) {
-    const stumpMat = new THREE.MeshStandardMaterial({ color: 0xd4a574, roughness: 0.4 });
+    const stumpMat = new THREE.MeshStandardMaterial({ 
+      color: 0xe0b080, 
+      roughness: 0.5,
+      metalness: 0.1
+    });
     for(let i=-1; i<=1; i++) {
         const zPos = i * STUMP_SPACING;
         const geometry = new THREE.CylinderGeometry(STUMP_RADIUS, STUMP_RADIUS, STUMP_HEIGHT, 16);
@@ -135,6 +196,17 @@
 
   function animate() {
     requestAnimationFrame(animate);
+    if (controls) controls.update();
+    if (anim && anim.curve && ballMesh) {
+      const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const t = (now - anim.startMs) / anim.durationMs;
+      if (t >= 1) {
+        ballMesh.position.copy(anim.curve.getPoint(1));
+        anim = null;
+      } else if (t >= 0) {
+        ballMesh.position.copy(anim.curve.getPoint(t));
+      }
+    }
     if (renderer && scene && camera) {
       renderer.render(scene, camera);
     }
@@ -142,6 +214,9 @@
 
   function updateTrajectory(data) {
     currentData = data;
+
+    // If Flutter calls us before init() completes, keep the payload and bail.
+    if (!scene || !camera || !renderer) return;
     
     // Clear previous trajectory
     if (ballPathGroup) {
@@ -157,13 +232,30 @@
         impactMarker = null;
     }
 
-    if (!data || !data.points || data.points.length < 2) return;
+    if (!data || !data.points || data.points.length < 2) {
+      updateDecision(null);
+      if (ballMesh) ballMesh.visible = false;
+      anim = null;
+      if (ballPathGroup) {
+        scene.remove(ballPathGroup);
+        ballPathGroup = null;
+      }
+      if (bounceMarker) {
+        scene.remove(bounceMarker);
+        bounceMarker = null;
+      }
+      if (impactMarker) {
+        scene.remove(impactMarker);
+        impactMarker = null;
+      }
+      return;
+    }
 
     // Convert points: x->x, y->z, z->y
     const pts = data.points.map(p => new THREE.Vector3(p.x, p.z, p.y));
     
-    const bounceIndex = Math.min(data.bounceIndex, pts.length - 1);
-    const impactIndex = Math.min(data.impactIndex, pts.length - 1);
+    const bounceIndex = clampIndex(data.bounceIndex, 0, pts.length - 1);
+    const impactIndex = clampIndex(data.impactIndex, pts.length - 1, pts.length - 1);
 
     ballPathGroup = new THREE.Group();
 
@@ -193,7 +285,16 @@
 
     // Markers
     if (pts[bounceIndex]) {
-        const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.06, 32, 32), new THREE.MeshStandardMaterial({ color: 0xef4444 }));
+        const sphere = new THREE.Mesh(
+          new THREE.SphereGeometry(0.07, 32, 32), 
+          new THREE.MeshStandardMaterial({ 
+            color: 0xef4444,
+            roughness: 0.3,
+            metalness: 0.1,
+            emissive: 0xef4444,
+            emissiveIntensity: 0.3
+          })
+        );
         sphere.position.copy(pts[bounceIndex]);
         sphere.castShadow = true;
         scene.add(sphere);
@@ -201,7 +302,16 @@
     }
     
     if (pts[impactIndex]) {
-        const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.06, 32, 32), new THREE.MeshStandardMaterial({ color: 0x8b5cf6 }));
+        const sphere = new THREE.Mesh(
+          new THREE.SphereGeometry(0.07, 32, 32), 
+          new THREE.MeshStandardMaterial({ 
+            color: 0x8b5cf6,
+            roughness: 0.3,
+            metalness: 0.1,
+            emissive: 0x8b5cf6,
+            emissiveIntensity: 0.3
+          })
+        );
         sphere.position.copy(pts[impactIndex]);
         sphere.castShadow = true;
         scene.add(sphere);
@@ -209,19 +319,49 @@
     }
 
     updateDecision(data.decision);
+
+    const wantsAnim = !!data.animate;
+    if (wantsAnim) {
+      if (!ballMesh) {
+        ballMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(0.055, 32, 32),
+          new THREE.MeshStandardMaterial({ 
+            color: 0xffffff,
+            roughness: 0.2,
+            metalness: 0.1,
+            emissive: 0xffffff,
+            emissiveIntensity: 0.1
+          })
+        );
+        ballMesh.castShadow = true;
+        scene.add(ballMesh);
+      }
+      const curve = new THREE.CatmullRomCurve3(pts);
+      ballMesh.visible = true;
+      ballMesh.position.copy(curve.getPoint(0));
+      anim = { curve: curve, startMs: (typeof performance !== 'undefined' ? performance.now() : Date.now()), durationMs: 1500 };
+    } else {
+      if (ballMesh) ballMesh.visible = false;
+      anim = null;
+    }
   }
 
   function createTube(points, color, opacity = 1.0) {
       if (points.length < 2) return new THREE.Object3D();
       const curve = new THREE.CatmullRomCurve3(points);
-      const geometry = new THREE.TubeGeometry(curve, points.length * 4, 0.03, 8, false);
+      const geometry = new THREE.TubeGeometry(curve, points.length * 4, 0.04, 12, false);
       const material = new THREE.MeshStandardMaterial({ 
           color: color, 
           transparent: opacity < 1.0, 
-          opacity: opacity 
+          opacity: opacity,
+          roughness: 0.4,
+          metalness: 0.2,
+          emissive: color,
+          emissiveIntensity: 0.2
       });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.castShadow = true;
+      mesh.receiveShadow = true;
       return mesh;
   }
 
@@ -243,13 +383,13 @@
     }
   }
 
-  window.hawkeye = { updateTrajectory: updateTrajectory };
+  window.hawkeye = { updateTrajectory: updateTrajectory, isReady: false };
   
   // Wait for Three.js to load if it hasn't yet (though script tag order should handle it)
   if (typeof THREE !== 'undefined') {
-      init();
+    init();
   } else {
-      window.addEventListener('load', init);
+    window.addEventListener('load', init);
   }
 
 })();

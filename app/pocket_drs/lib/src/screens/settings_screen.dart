@@ -14,11 +14,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _loading = true;
   String? _error;
   ThemeMode _themeMode = ThemeMode.system;
+  bool _hasChanges = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _urlController.addListener(() {
+      if (!_hasChanges) setState(() => _hasChanges = true);
+    });
   }
 
   Future<void> _load() async {
@@ -29,6 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _urlController.text = url;
       _themeMode = themeMode;
       _loading = false;
+      _hasChanges = false;
     });
   }
 
@@ -56,7 +61,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await ThemeController.instance.setThemeMode(_themeMode);
 
     if (!mounted) return;
-    Navigator.of(context).pop();
+    setState(() => _hasChanges = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Settings saved successfully')),
+    );
   }
 
   @override
@@ -68,162 +76,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ? const Center(child: CircularProgressIndicator())
           : CustomScrollView(
               slivers: [
-                SliverAppBar.large(
-                  title: const Text('Settings'),
-                  actions: [
-                    TextButton.icon(
-                      onPressed: _save,
-                      icon: const Icon(Icons.check),
-                      label: const Text('Save'),
+                SliverAppBar(
+                  expandedHeight: 100,
+                  floating: false,
+                  pinned: true,
+                  flexibleSpace: FlexibleSpaceBar(
+                    title: Text(
+                      'Settings',
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        color: theme.colorScheme.onSurface,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                    const SizedBox(width: 8),
-                  ],
+                    titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
+                  ),
                 ),
                 SliverPadding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(20),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
-                      _SectionHeader(title: 'Appearance'),
-                      const SizedBox(height: 16),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainer,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: theme.colorScheme.outlineVariant.withOpacity(0.3),
-                          ),
-                        ),
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Theme Mode',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            SegmentedButton<ThemeMode>(
-                              showSelectedIcon: false,
-                              style: ButtonStyle(
-                                shape: WidgetStateProperty.all(
-                                  RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                              ),
-                              segments: const [
-                                ButtonSegment(
-                                  value: ThemeMode.system,
-                                  label: Text('System'),
-                                  icon: Icon(Icons.brightness_auto_outlined),
-                                ),
-                                ButtonSegment(
-                                  value: ThemeMode.light,
-                                  label: Text('Light'),
-                                  icon: Icon(Icons.light_mode_outlined),
-                                ),
-                                ButtonSegment(
-                                  value: ThemeMode.dark,
-                                  label: Text('Dark'),
-                                  icon: Icon(Icons.dark_mode_outlined),
-                                ),
-                              ],
-                              selected: <ThemeMode>{_themeMode},
-                              onSelectionChanged: (v) {
-                                final next = v.isEmpty ? ThemeMode.system : v.first;
-                                setState(() => _themeMode = next);
-                                ThemeController.instance.setThemeMode(next);
-                              },
-                            ),
-                          ],
-                        ),
+                      _SectionTitle(title: 'Appearance'),
+                      const SizedBox(height: 12),
+                      _ThemeCard(
+                        themeMode: _themeMode,
+                        onChanged: (mode) {
+                          setState(() {
+                            _themeMode = mode;
+                            _hasChanges = true;
+                          });
+                          ThemeController.instance.setThemeMode(mode);
+                        },
                       ),
+                      const SizedBox(height: 24),
+                      _SectionTitle(title: 'Server Connection'),
+                      const SizedBox(height: 12),
+                      _ServerCard(
+                        controller: _urlController,
+                        error: _error,
+                      ),
+                      const SizedBox(height: 24),
+                      _SectionTitle(title: 'About'),
+                      const SizedBox(height: 12),
+                      _AboutCard(),
                       const SizedBox(height: 32),
-                      _SectionHeader(title: 'Connection'),
-                      const SizedBox(height: 16),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainer,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: theme.colorScheme.outlineVariant.withOpacity(0.3),
+                      if (_hasChanges)
+                        FilledButton.icon(
+                          onPressed: _save,
+                          icon: const Icon(Icons.check_rounded),
+                          label: const Text('Save Changes'),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 18),
                           ),
                         ),
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.dns_outlined,
-                                  color: theme.colorScheme.primary,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  'Server Configuration',
-                                  style: theme.textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            TextField(
-                              controller: _urlController,
-                              decoration: InputDecoration(
-                                labelText: 'Server URL',
-                                hintText: 'http://192.168.1.10:8000',
-                                errorText: _error,
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                filled: true,
-                                fillColor: theme.colorScheme.surface,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              'The address of the Python backend server running the computer vision pipeline.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                      _SectionHeader(title: 'About'),
-                      const SizedBox(height: 16),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainer,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: theme.colorScheme.outlineVariant.withOpacity(0.3),
-                          ),
-                        ),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.all(16),
-                          leading: Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primaryContainer,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(
-                              Icons.info_outline,
-                              color: theme.colorScheme.onPrimaryContainer,
-                            ),
-                          ),
-                          title: const Text('Pocket DRS'),
-                          subtitle: const Text('Version 1.0.0 (Beta)'),
-                        ),
-                      ),
                     ]),
                   ),
                 ),
@@ -233,20 +137,218 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title});
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.title});
   final String title;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4),
-      child: Text(
-        title.toUpperCase(),
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-          color: Theme.of(context).colorScheme.primary,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1.2,
+    final theme = Theme.of(context);
+    return Text(
+      title.toUpperCase(),
+      style: theme.textTheme.labelLarge?.copyWith(
+        color: theme.colorScheme.primary,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 1.2,
+      ),
+    );
+  }
+}
+
+class _ThemeCard extends StatelessWidget {
+  const _ThemeCard({required this.themeMode, required this.onChanged});
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.palette_outlined,
+                    color: theme.colorScheme.primary,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Text(
+                  'Theme Mode',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            SegmentedButton<ThemeMode>(
+              showSelectedIcon: false,
+              style: ButtonStyle(
+                shape: WidgetStateProperty.all(
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                textStyle: WidgetStateProperty.all(
+                  theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              segments: const [
+                ButtonSegment(
+                  value: ThemeMode.light,
+                  label: Text('Light'),
+                  icon: Icon(Icons.light_mode_outlined),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.dark,
+                  label: Text('Dark'),
+                  icon: Icon(Icons.dark_mode_outlined),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.system,
+                  label: Text('Auto'),
+                  icon: Icon(Icons.brightness_auto_outlined),
+                ),
+              ],
+              selected: <ThemeMode>{themeMode},
+              onSelectionChanged: (v) {
+                if (v.isNotEmpty) onChanged(v.first);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ServerCard extends StatelessWidget {
+  const _ServerCard({required this.controller, this.error});
+  final TextEditingController controller;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.dns_outlined,
+                    color: theme.colorScheme.secondary,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    'Backend Server',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              decoration: InputDecoration(
+                labelText: 'Server URL',
+                hintText: 'http://192.168.1.10:8000',
+                errorText: error,
+                prefixIcon: const Icon(Icons.link),
+              ),
+              keyboardType: TextInputType.url,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Address of the Python backend running the computer vision pipeline.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AboutCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.sports_cricket,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Pocket DRS',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Version 1.0.0 (Beta)',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

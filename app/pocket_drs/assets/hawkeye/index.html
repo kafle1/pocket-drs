@@ -55,7 +55,128 @@
     <div class="legend-item"><div class="legend-dot impact"></div>Impact</div>
     <div class="legend-item"><div class="legend-dot predicted"></div>Predicted</div>
   </div>
+  <script>
+    (function () {
+      'use strict';
+
+      function post(type, payload) {
+        try {
+          if (window.HawkEyeBridge && typeof window.HawkEyeBridge.postMessage === 'function') {
+            var msg = Object.assign({ type: type }, payload || {});
+            window.HawkEyeBridge.postMessage(JSON.stringify(msg));
+          }
+        } catch (_) {
+          // no-op
+        }
+      }
+
+      window.__hawkeyeBridgePost = post;
+
+      window.addEventListener('error', function (e) {
+        post('error', {
+          message: String(e && e.message || 'Unknown error'),
+          source: String(e && e.filename || ''),
+          line: Number(e && e.lineno || 0),
+          col: Number(e && e.colno || 0)
+        });
+      });
+
+      window.addEventListener('unhandledrejection', function (e) {
+        post('error', { message: String(e && e.reason || 'Unhandled rejection') });
+      });
+
+      post('page_loaded');
+    })();
+  </script>
   <script src="three.min.js"></script>
+  <script>
+    // Minimal OrbitControls implementation
+    THREE.OrbitControls = function(camera, domElement) {
+      this.camera = camera;
+      this.domElement = domElement || document;
+      this.target = new THREE.Vector3();
+      this.minDistance = 0;
+      this.maxDistance = Infinity;
+      this.minPolarAngle = 0;
+      this.maxPolarAngle = Math.PI;
+      this.enableDamping = false;
+      this.dampingFactor = 0.05;
+      
+      var scope = this;
+      var spherical = new THREE.Spherical();
+      var sphericalDelta = new THREE.Spherical();
+      var panOffset = new THREE.Vector3();
+      var scale = 1;
+      var rotateStart = new THREE.Vector2();
+      var rotateEnd = new THREE.Vector2();
+      var rotateDelta = new THREE.Vector2();
+      var STATE = { NONE: -1, ROTATE: 0, TOUCH_ROTATE: 1 };
+      var state = STATE.NONE;
+      
+      function onPointerDown(event) {
+        if (event.touches) {
+          if (event.touches.length === 1) {
+            state = STATE.TOUCH_ROTATE;
+            rotateStart.set(event.touches[0].pageX, event.touches[0].pageY);
+          }
+        } else {
+          state = STATE.ROTATE;
+          rotateStart.set(event.clientX, event.clientY);
+        }
+      }
+      
+      function onPointerMove(event) {
+        if (state === STATE.NONE) return;
+        if (event.touches) {
+          if (event.touches.length === 1) {
+            rotateEnd.set(event.touches[0].pageX, event.touches[0].pageY);
+          }
+        } else {
+          rotateEnd.set(event.clientX, event.clientY);
+        }
+        rotateDelta.subVectors(rotateEnd, rotateStart).multiplyScalar(0.003);
+        sphericalDelta.theta -= rotateDelta.x;
+        sphericalDelta.phi -= rotateDelta.y;
+        rotateStart.copy(rotateEnd);
+      }
+      
+      function onPointerUp() {
+        state = STATE.NONE;
+      }
+      
+      this.domElement.addEventListener('mousedown', onPointerDown, false);
+      this.domElement.addEventListener('mousemove', onPointerMove, false);
+      this.domElement.addEventListener('mouseup', onPointerUp, false);
+      this.domElement.addEventListener('touchstart', onPointerDown, false);
+      this.domElement.addEventListener('touchmove', onPointerMove, false);
+      this.domElement.addEventListener('touchend', onPointerUp, false);
+      
+      this.update = function() {
+        var offset = new THREE.Vector3();
+        offset.copy(scope.camera.position).sub(scope.target);
+        spherical.setFromVector3(offset);
+        
+        spherical.theta += sphericalDelta.theta;
+        spherical.phi += sphericalDelta.phi;
+        spherical.phi = Math.max(scope.minPolarAngle, Math.min(scope.maxPolarAngle, spherical.phi));
+        spherical.makeSafe();
+        spherical.radius *= scale;
+        spherical.radius = Math.max(scope.minDistance, Math.min(scope.maxDistance, spherical.radius));
+        
+        offset.setFromSpherical(spherical);
+        scope.camera.position.copy(scope.target).add(offset);
+        scope.camera.lookAt(scope.target);
+        
+        if (scope.enableDamping) {
+          sphericalDelta.theta *= (1 - scope.dampingFactor);
+          sphericalDelta.phi *= (1 - scope.dampingFactor);
+        } else {
+          sphericalDelta.set(0, 0, 0);
+        }
+        scale = 1;
+      };
+    };
+  </script>
   <script src="hawkeye.js"></script>
 </body>
 </html>

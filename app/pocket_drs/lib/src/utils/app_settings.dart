@@ -50,14 +50,14 @@ class AppSettings {
   static Future<ThemeMode> getThemeMode() async {
     try {
       final p = await SharedPreferences.getInstance();
-      final raw = (p.getString(_kThemeMode) ?? 'system').trim();
+      final raw = (p.getString(_kThemeMode) ?? 'dark').trim();
       return switch (raw) {
         'light' => ThemeMode.light,
         'dark' => ThemeMode.dark,
-        _ => ThemeMode.system,
+        _ => ThemeMode.dark,
       };
     } catch (_) {
-      return ThemeMode.system;
+      return ThemeMode.dark;
     }
   }
 

@@ -6,7 +6,6 @@
 // tree, read text, and verify that the values of widget properties are correct.
 
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:pocket_drs/src/pocket_drs_app.dart';
 
 void main() {
@@ -14,6 +13,6 @@ void main() {
     await tester.pumpWidget(const PocketDrsApp());
     await tester.pump();
     expect(find.text('Pitches'), findsWidgets);
-    expect(find.text('New Pitch'), findsOneWidget);
+    expect(find.text('Settings'), findsWidgets);
   });
 }

@@ -56,8 +56,8 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete pitch?'),
-        content: Text('Remove "${pitch.name}"?'),
+        title: const Text('Delete Pitch?'),
+        content: Text('Are you sure you want to delete "${pitch.name}"? This action cannot be undone.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           FilledButton(
@@ -87,7 +87,7 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
     final pitch = _pitch;
     if (pitch == null || !pitch.isCalibrated) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Calibrate first'), behavior: SnackBarBehavior.floating),
+        const SnackBar(content: Text('Please calibrate the pitch first'), behavior: SnackBarBehavior.floating),
       );
       return;
     }
@@ -114,114 +114,74 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
           : _error != null
               ? _ErrorView(error: _error!, onRetry: _load)
               : pitch == null
-                  ? const Center(child: Text('Not found'))
+                  ? const Center(child: Text('Pitch not found'))
                   : CustomScrollView(
                       slivers: [
-                        SliverAppBar.large(
-                          title: Text(pitch.name),
+                        SliverAppBar(
+                          expandedHeight: 100,
+                          floating: false,
+                          pinned: true,
+                          flexibleSpace: FlexibleSpaceBar(
+                            title: Text(
+                              pitch.name,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            titlePadding: const EdgeInsets.only(left: 56, bottom: 16),
+                          ),
                           actions: [
                             IconButton(
                               icon: const Icon(Icons.edit_outlined),
                               onPressed: _edit,
-                              tooltip: 'Edit Name',
+                              tooltip: 'Edit',
                             ),
                             IconButton(
                               icon: const Icon(Icons.delete_outline),
                               onPressed: _delete,
-                              tooltip: 'Delete Pitch',
+                              tooltip: 'Delete',
                             ),
                             const SizedBox(width: 8),
                           ],
                         ),
                         SliverPadding(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(20),
                           sliver: SliverList(
                             delegate: SliverChildListDelegate([
+                              _StatusBanner(calibrated: calibrated),
+                              const SizedBox(height: 20),
                               if (calibrated) ...[
-                                GestureDetector(
-                                  onTap: _view3DFullscreen,
-                                  child: Container(
-                                    height: 240,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(24),
-                                      color: const Color(0xFF0F172A),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.2),
-                                          blurRadius: 12,
-                                          offset: const Offset(0, 4),
-                                        ),
-                                      ],
-                                    ),
-                                    clipBehavior: Clip.antiAlias,
-                                    child: Stack(
-                                      children: [
-                                        const Pitch3DViewer(),
-                                        Positioned(
-                                          right: 16,
-                                          top: 16,
-                                          child: Container(
-                                            padding: const EdgeInsets.all(8),
-                                            decoration: BoxDecoration(
-                                              color: Colors.white.withOpacity(0.1),
-                                              borderRadius: BorderRadius.circular(12),
-                                              border: Border.all(
-                                                color: Colors.white.withOpacity(0.2),
-                                              ),
-                                            ),
-                                            child: const Icon(Icons.fullscreen, color: Colors.white, size: 24),
-                                          ),
-                                        ),
-                                        Positioned(
-                                          left: 16,
-                                          bottom: 16,
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                            decoration: BoxDecoration(
-                                              color: theme.colorScheme.primary,
-                                              borderRadius: BorderRadius.circular(20),
-                                            ),
-                                            child: const Text(
-                                              '3D PREVIEW',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.bold,
-                                                letterSpacing: 1,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 24),
+                                _ViewerCard(onView3D: _view3DFullscreen),
+                                const SizedBox(height: 20),
                               ],
-                              _StatusCard(calibrated: calibrated, onCalibrate: _calibrate),
-                              const SizedBox(height: 32),
                               Text(
                                 'Actions',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: theme.colorScheme.onSurface,
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              const SizedBox(height: 16),
-                              _ActionTile(
-                                icon: Icons.movie_filter_outlined,
+                              const SizedBox(height: 12),
+                              _ActionCard(
+                                icon: Icons.analytics_outlined,
                                 title: 'Analyze Delivery',
-                                subtitle: calibrated ? 'Upload video to analyze' : 'Calibration required',
+                                subtitle: calibrated
+                                    ? 'Upload or record a ball video'
+                                    : 'Calibrate the pitch first',
+                                enabled: calibrated,
                                 onTap: calibrated ? _analyze : null,
-                                isPrimary: true,
+                                color: theme.colorScheme.primary,
                               ),
                               const SizedBox(height: 12),
-                              _ActionTile(
-                                icon: Icons.sports_cricket_outlined,
-                                title: 'Quick Ball Analysis',
-                                subtitle: 'Coming soon',
-                                onTap: null, // Disabled for now
+                              _ActionCard(
+                                icon: Icons.tune_outlined,
+                                title: calibrated ? 'Re-calibrate' : 'Calibrate Pitch',
+                                subtitle: 'Mark stumps and pitch corners for 3D tracking',
+                                enabled: true,
+                                onTap: _calibrate,
+                                color: theme.colorScheme.secondary,
                               ),
+                              const SizedBox(height: 20),
+                              _InfoCard(pitch: pitch),
                             ]),
                           ),
                         ),
@@ -231,95 +191,123 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
   }
 }
 
-class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.calibrated, required this.onCalibrate});
+class _StatusBanner extends StatelessWidget {
+  const _StatusBanner({required this.calibrated});
   final bool calibrated;
-  final VoidCallback onCalibrate;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = calibrated ? const Color(0xFF10B981) : theme.colorScheme.error;
-    
-    return Card(
-      elevation: 0,
-      color: theme.colorScheme.surfaceContainer,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withOpacity(0.3),
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: calibrated
+              ? [theme.colorScheme.tertiary, theme.colorScheme.tertiary.withValues(alpha: 0.7)]
+              : [theme.colorScheme.error, theme.colorScheme.error.withValues(alpha: 0.7)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
+        borderRadius: BorderRadius.circular(16),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              calibrated ? Icons.check_circle : Icons.warning_amber_rounded,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: color.withOpacity(0.2)),
+                Text(
+                  calibrated ? 'Ready to Analyze' : 'Needs Calibration',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: color,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        calibrated ? 'CALIBRATED' : 'NEEDS CALIBRATION',
-                        style: TextStyle(
-                          color: color,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  calibrated
+                      ? 'Pitch is calibrated and ready for ball tracking'
+                      : 'Calibrate to enable ball tracking analysis',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.9),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              calibrated
-                  ? 'Ready for Action'
-                  : 'Setup Required',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ViewerCard extends StatelessWidget {
+  const _ViewerCard({required this.onView3D});
+  final VoidCallback onView3D;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: onView3D,
+      child: Container(
+        height: 280,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: theme.colorScheme.surfaceContainerHighest,
+          border: Border.all(
+            color: theme.colorScheme.outline.withValues(alpha: 0.3),
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          children: [
+            Pitch3DViewer(
+              trajectoryPoints: [
+                {'x': 0.0, 'y': 0.0, 'z': 0.5},
+                {'x': 20.12, 'y': 0.0, 'z': 0.0},
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              calibrated
-                  ? 'This pitch is calibrated and ready to analyze deliveries with high precision.'
-                  : 'Mark the pitch corners and stumps to enable Hawk-Eye analysis for this ground.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.5,
-              ),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: onCalibrate,
-                style: FilledButton.styleFrom(
-                  backgroundColor: calibrated ? theme.colorScheme.secondary : theme.colorScheme.primary,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 16,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
                 ),
-                icon: Icon(calibrated ? Icons.tune : Icons.build_circle_outlined),
-                label: Text(calibrated ? 'Recalibrate Pitch' : 'Start Calibration'),
+                child: Row(
+                  children: [
+                    Icon(Icons.view_in_ar, color: theme.colorScheme.primary, size: 24),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Tap to view 3D pitch',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    Icon(Icons.fullscreen, color: Colors.white.withValues(alpha: 0.8)),
+                  ],
+                ),
               ),
             ),
           ],
@@ -329,59 +317,46 @@ class _StatusCard extends StatelessWidget {
   }
 }
 
-class _ActionTile extends StatelessWidget {
-  const _ActionTile({
+class _ActionCard extends StatelessWidget {
+  const _ActionCard({
     required this.icon,
     required this.title,
     required this.subtitle,
+    required this.enabled,
+    required this.color,
     this.onTap,
-    this.isPrimary = false,
   });
-
+  
   final IconData icon;
   final String title;
   final String subtitle;
+  final bool enabled;
+  final Color color;
   final VoidCallback? onTap;
-  final bool isPrimary;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final enabled = onTap != null;
-    
     return Card(
-      elevation: 0,
-      color: isPrimary ? theme.colorScheme.primaryContainer.withOpacity(0.3) : theme.colorScheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: isPrimary 
-              ? theme.colorScheme.primary.withOpacity(0.2) 
-              : theme.colorScheme.outlineVariant.withOpacity(0.5),
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
+      margin: EdgeInsets.zero,
       child: InkWell(
-        onTap: onTap,
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Row(
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: 56,
+                height: 56,
                 decoration: BoxDecoration(
-                  color: enabled 
-                      ? (isPrimary ? theme.colorScheme.primary : theme.colorScheme.secondaryContainer)
-                      : theme.colorScheme.surfaceContainerHighest,
+                  color: enabled ? color.withValues(alpha: 0.15) : theme.colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
                   icon,
-                  color: enabled 
-                      ? (isPrimary ? theme.colorScheme.onPrimary : theme.colorScheme.onSecondaryContainer)
-                      : theme.colorScheme.outline,
-                  size: 24,
+                  color: enabled ? color : theme.colorScheme.onSurfaceVariant,
+                  size: 28,
                 ),
               ),
               const SizedBox(width: 16),
@@ -392,8 +367,8 @@ class _ActionTile extends StatelessWidget {
                     Text(
                       title,
                       style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: enabled ? theme.colorScheme.onSurface : theme.colorScheme.outline,
+                        fontWeight: FontWeight.w700,
+                        color: enabled ? null : theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -407,14 +382,96 @@ class _ActionTile extends StatelessWidget {
                 ),
               ),
               Icon(
-                Icons.arrow_forward_ios,
-                size: 16,
-                color: enabled ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.outline.withOpacity(0.5),
+                Icons.chevron_right_rounded,
+                color: enabled ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.outline,
+                size: 28,
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _InfoCard extends StatelessWidget {
+  const _InfoCard({required this.pitch});
+  final Pitch pitch;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.info_outline, color: theme.colorScheme.primary, size: 24),
+                const SizedBox(width: 12),
+                Text(
+                  'Pitch Information',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _InfoRow(label: 'Name', value: pitch.name),
+            const SizedBox(height: 12),
+            _InfoRow(label: 'Created', value: _formatDateTime(pitch.createdAt)),
+            const SizedBox(height: 12),
+            _InfoRow(label: 'Last Updated', value: _formatDateTime(pitch.updatedAt)),
+            const SizedBox(height: 12),
+            _InfoRow(
+              label: 'Status',
+              value: pitch.isCalibrated ? 'Calibrated' : 'Not Calibrated',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDateTime(DateTime dt) {
+    return '${dt.day}/${dt.month}/${dt.year} at ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 110,
+          child: Text(
+            label,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -426,17 +483,31 @@ class _ErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Error', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(error, textAlign: TextAlign.center),
+            Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
             const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Retry')),
+            Text(
+              'Error',
+              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              error,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
           ],
         ),
       ),
@@ -456,9 +527,16 @@ class _Fullscreen3DViewer extends StatelessWidget {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
         systemOverlayStyle: SystemUiOverlayStyle.light,
+        title: const Text('3D Pitch View', style: TextStyle(color: Colors.white)),
       ),
       extendBodyBehindAppBar: true,
-      body: const Pitch3DViewer(),
+      body: Pitch3DViewer(
+        trajectoryPoints: [
+          {'x': 0.0, 'y': 0.0, 'z': 0.5},
+          {'x': 20.12, 'y': 0.0, 'z': 0.0},
+        ],
+      ),
     );
   }
 }
+

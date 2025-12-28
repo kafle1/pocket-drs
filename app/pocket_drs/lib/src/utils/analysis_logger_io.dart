@@ -40,10 +40,7 @@ class AnalysisLogger {
     await file.writeAsString(line, mode: FileMode.append, flush: true);
   }
 
-  /// Logs and also prints to console (useful during hit-and-trial debugging).
   Future<void> logAndPrint(String message) async {
-    // Keep console output readable and consistent.
-    debugPrint('[PocketDRS] $message');
     await log(message);
   }
 

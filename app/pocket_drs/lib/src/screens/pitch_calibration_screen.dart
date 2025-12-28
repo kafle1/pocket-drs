@@ -334,29 +334,53 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
   int get _stepIndex => _step.index;
   static const _steps = ['Video', 'Frame', 'Pitch', 'Striker', 'Bowler', 'Review', 'Ball'];
 
+  String? get _stepHint {
+    return switch (_step) {
+      _Step.pitch => 'Tap pitch corners clockwise starting at striker end.',
+      _Step.stumpsStriker || _Step.stumpsBowler => 'Tap stump base first, then stump top. Pinch to zoom.',
+      _Step.review => 'Zoom in and confirm markings. Use Edit to fix anything.',
+      _ => null,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_step == _Step.done) return Scaffold(body: _SavingOverlay(saving: _saving));
-
+    final theme = Theme.of(context);
+    final hint = _stepHint;
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar.large(
-            title: Text(widget.pitchName),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: _goBack,
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: _StepIndicator(current: _stepIndex, steps: _steps),
-          ),
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: _buildBody(),
-          ),
-        ],
-      ),
+      backgroundColor: theme.colorScheme.surface,
+      appBar: _step != _Step.done
+          ? AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: _goBack,
+              ),
+              title: Text(widget.pitchName),
+              bottom: PreferredSize(
+                preferredSize: Size.fromHeight(hint == null ? 40 : 64),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _StepIndicator(current: _stepIndex, steps: _steps),
+                    if (hint != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
+                        child: Text(
+                          hint,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            )
+          : null,
+      body: _buildBody(),
     );
   }
 
@@ -379,6 +403,7 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
                 subtitle: 'Tap corners clockwise starting at striker end (near stumps)',
                 markerLabels: const ['Striker Left', 'Striker Right', 'Bowler Right', 'Bowler Left'],
                 initialMarkers: _pitchCorners,
+                showHeader: false,
                 onComplete: _onPitchComplete,
               );
       case _Step.stumpsStriker:
@@ -394,6 +419,7 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
                 initialMarkers: _strikerStumps,
                 guides: _buildGuides(),
                 highlightGuideIndex: 1,
+                showHeader: false,
                 onComplete: _onStrikerStumpsComplete,
               );
       case _Step.stumpsBowler:
@@ -409,6 +435,7 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
                 initialMarkers: _bowlerStumps,
                 guides: _buildGuides(),
                 highlightGuideIndex: 2,
+                showHeader: false,
                 onComplete: _onBowlerStumpsComplete,
               );
       case _Step.review:
@@ -532,21 +559,6 @@ class _CalibrationReviewStepState extends State<_CalibrationReviewStep> {
 
     return Column(
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          color: theme.colorScheme.surface,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Review Calibration', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 6),
-              Text(
-                'Zoom in and confirm pitch corners + both stumps are perfectly marked.',
-                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              ),
-            ],
-          ),
-        ),
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
@@ -562,7 +574,7 @@ class _CalibrationReviewStepState extends State<_CalibrationReviewStep> {
                     }
 
                     return Container(
-                      color: const Color(0xFF0A0A0A),
+                      color: theme.colorScheme.surfaceContainerLowest,
                       child: InteractiveViewer(
                         transformationController: _transform,
                         minScale: 0.5,
@@ -797,19 +809,19 @@ class _StepIndicator extends StatelessWidget {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: List.generate(steps.length, (i) {
-            final active = i == current;
-            final done = i < current;
-            return Row(
+      child: Row(
+        children: List.generate(steps.length, (i) {
+          final active = i == current;
+          final done = i < current;
+          return Expanded(
+            child: Row(
               children: [
                 if (i > 0)
-                  Container(
-                    width: 24,
-                    height: 2,
-                    color: done ? theme.colorScheme.primary : theme.colorScheme.outlineVariant.withOpacity(0.3),
+                  Expanded(
+                    child: Container(
+                      height: 2,
+                      color: done ? theme.colorScheme.primary : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                    ),
                   ),
                 Container(
                   width: 28,
@@ -838,10 +850,17 @@ class _StepIndicator extends StatelessWidget {
                           ),
                   ),
                 ),
+                if (i < steps.length - 1)
+                  Expanded(
+                    child: Container(
+                      height: 2,
+                      color: done ? theme.colorScheme.primary : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                    ),
+                  ),
               ],
-            );
-          }),
-        ),
+            ),
+          );
+        }),
       ),
     );
   }
