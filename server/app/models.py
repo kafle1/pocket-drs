@@ -57,6 +57,9 @@ class CalibrationRequest(BaseModel):
     pitch_corners_px: list[Point2D] | None = None
     # Normalized [0..1] coordinates in the source image.
     pitch_corners_norm: list[Point2D] | None = None
+    # Optional stump base points (two ends). Used to refine homography.
+    stump_bases_px: list[Point2D] | None = None
+    stump_bases_norm: list[Point2D] | None = None
     pitch_dimensions_m: PitchDimensionsM | None = None
 
     @field_validator("pitch_corners_px", "pitch_corners_norm")
@@ -73,6 +76,25 @@ class CalibrationRequest(BaseModel):
         for p in v:
             if not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0):
                 raise ValueError("pitch_corners_norm points must be in [0, 1]")
+        return v
+
+    @field_validator("stump_bases_px", "stump_bases_norm")
+    @classmethod
+    def _validate_stump_bases_len(cls, v: list[Point2D] | None, info):
+        if v is None:
+            return v
+        if len(v) != 2:
+            raise ValueError("stump_bases must contain exactly 2 points (striker, bowler)")
+        return v
+
+    @field_validator("stump_bases_norm")
+    @classmethod
+    def _validate_stump_bases_norm_range(cls, v: list[Point2D] | None, info):
+        if v is None:
+            return v
+        for p in v:
+            if not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0):
+                raise ValueError("stump_bases_norm points must be in [0, 1]")
         return v
 
     @model_validator(mode="after")

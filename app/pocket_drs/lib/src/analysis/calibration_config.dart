@@ -98,15 +98,15 @@ class CalibrationConfig {
   }
 
   static CalibrationConfig fromJson(Map<String, Object?> json) {
-        String? readStringOrNull(String key) {
-          final v = json[key];
-          if (v == null) return null;
-          if (v is String) {
-            final s = v.trim();
-            return s.isEmpty ? null : s;
-          }
-          throw FormatException('Expected string $key');
-        }
+    String? readStringOrNull(String key) {
+      final v = json[key];
+      if (v == null) return null;
+      if (v is String) {
+        final s = v.trim();
+        return s.isEmpty ? null : s;
+      }
+      throw FormatException('Expected string $key');
+    }
     double readNum(String key) {
       final v = json[key];
       if (v is num) return v.toDouble();

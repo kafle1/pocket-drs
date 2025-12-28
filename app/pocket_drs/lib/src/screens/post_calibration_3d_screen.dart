@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../analysis/pitch_calibration.dart';
-import '../theme/app_spacing.dart';
 import '../widgets/pitch_3d_viewer.dart';
 
 class PostCalibration3DScreen extends StatelessWidget {
@@ -15,73 +14,114 @@ class PostCalibration3DScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Generate simple pitch boundary visualization using the calibration points
+    final theme = Theme.of(context);
     final pitchPoints = _generatePitchVisualization();
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('$pitchName - Calibration Complete'),
-        automaticallyImplyLeading: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.check),
-            onPressed: () => Navigator.of(context).pop(),
-            tooltip: 'Done',
-          ),
-        ],
-      ),
-      body: Column(
+      body: Stack(
         children: [
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            color: Colors.green.shade100,
-            child: Row(
+          // Full screen 3D viewer
+          Positioned.fill(
+            child: Pitch3DViewer(
+              trajectoryPoints: pitchPoints,
+              showAnimation: false,
+            ),
+          ),
+          
+          // Overlay content
+          SafeArea(
+            child: Column(
               children: [
-                const Icon(Icons.check_circle, color: Colors.green),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                // Header
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
                     children: [
-                      const Text(
-                        'Calibration Successful',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.white.withOpacity(0.1)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.check_circle, color: Color(0xFF4ADE80), size: 16),
+                            const SizedBox(width: 8),
+                            Text(
+                              'CALIBRATION SUCCESSFUL',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.black.withOpacity(0.4),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                const Spacer(),
+                
+                // Bottom card
+                Container(
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       Text(
-                        'Pitch corners and stumps calibrated. You can now analyze deliveries.',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade700,
+                        pitchName,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Pitch corners and stumps have been calibrated. You can now analyze deliveries on this pitch with high precision.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.check),
+                          label: const Text('Done'),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
               ],
-            ),
-          ),
-          Expanded(
-            child: Pitch3DViewer(
-              trajectoryPoints: pitchPoints,
-              showAnimation: false,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.check),
-                label: const Text('Done'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                ),
-              ),
             ),
           ),
         ],
@@ -99,7 +139,7 @@ class PostCalibration3DScreen extends StatelessWidget {
       {'x': -10.06, 'y': 0.0, 'z': 1.525},  // Near right corner
       {'x': 10.06, 'y': 0.0, 'z': 1.525},   // Far right corner
       {'x': 10.06, 'y': 0.0, 'z': -1.525},  // Far left corner
-      {'x': -10.06, 'y': 0.0, 'z': -1.525}, // Back to start
+      {'x': -10.06, 'y': 0.0, 'z': -1.525}, // Close loop
     ];
   }
 }

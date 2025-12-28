@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import '../models/pitch.dart';
 
 class PitchEditScreen extends StatefulWidget {
@@ -41,51 +40,85 @@ class _PitchEditScreenState extends State<PitchEditScreen> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.initial != null;
+    final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(isEdit ? 'Edit pitch' : 'New pitch'),
-        actions: [
-          TextButton(
-            onPressed: _save,
-            child: const Text('Save'),
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar.large(
+            title: Text(isEdit ? 'Edit Pitch' : 'New Pitch'),
+            actions: [
+              TextButton.icon(
+                onPressed: _save,
+                icon: const Icon(Icons.check),
+                label: const Text('Save'),
+              ),
+              const SizedBox(width: 8),
+            ],
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Give this pitch a memorable name.',
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _name,
-                  textInputAction: TextInputAction.done,
-                  decoration: const InputDecoration(
-                    labelText: 'Pitch name',
-                    hintText: 'e.g., Home ground (North end)',
-                    border: OutlineInputBorder(),
+          SliverPadding(
+            padding: const EdgeInsets.all(16),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainer,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant.withOpacity(0.3),
+                    ),
                   ),
-                  validator: (v) {
-                    final s = v?.trim() ?? '';
-                    if (s.isEmpty) return 'Required';
-                    if (s.length < 2) return 'Too short';
-                    if (s.length > 60) return 'Too long';
-                    return null;
-                  },
-                  onFieldSubmitted: (_) => _save(),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Pitch Details',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Give this pitch a memorable name to easily identify it later.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        TextFormField(
+                          controller: _name,
+                          textInputAction: TextInputAction.done,
+                          style: theme.textTheme.bodyLarge,
+                          decoration: InputDecoration(
+                            labelText: 'Pitch Name',
+                            hintText: 'e.g., Home Ground (North End)',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: theme.colorScheme.surface,
+                            prefixIcon: const Icon(Icons.stadium_outlined),
+                          ),
+                          validator: (v) {
+                            final s = v?.trim() ?? '';
+                            if (s.isEmpty) return 'Required';
+                            if (s.length < 2) return 'Too short';
+                            if (s.length > 60) return 'Too long';
+                            return null;
+                          },
+                          onFieldSubmitted: (_) => _save(),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ],
+              ]),
             ),
           ),
-        ),
+        ],
       ),
     );
   }

@@ -135,6 +135,8 @@ def run_pipeline(
         if cal_mode == "taps":
             corners_px = cal_req.get("pitch_corners_px")
             corners_norm = cal_req.get("pitch_corners_norm")
+            stump_bases_px = cal_req.get("stump_bases_px")
+            stump_bases_norm = cal_req.get("stump_bases_norm")
             dims = cal_req.get("pitch_dimensions_m")
             if not dims:
                 raise ValueError("calibration.pitch_dimensions_m is required")
@@ -146,13 +148,29 @@ def run_pipeline(
             else:
                 raise ValueError("Provide calibration.pitch_corners_px or calibration.pitch_corners_norm")
 
+            stump_pts: list[tuple[float, float]] | None = None
+            if stump_bases_px and isinstance(stump_bases_px, list) and len(stump_bases_px) == 2:
+                try:
+                    stump_pts = [(float(p["x"]), float(p["y"])) for p in stump_bases_px]
+                except Exception:
+                    stump_pts = None
+            elif stump_bases_norm and isinstance(stump_bases_norm, list) and len(stump_bases_norm) == 2:
+                try:
+                    stump_pts = [(float(p["x"]) * width, float(p["y"]) * height) for p in stump_bases_norm]
+                except Exception:
+                    stump_pts = None
+
             H = homography_from_pitch_taps(
                 image_points_px=pts,
                 pitch_length_m=float(dims["length"]),
                 pitch_width_m=float(dims["width"]),
+                stump_bases_px=stump_pts,
             )
             calibration_payload["homography"] = {"matrix": H.to_list()}
-            calibration_payload["quality"] = {"score": 0.7, "notes": []}
+            notes: list[str] = []
+            if stump_pts is not None:
+                notes.append("Refined homography using both stump bases")
+            calibration_payload["quality"] = {"score": 0.7, "notes": notes}
 
             mapped = map_track_to_pitch_plane(
                 H=H,

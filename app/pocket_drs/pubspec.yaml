@@ -74,6 +74,7 @@ flutter:
   assets:
     - assets/hawkeye/index.html
     - assets/hawkeye/hawkeye.js
+    - assets/hawkeye/three.min.js
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

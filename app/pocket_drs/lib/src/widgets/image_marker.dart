@@ -11,6 +11,9 @@ class ImageMarker extends StatefulWidget {
     this.title = 'Mark Points',
     this.subtitle = 'Tap to mark points on the image',
     this.markerLabels,
+    this.initialMarkers,
+    this.guides,
+    this.highlightGuideIndex,
   });
 
   final String imagePath;
@@ -20,6 +23,20 @@ class ImageMarker extends StatefulWidget {
   final String subtitle;
   final List<String>? markerLabels;
 
+  /// Optional initial markers (normalized [0..1]).
+  ///
+  /// When provided, the user can refine by undoing/retapping.
+  final List<Offset>? initialMarkers;
+
+  /// Optional guide polylines to draw behind markers.
+  ///
+  /// Each guide is expressed in normalized coordinates [0..1] relative to the
+  /// source image.
+  final List<List<Offset>>? guides;
+
+  /// If set, the guide at this index will be emphasized.
+  final int? highlightGuideIndex;
+
   @override
   State<ImageMarker> createState() => _ImageMarkerState();
 }
@@ -27,12 +44,22 @@ class ImageMarker extends StatefulWidget {
 class _ImageMarkerState extends State<ImageMarker> {
   final List<Offset> _markers = [];
   Size? _imageSize;
-  Rect? _imageRect;
   bool _loading = true;
+
+  final TransformationController _transform = TransformationController();
+  bool _didInitTransform = false;
+  Size? _lastViewport;
 
   @override
   void initState() {
     super.initState();
+    final initial = widget.initialMarkers;
+    if (initial != null && initial.isNotEmpty) {
+      final capped = initial.take(widget.maxMarkers).map((p) {
+        return Offset(p.dx.clamp(0.0, 1.0), p.dy.clamp(0.0, 1.0));
+      }).toList(growable: false);
+      _markers.addAll(capped);
+    }
     _loadImage();
   }
 
@@ -50,33 +77,37 @@ class _ImageMarkerState extends State<ImageMarker> {
     frame.image.dispose();
   }
 
-  Rect _computeImageRect(Size container) {
-    if (_imageSize == null) return Rect.zero;
-    final imgAspect = _imageSize!.width / _imageSize!.height;
-    final boxAspect = container.width / container.height;
-    double w, h;
-    if (imgAspect > boxAspect) {
-      w = container.width;
-      h = w / imgAspect;
-    } else {
-      h = container.height;
-      w = h * imgAspect;
-    }
-    return Rect.fromCenter(
-      center: Offset(container.width / 2, container.height / 2),
-      width: w,
-      height: h,
-    );
+  void _fitToView(Size viewport) {
+    if (_imageSize == null) return;
+    final iw = _imageSize!.width;
+    final ih = _imageSize!.height;
+    if (iw <= 0 || ih <= 0 || viewport.width <= 0 || viewport.height <= 0) return;
+
+    final s = (viewport.width / iw).clamp(0.05, 10.0);
+    final s2 = (viewport.height / ih).clamp(0.05, 10.0);
+    final scale = s < s2 ? s : s2;
+
+    final dx = (viewport.width - iw * scale) / 2.0;
+    final dy = (viewport.height - ih * scale) / 2.0;
+
+    _transform.value = Matrix4.identity()
+      ..translate(dx, dy)
+      ..scale(scale);
   }
 
-  void _onTap(TapDownDetails d, Size container) {
+  void _onTapUp(TapUpDetails d, Size viewport) {
     if (_markers.length >= widget.maxMarkers || _imageSize == null) return;
-    final rect = _computeImageRect(container);
-    final pos = d.localPosition;
-    if (!rect.contains(pos)) return;
-    final nx = (pos.dx - rect.left) / rect.width;
-    final ny = (pos.dy - rect.top) / rect.height;
-    setState(() => _markers.add(Offset(nx.clamp(0, 1), ny.clamp(0, 1))));
+
+    // Convert viewport coords -> scene coords (image pixel space).
+    final scene = _transform.toScene(d.localPosition);
+    final iw = _imageSize!.width;
+    final ih = _imageSize!.height;
+
+    if (scene.dx < 0 || scene.dy < 0 || scene.dx > iw || scene.dy > ih) return;
+
+    final nx = (scene.dx / iw).clamp(0.0, 1.0);
+    final ny = (scene.dy / ih).clamp(0.0, 1.0);
+    setState(() => _markers.add(Offset(nx, ny)));
   }
 
   void _undo() {
@@ -85,6 +116,16 @@ class _ImageMarkerState extends State<ImageMarker> {
 
   void _reset() {
     if (_markers.isNotEmpty) setState(() => _markers.clear());
+  }
+
+  void _resetView(Size viewport) {
+    _fitToView(viewport);
+  }
+
+  @override
+  void dispose() {
+    _transform.dispose();
+    super.dispose();
   }
 
   @override
@@ -119,7 +160,14 @@ class _ImageMarkerState extends State<ImageMarker> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      done ? 'All points marked' : 'Next: $nextLabel',
+                      widget.subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      done ? 'All points marked' : 'Next: $nextLabel · Pinch to zoom for precision',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -137,33 +185,52 @@ class _ImageMarkerState extends State<ImageMarker> {
               ? const Center(child: CircularProgressIndicator())
               : LayoutBuilder(
                   builder: (context, box) {
-                    final container = Size(box.maxWidth, box.maxHeight);
-                    _imageRect = _computeImageRect(container);
-                    return GestureDetector(
-                      onTapDown: (d) => _onTap(d, container),
-                      behavior: HitTestBehavior.opaque,
-                      child: Container(
-                        color: const Color(0xFF0A0A0A),
-                        child: Stack(
-                          children: [
-                            Center(
-                              child: Image.file(
-                                File(widget.imagePath),
-                                fit: BoxFit.contain,
-                              ),
-                            ),
-                            if (_imageRect != null)
-                              Positioned.fromRect(
-                                rect: _imageRect!,
-                                child: CustomPaint(
+                    final viewport = Size(box.maxWidth, box.maxHeight);
+                    _lastViewport = viewport;
+                    if (!_didInitTransform) {
+                      _didInitTransform = true;
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted) return;
+                        _fitToView(viewport);
+                      });
+                    }
+
+                    final imgSize = _imageSize;
+                    if (imgSize == null) return const SizedBox();
+
+                    return Container(
+                      color: const Color(0xFF0A0A0A),
+                      child: GestureDetector(
+                        onTapUp: (d) => _onTapUp(d, viewport),
+                        behavior: HitTestBehavior.opaque,
+                        child: InteractiveViewer(
+                          transformationController: _transform,
+                          minScale: 0.5,
+                          maxScale: 12.0,
+                          boundaryMargin: const EdgeInsets.all(48),
+                          constrained: false,
+                          child: SizedBox(
+                            width: imgSize.width,
+                            height: imgSize.height,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                Image.file(
+                                  File(widget.imagePath),
+                                  fit: BoxFit.fill,
+                                ),
+                                CustomPaint(
                                   painter: _MarkerPainter(
                                     markers: _markers,
+                                    guides: widget.guides,
+                                    highlightGuideIndex: widget.highlightGuideIndex,
                                     color: theme.colorScheme.primary,
                                     labels: labels,
                                   ),
                                 ),
-                              ),
-                          ],
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     );
@@ -179,28 +246,40 @@ class _ImageMarkerState extends State<ImageMarker> {
           ),
           child: SafeArea(
             top: false,
-            child: Row(
-              children: [
-                _ActionButton(
-                  icon: Icons.undo_rounded,
-                  label: 'Undo',
-                  onTap: _markers.isEmpty ? null : _undo,
-                ),
-                const SizedBox(width: 8),
-                _ActionButton(
-                  icon: Icons.refresh_rounded,
-                  label: 'Reset',
-                  onTap: _markers.isEmpty ? null : _reset,
-                ),
-                const Spacer(),
-                FilledButton(
-                  onPressed: done ? () => widget.onComplete(_markers) : null,
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  ),
-                  child: const Text('Continue'),
-                ),
-              ],
+            child: LayoutBuilder(
+              builder: (context, box) {
+                return Row(
+                  children: [
+                    _ActionButton(
+                      icon: Icons.center_focus_strong_rounded,
+                      label: 'Fit',
+                      onTap: (_imageSize == null || _lastViewport == null)
+                          ? null
+                          : () => _resetView(_lastViewport!),
+                    ),
+                    const SizedBox(width: 8),
+                    _ActionButton(
+                      icon: Icons.undo_rounded,
+                      label: 'Undo',
+                      onTap: _markers.isEmpty ? null : _undo,
+                    ),
+                    const SizedBox(width: 8),
+                    _ActionButton(
+                      icon: Icons.refresh_rounded,
+                      label: 'Reset',
+                      onTap: _markers.isEmpty ? null : _reset,
+                    ),
+                    const Spacer(),
+                    FilledButton(
+                      onPressed: done ? () => widget.onComplete(_markers) : null,
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      ),
+                      child: const Text('Continue'),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ),
@@ -276,13 +355,47 @@ class _ActionButton extends StatelessWidget {
 }
 
 class _MarkerPainter extends CustomPainter {
-  _MarkerPainter({required this.markers, required this.color, required this.labels});
+  _MarkerPainter({
+    required this.markers,
+    required this.color,
+    required this.labels,
+    this.guides,
+    this.highlightGuideIndex,
+  });
   final List<Offset> markers;
   final Color color;
   final List<String> labels;
 
+  final List<List<Offset>>? guides;
+  final int? highlightGuideIndex;
+
   @override
   void paint(Canvas canvas, Size size) {
+    // Guides first.
+    final gs = guides;
+    if (gs != null && gs.isNotEmpty) {
+      for (var i = 0; i < gs.length; i++) {
+        final g = gs[i];
+        if (g.length < 2) continue;
+        final isHighlighted = highlightGuideIndex != null && i == highlightGuideIndex;
+        final guidePaint = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = isHighlighted ? 3.0 : 2.0
+          ..color = (isHighlighted ? const Color(0xFF38BDF8) : const Color(0xFFFFFFFF)).withValues(
+            alpha: isHighlighted ? 0.95 : 0.55,
+          );
+
+        final path = Path();
+        final p0 = Offset(g[0].dx * size.width, g[0].dy * size.height);
+        path.moveTo(p0.dx, p0.dy);
+        for (var j = 1; j < g.length; j++) {
+          final pj = Offset(g[j].dx * size.width, g[j].dy * size.height);
+          path.lineTo(pj.dx, pj.dy);
+        }
+        canvas.drawPath(path, guidePaint);
+      }
+    }
+
     if (markers.isEmpty) return;
 
     final points = markers.map((m) => Offset(m.dx * size.width, m.dy * size.height)).toList();
@@ -332,5 +445,10 @@ class _MarkerPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_MarkerPainter old) => markers.length != old.markers.length;
+  bool shouldRepaint(_MarkerPainter old) {
+    return markers.length != old.markers.length ||
+        guides != old.guides ||
+        highlightGuideIndex != old.highlightGuideIndex ||
+        color != old.color;
+  }
 }
