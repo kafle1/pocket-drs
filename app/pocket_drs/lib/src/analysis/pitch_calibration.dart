@@ -3,25 +3,41 @@ import 'dart:ui';
 class PitchCalibration {
   const PitchCalibration({
     required this.imagePoints,
+    this.stumpPoints,
+    this.imageSizePx,
+    this.imagePointsNorm,
+    this.stumpPointsNorm,
   });
 
-  /// Four points in image coordinates (pixels), in order:
-  /// 0: striker end - left
-  /// 1: striker end - right
-  /// 2: bowler end - right
-  /// 3: bowler end - left
+  /// Four pitch corner points in image coordinates (pixels):
+  /// 0: top-left, 1: top-right, 2: bottom-right, 3: bottom-left
   final List<Offset> imagePoints;
 
-  /// Validates that the 4 taps form a non-degenerate, convex quadrilateral.
+  /// Optional stump marker points in image coordinates (pixels):
+  /// 0: near stump base, 1: near stump top, 2: far stump base, 3: far stump top
+  final List<Offset>? stumpPoints;
+
+  /// Source image size used to interpret [imagePoints] and [stumpPoints].
   ///
-  /// This does **not** compute a homography. The authoritative pitch-plane
-  /// mapping is produced by the backend pipeline.
+  /// When set together with normalized points, the calibration can be
+  /// re-scaled to other videos reliably.
+  final Size? imageSizePx;
+
+  /// Normalized pitch corner points in [0..1] relative to the source image.
+  ///
+  /// Order must match [imagePoints].
+  final List<Offset>? imagePointsNorm;
+
+  /// Normalized stump points in [0..1] relative to the source image.
+  ///
+  /// Order must match [stumpPoints].
+  final List<Offset>? stumpPointsNorm;
+
   void validateImageQuad() {
     if (imagePoints.length != 4) {
       throw StateError('Pitch calibration requires exactly 4 taps');
     }
 
-    // Shoelace area (in px^2)
     var area2 = 0.0;
     for (var i = 0; i < 4; i++) {
       final a = imagePoints[i];
@@ -29,10 +45,9 @@ class PitchCalibration {
       area2 += (a.dx * b.dy - b.dx * a.dy);
     }
     if (area2.abs() < 250.0) {
-      throw StateError('Pitch taps are too close together (degenerate quad)');
+      throw StateError('Pitch taps are too close together');
     }
 
-    // Convexity check: all cross products should have the same sign.
     double? sign;
     for (var i = 0; i < 4; i++) {
       final p0 = imagePoints[i];
@@ -51,24 +66,67 @@ class PitchCalibration {
 
   Map<String, Object?> toJson() {
     return <String, Object?>{
-      'imagePoints': imagePoints
-          .map((p) => <String, Object?>{'x': p.dx, 'y': p.dy})
-          .toList(growable: false),
+      'imagePoints': imagePoints.map((p) => {'x': p.dx, 'y': p.dy}).toList(),
+      if (stumpPoints != null)
+        'stumpPoints': stumpPoints!.map((p) => {'x': p.dx, 'y': p.dy}).toList(),
+      if (imageSizePx != null) 'imageSizePx': {'width': imageSizePx!.width, 'height': imageSizePx!.height},
+      if (imagePointsNorm != null)
+        'imagePointsNorm': imagePointsNorm!.map((p) => {'x': p.dx, 'y': p.dy}).toList(),
+      if (stumpPointsNorm != null)
+        'stumpPointsNorm': stumpPointsNorm!.map((p) => {'x': p.dx, 'y': p.dy}).toList(),
     };
+  }
+
+  static List<Offset> _parsePoints(List raw) {
+    return raw.map((v) {
+      if (v is! Map) throw FormatException('Invalid point');
+      final x = v['x'];
+      final y = v['y'];
+      if (x is! num || y is! num) throw FormatException('Invalid point values');
+      return Offset(x.toDouble(), y.toDouble());
+    }).toList();
   }
 
   static PitchCalibration fromJson(Map<String, Object?> json) {
     final raw = json['imagePoints'];
     if (raw is! List) throw FormatException('Expected imagePoints');
-    final pts = <Offset>[];
-    for (final v in raw) {
-      if (v is! Map) throw FormatException('Invalid point');
-      final x = v['x'];
-      final y = v['y'];
-      if (x is! num || y is! num) throw FormatException('Invalid point values');
-      pts.add(Offset(x.toDouble(), y.toDouble()));
-    }
+    final pts = _parsePoints(raw);
     if (pts.length != 4) throw FormatException('Expected 4 points');
-    return PitchCalibration(imagePoints: pts);
+
+    List<Offset>? stumpPts;
+    final stumpRaw = json['stumpPoints'];
+    if (stumpRaw is List && stumpRaw.isNotEmpty) {
+      stumpPts = _parsePoints(stumpRaw);
+    }
+
+    Size? imageSize;
+    final sizeRaw = json['imageSizePx'];
+    if (sizeRaw is Map) {
+      final w = sizeRaw['width'];
+      final h = sizeRaw['height'];
+      if (w is num && h is num) {
+        imageSize = Size(w.toDouble(), h.toDouble());
+      }
+    }
+
+    List<Offset>? ptsNorm;
+    final normRaw = json['imagePointsNorm'];
+    if (normRaw is List && normRaw.isNotEmpty) {
+      ptsNorm = _parsePoints(normRaw);
+    }
+
+    List<Offset>? stumpNorm;
+    final stumpNormRaw = json['stumpPointsNorm'];
+    if (stumpNormRaw is List && stumpNormRaw.isNotEmpty) {
+      stumpNorm = _parsePoints(stumpNormRaw);
+    }
+
+    return PitchCalibration(
+      imagePoints: pts,
+      stumpPoints: stumpPts,
+      imageSizePx: imageSize,
+      imagePointsNorm: ptsNorm,
+      stumpPointsNorm: stumpNorm,
+    );
   }
 }

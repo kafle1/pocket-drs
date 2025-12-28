@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../models/pitch.dart';
 import '../utils/pitch_store.dart';
+import '../theme/app_spacing.dart';
+import '../widgets/status_chip.dart';
 import 'pitch_detail_screen.dart';
 import 'pitch_edit_screen.dart';
 import 'settings_screen.dart';
@@ -42,7 +44,7 @@ class _PitchesScreenState extends State<PitchesScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = 'Failed to load pitches';
         _loading = false;
       });
     }
@@ -85,7 +87,24 @@ class _PitchesScreenState extends State<PitchesScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pitches'),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.sports_cricket,
+                color: theme.colorScheme.primary,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            const Text('PocketDRS'),
+          ],
+        ),
         actions: [
           IconButton(
             tooltip: 'Settings',
@@ -94,65 +113,99 @@ class _PitchesScreenState extends State<PitchesScreen> {
                 MaterialPageRoute(builder: (_) => const SettingsScreen()),
               );
             },
-            icon: const Icon(Icons.settings),
-          ),
-          IconButton(
-            tooltip: 'Reload',
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.settings_outlined),
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _createPitch,
-        icon: const Icon(Icons.add),
-        label: const Text('New pitch'),
+        icon: const Icon(Icons.add_circle_outline),
+        label: const Text('New Pitch'),
       ),
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : _error != null
-                ? Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text('Something went wrong', style: theme.textTheme.titleLarge),
-                        const SizedBox(height: 8),
-                        Text(_error!),
-                        const SizedBox(height: 16),
-                        FilledButton(onPressed: _load, child: const Text('Try again')),
-                      ],
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            size: 64,
+                            color: theme.colorScheme.error,
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                          Text(
+                            'Something went wrong',
+                            style: theme.textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          Text(
+                            _error!,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+                          FilledButton.icon(
+                            onPressed: _load,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Try Again'),
+                          ),
+                        ],
+                      ),
                     ),
                   )
                 : _pitches.isEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text('No pitches yet', style: theme.textTheme.headlineSmall),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Create a pitch, calibrate it, then record or import delivery clips for analysis.',
-                              style: theme.textTheme.bodyLarge?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(AppSpacing.xl),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.sports_cricket,
+                                size: 80,
+                                color: theme.colorScheme.primary.withValues(alpha: 0.3),
                               ),
-                            ),
-                            const SizedBox(height: 16),
-                            FilledButton.icon(
-                              onPressed: _createPitch,
-                              icon: const Icon(Icons.add),
-                              label: const Text('Create first pitch'),
-                            ),
-                          ],
+                              const SizedBox(height: AppSpacing.lg),
+                              Text(
+                                'No Pitches Yet',
+                                style: theme.textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+                              Text(
+                                'Create and calibrate a pitch to start tracking deliveries with DRS technology',
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: AppSpacing.xl),
+                              FilledButton.icon(
+                                onPressed: _createPitch,
+                                icon: const Icon(Icons.add_circle_outline),
+                                label: const Text('Create First Pitch'),
+                              ),
+                            ],
+                          ),
                         ),
                       )
                     : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.md,
+                          AppSpacing.md,
+                          AppSpacing.md,
+                          96,
+                        ),
                         itemCount: _pitches.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
                         itemBuilder: (context, i) {
                           final p = _pitches[i];
                           return _PitchCard(
@@ -179,51 +232,56 @@ class _PitchCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    final statusText = pitch.isCalibrated ? 'Calibrated' : 'Needs calibration';
-    final statusColor = pitch.isCalibrated
+    final isCalibrated = pitch.isCalibrated;
+    final statusColor = isCalibrated
         ? theme.colorScheme.tertiary
         : theme.colorScheme.error;
 
     return Card(
+      elevation: 2,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpacing.md),
           child: Row(
             children: [
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: Icon(
+                  Icons.sports_cricket,
+                  color: theme.colorScheme.primary,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       pitch.name,
-                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Container(
-                          width: 10,
-                          height: 10,
-                          decoration: BoxDecoration(
-                            color: statusColor,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          statusText,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: AppSpacing.xs),
+                    StatusChip(
+                      label: isCalibrated ? 'Calibrated' : 'Needs Calibration',
+                      color: statusColor,
+                      icon: isCalibrated ? Icons.check_circle : Icons.warning,
                     ),
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right, color: theme.colorScheme.onSurfaceVariant),
+              Icon(
+                Icons.chevron_right,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ],
           ),
         ),

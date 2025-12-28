@@ -8,6 +8,7 @@ class CalibrationConfig {
     required this.cameraHeightM,
     required this.cameraDistanceToStumpsM,
     required this.cameraLateralOffsetM,
+    this.ballImagePath,
     this.pitchCalibration,
   });
 
@@ -34,6 +35,11 @@ class CalibrationConfig {
   /// Optional pitch plane calibration (pixel taps). When set, we can map
   /// tracked pixels to pitch-plane meters.
   final PitchCalibration? pitchCalibration;
+
+  /// Optional reference photo of the match ball captured during calibration.
+  ///
+  /// This is stored as a local file path on-device.
+  final String? ballImagePath;
 
   static CalibrationConfig defaults() {
     return const CalibrationConfig(
@@ -86,11 +92,21 @@ class CalibrationConfig {
       'cameraHeightM': cameraHeightM,
       'cameraDistanceToStumpsM': cameraDistanceToStumpsM,
       'cameraLateralOffsetM': cameraLateralOffsetM,
+      if (ballImagePath != null) 'ballImagePath': ballImagePath,
       if (pitchCalibration != null) 'pitchCalibration': pitchCalibration!.toJson(),
     };
   }
 
   static CalibrationConfig fromJson(Map<String, Object?> json) {
+        String? readStringOrNull(String key) {
+          final v = json[key];
+          if (v == null) return null;
+          if (v is String) {
+            final s = v.trim();
+            return s.isEmpty ? null : s;
+          }
+          throw FormatException('Expected string $key');
+        }
     double readNum(String key) {
       final v = json[key];
       if (v is num) return v.toDouble();
@@ -113,6 +129,7 @@ class CalibrationConfig {
       cameraHeightM: readNum('cameraHeightM'),
       cameraDistanceToStumpsM: readNum('cameraDistanceToStumpsM'),
       cameraLateralOffsetM: readNum('cameraLateralOffsetM'),
+      ballImagePath: readStringOrNull('ballImagePath'),
       pitchCalibration: readPitchCalibration(),
     );
   }
@@ -124,6 +141,7 @@ class CalibrationConfig {
     double? cameraHeightM,
     double? cameraDistanceToStumpsM,
     double? cameraLateralOffsetM,
+    String? ballImagePath,
     PitchCalibration? pitchCalibration,
     bool clearPitchCalibration = false,
   }) {
@@ -134,6 +152,7 @@ class CalibrationConfig {
       cameraHeightM: cameraHeightM ?? this.cameraHeightM,
       cameraDistanceToStumpsM: cameraDistanceToStumpsM ?? this.cameraDistanceToStumpsM,
       cameraLateralOffsetM: cameraLateralOffsetM ?? this.cameraLateralOffsetM,
+      ballImagePath: ballImagePath ?? this.ballImagePath,
       pitchCalibration: clearPitchCalibration ? null : (pitchCalibration ?? this.pitchCalibration),
     );
   }

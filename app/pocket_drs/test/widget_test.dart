@@ -12,7 +12,7 @@ import 'package:pocket_drs/src/pocket_drs_app.dart';
 void main() {
   testWidgets('App boots', (WidgetTester tester) async {
     await tester.pumpWidget(const PocketDrsApp());
-    expect(find.text('Pitches'), findsOneWidget);
-    expect(find.text('New pitch'), findsOneWidget);
+    expect(find.text('PocketDRS'), findsOneWidget);
+    expect(find.text('New Pitch'), findsOneWidget);
   });
 }

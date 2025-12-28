@@ -133,12 +133,19 @@ def run_pipeline(
 
         H = None
         if cal_mode == "taps":
-            corners = cal_req.get("pitch_corners_px")
+            corners_px = cal_req.get("pitch_corners_px")
+            corners_norm = cal_req.get("pitch_corners_norm")
             dims = cal_req.get("pitch_dimensions_m")
-            if not corners or not dims:
-                raise ValueError("calibration.pitch_corners_px and pitch_dimensions_m are required")
+            if not dims:
+                raise ValueError("calibration.pitch_dimensions_m is required")
 
-            pts = [(float(p["x"]), float(p["y"])) for p in corners]
+            if corners_px:
+                pts = [(float(p["x"]), float(p["y"])) for p in corners_px]
+            elif corners_norm:
+                pts = [(float(p["x"]) * width, float(p["y"]) * height) for p in corners_norm]
+            else:
+                raise ValueError("Provide calibration.pitch_corners_px or calibration.pitch_corners_norm")
+
             H = homography_from_pitch_taps(
                 image_points_px=pts,
                 pitch_length_m=float(dims["length"]),

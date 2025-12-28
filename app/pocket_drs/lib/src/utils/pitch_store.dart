@@ -30,7 +30,7 @@ class PitchStore {
       for (final v in decoded) {
         if (v is! Map) continue;
         try {
-          final map = Map<String, Object?>.from(v as Map);
+          final map = Map<String, Object?>.from(v);
           pitches.add(Pitch.fromJson(map));
         } catch (_) {
           // Skip corrupted entries.

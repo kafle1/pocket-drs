@@ -72,8 +72,12 @@ class PocketDrsApi {
     return AnalysisResult.fromServerJson(result.cast<String, Object?>());
   }
 
+
+
   void close() => _client.close();
 }
+
+
 
 class JobStatus {
   const JobStatus({required this.status, required this.pct, required this.stage, required this.errorMessage});

@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ApiError(BaseModel):
@@ -55,16 +55,36 @@ class PitchDimensionsM(BaseModel):
 class CalibrationRequest(BaseModel):
     mode: Literal["taps", "marker", "none"] = "taps"
     pitch_corners_px: list[Point2D] | None = None
+    # Normalized [0..1] coordinates in the source image.
+    pitch_corners_norm: list[Point2D] | None = None
     pitch_dimensions_m: PitchDimensionsM | None = None
 
-    @field_validator("pitch_corners_px")
+    @field_validator("pitch_corners_px", "pitch_corners_norm")
     @classmethod
     def _validate_pitch_corners(cls, v: list[Point2D] | None, info):
-        mode = info.data.get("mode")
-        if mode == "taps":
-            if v is None or len(v) != 4:
-                raise ValueError("pitch_corners_px must contain 4 points when mode='taps'")
+        # Validation is handled in the combined validator below.
         return v
+
+    @field_validator("pitch_corners_norm")
+    @classmethod
+    def _validate_pitch_corners_norm_range(cls, v: list[Point2D] | None, info):
+        if v is None:
+            return v
+        for p in v:
+            if not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0):
+                raise ValueError("pitch_corners_norm points must be in [0, 1]")
+        return v
+
+    @model_validator(mode="after")
+    def _validate_taps_require_corners(self):
+        if self.mode == "taps":
+            if (self.pitch_corners_px is None or len(self.pitch_corners_px) != 4) and (
+                self.pitch_corners_norm is None or len(self.pitch_corners_norm) != 4
+            ):
+                raise ValueError(
+                    "Provide either pitch_corners_px or pitch_corners_norm with 4 points when mode='taps'"
+                )
+        return self
 
 
 class TrackingRequest(BaseModel):

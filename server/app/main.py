@@ -3,13 +3,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -38,9 +37,10 @@ if _cors_origins:
         CORSMiddleware,
         allow_origins=_cors_origins,
         allow_credentials=True,
-        allow_methods=["*"] ,
-        allow_headers=["*"] ,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
+
 _store: JobStore = default_job_store()
 _executor = ThreadPoolExecutor(max_workers=2)
 _log = logging.getLogger("pocket_drs")
@@ -210,3 +210,11 @@ def get_artifact(job_id: str, name: str):
         raise HTTPException(status_code=404, detail="Artifact not found")
 
     return FileResponse(str(file_path))
+
+
+
+
+
+
+
+
