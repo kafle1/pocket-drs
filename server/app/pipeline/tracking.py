@@ -37,17 +37,18 @@ class Kalman2D:
         self._x = np.array([[initial_x], [initial_y], [0.0], [0.0]], dtype=np.float64)
         self._p = np.array(
             [
-                [25.0, 0.0, 0.0, 0.0],
-                [0.0, 25.0, 0.0, 0.0],
-                [0.0, 0.0, 1000.0, 0.0],
-                [0.0, 0.0, 0.0, 1000.0],
+                [16.0, 0.0, 0.0, 0.0],
+                [0.0, 16.0, 0.0, 0.0],
+                [0.0, 0.0, 800.0, 0.0],
+                [0.0, 0.0, 0.0, 800.0],
             ],
             dtype=np.float64,
         )
 
-        self.process_noise_pos = 25.0
-        self.process_noise_vel = 250.0
-        self.measurement_noise = 64.0
+        # Tuned parameters for better cricket ball tracking
+        self.process_noise_pos = 16.0  # Reduced for smoother tracking
+        self.process_noise_vel = 200.0  # Adjusted for cricket ball velocity
+        self.measurement_noise = 36.0  # Lower noise for better accuracy
 
     @property
     def pos(self) -> tuple[float, float]:
@@ -113,12 +114,13 @@ class ColorSignature:
         b, g, r = mean.tolist()
         return ColorSignature(b=float(b), g=float(g), r=float(r))
 
-    def mask_close(self, patch_bgr: np.ndarray, tol: float = 55.0) -> np.ndarray:
-        # L1 distance in BGR space.
+    def mask_close(self, patch_bgr: np.ndarray, tol: float = 45.0) -> np.ndarray:
+        # L1 distance in BGR space with improved tolerance for cricket ball.
         b = patch_bgr[:, :, 0].astype(np.float64)
         g = patch_bgr[:, :, 1].astype(np.float64)
         r = patch_bgr[:, :, 2].astype(np.float64)
         dist = np.abs(b - self.b) + np.abs(g - self.g) + np.abs(r - self.r)
+        # Tighter tolerance for better precision
         return dist < (tol * 3.0)
 
 
@@ -174,16 +176,17 @@ def track_seeded(
         confidence = 0.35
 
         if patch.size:
-            mask = sig.mask_close(patch, tol=55.0)
+            mask = sig.mask_close(patch, tol=45.0)
             centroid = _centroid_from_mask(mask)
             if centroid is not None:
                 mx, my = centroid
                 meas = (x0 + mx, y0 + my)
-                confidence = 0.9
+                # Higher confidence for successful detections
+                confidence = 0.95
 
         if meas is None and last_meas is not None:
             # Fallback: keep the last measurement if detection drops.
-            meas = None
+            meas = last_meas
 
         if kf is None and meas is not None:
             kf = Kalman2D(initial_x=meas[0], initial_y=meas[1])
@@ -227,14 +230,16 @@ def _find_motion_centroids(prev_bgr: np.ndarray, curr_bgr: np.ndarray) -> list[t
     prev = cv2.GaussianBlur(prev, (5, 5), 0)
     curr = cv2.GaussianBlur(curr, (5, 5), 0)
 
-    diff = cv2.absdiff(curr, prev)
-    # Automatic-ish threshold based on percentile to handle varying exposure.
-    thr = max(12.0, float(np.percentile(diff, 96)))
+    diff = cv2.absdiff(prev, curr)
+
+    # Enhanced adaptive threshold for better ball detection in varying lighting.
+    thr = max(15.0, float(np.percentile(diff, 94)))
     _, mask = cv2.threshold(diff, thr, 255, cv2.THRESH_BINARY)
 
-    # Clean up speckles.
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1)
-    mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=1)
+    # Improved morphological operations for cleaner ball detection.
+    kernel = np.ones((2, 2), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+    mask = cv2.dilate(mask, kernel, iterations=2)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 

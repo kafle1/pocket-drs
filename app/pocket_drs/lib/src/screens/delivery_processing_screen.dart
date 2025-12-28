@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -185,20 +186,44 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
         _progressError = null;
       });
 
-      while (mounted) {
-        final status = await api.getJobStatus(jobId);
-        _log('[DELIVERY] Poll: status=${status.status}, pct=${status.pct}, stage=${status.stage}');
-        if (!mounted) return;
-        setState(() {
-          _progressPct = status.pct;
-          _progressStage = status.stage ?? status.status;
-          _progressError = status.errorMessage;
-        });
-        if (status.status == 'succeeded') break;
-        if (status.status == 'failed') {
-          throw StateError(status.errorMessage ?? 'Server analysis failed');
+      int pollCount = 0;
+      const maxPolls = 240;
+      while (mounted && pollCount < maxPolls) {
+        pollCount++;
+        
+        try {
+          final status = await api.getJobStatus(jobId);
+          _log('[DELIVERY] Poll #$pollCount: status=${status.status}, pct=${status.pct}, stage=${status.stage}');
+          
+          if (!mounted) return;
+          
+          setState(() {
+            _progressPct = status.pct;
+            _progressStage = status.stage ?? status.status;
+            _progressError = status.errorMessage;
+          });
+          
+          if (status.status == 'succeeded') {
+            _log('[DELIVERY] Job succeeded after $pollCount polls');
+            break;
+          }
+          
+          if (status.status == 'failed') {
+            throw StateError(status.errorMessage ?? 'Server analysis failed');
+          }
+          
+          // Progressive delay: faster checks at start, slower later
+          final delay = pollCount < 10 ? 500 : (pollCount < 30 ? 800 : 1200);
+          await Future.delayed(Duration(milliseconds: delay));
+        } catch (e) {
+          _log('[DELIVERY] Poll error: $e');
+          // Continue polling even on transient errors
+          await Future.delayed(const Duration(milliseconds: 1000));
         }
-        await Future.delayed(const Duration(milliseconds: 450));
+      }
+      
+      if (pollCount >= maxPolls) {
+        throw StateError('Analysis timed out after $pollCount attempts');
       }
 
       final analysis = await api.getJobResult(jobId);
@@ -574,6 +599,10 @@ class _TrimStep extends StatefulWidget {
 }
 
 class _TrimStepState extends State<_TrimStep> {
+  Timer? _seekDebounce;
+  bool _scrubbing = false;
+  double? _scrubValueMs;
+
   @override
   void initState() {
     super.initState();
@@ -582,8 +611,17 @@ class _TrimStepState extends State<_TrimStep> {
 
   @override
   void dispose() {
+    _seekDebounce?.cancel();
     widget.controller.removeListener(_update);
     super.dispose();
+  }
+
+  void _scheduleSeekMs(int ms) {
+    _seekDebounce?.cancel();
+    _seekDebounce = Timer(const Duration(milliseconds: 200), () {
+      if (!mounted) return;
+      widget.controller.seekTo(Duration(milliseconds: ms));
+    });
   }
 
   void _update() {
@@ -595,6 +633,14 @@ class _TrimStepState extends State<_TrimStep> {
     final theme = Theme.of(context);
     final ctl = widget.controller;
     final ready = widget.start != null && widget.end != null;
+
+    final dur = ctl.value.duration;
+    final pos = ctl.value.position;
+    final maxMs = dur.inMilliseconds <= 0 ? 1.0 : dur.inMilliseconds.toDouble();
+    final sliderValueMs = (_scrubbing ? (_scrubValueMs ?? pos.inMilliseconds.toDouble()) : pos.inMilliseconds.toDouble())
+      .clamp(0.0, maxMs)
+      .toDouble();
+    final shownPos = Duration(milliseconds: sliderValueMs.toInt());
 
     return Column(
       children: [
@@ -623,7 +669,7 @@ class _TrimStepState extends State<_TrimStep> {
                   // Timeline
                   Row(
                     children: [
-                      Text(widget.fmt(ctl.value.position), style: theme.textTheme.labelSmall),
+                      Text(widget.fmt(shownPos), style: theme.textTheme.labelSmall),
                       const SizedBox(width: 8),
                       Expanded(
                         child: SliderTheme(
@@ -632,14 +678,34 @@ class _TrimStepState extends State<_TrimStep> {
                             thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
                           ),
                           child: Slider(
-                            value: ctl.value.position.inMilliseconds.toDouble(),
-                            max: ctl.value.duration.inMilliseconds.toDouble().clamp(1, double.infinity),
-                            onChanged: (v) => ctl.seekTo(Duration(milliseconds: v.toInt())),
+                            value: sliderValueMs,
+                            max: maxMs,
+                            onChangeStart: (_) {
+                              if (ctl.value.isPlaying) {
+                                ctl.pause();
+                              }
+                              setState(() {
+                                _scrubbing = true;
+                                _scrubValueMs = sliderValueMs;
+                              });
+                            },
+                            onChanged: (v) {
+                              setState(() => _scrubValueMs = v);
+                              _scheduleSeekMs(v.toInt());
+                            },
+                            onChangeEnd: (v) {
+                              _seekDebounce?.cancel();
+                              ctl.seekTo(Duration(milliseconds: v.toInt()));
+                              setState(() {
+                                _scrubbing = false;
+                                _scrubValueMs = null;
+                              });
+                            },
                           ),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Text(widget.fmt(ctl.value.duration), style: theme.textTheme.labelSmall),
+                      Text(widget.fmt(dur), style: theme.textTheme.labelSmall),
                     ],
                   ),
                   const SizedBox(height: 8),

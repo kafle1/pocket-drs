@@ -4,9 +4,9 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../analysis/calibration_config.dart';
+import '../analysis/frame_decoder.dart';
 import '../analysis/pitch_calibration.dart';
 import '../utils/pitch_store.dart';
 import '../widgets/image_marker.dart';
@@ -70,9 +70,8 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
     try {
       final tempDir = await getTemporaryDirectory();
       final framePath = '${tempDir.path}/cal_${timestamp.inMilliseconds}.jpg';
-      final bytes = await VideoThumbnail.thumbnailData(
-        video: _video!.path,
-        imageFormat: ImageFormat.JPEG,
+      final bytes = await decodeFrameJpeg(
+        videoPath: _video!.path,
         timeMs: timestamp.inMilliseconds,
         quality: 95,
       );

@@ -188,20 +188,26 @@ def run_pipeline(
         bounce_idx = overrides.get("bounce_index")
         impact_idx = overrides.get("impact_index")
 
-        if bounce_idx is None:
-            bounce_est = estimate_bounce_index([p.y_px for p in track])
-        else:
-            bounce_est = estimate_bounce_index([p.y_px for p in track])
+        def _clamp_index(i: int, n: int) -> int:
+            if n <= 0:
+                return 0
+            return max(0, min(n - 1, i))
+
+        bounce_est = estimate_bounce_index([p.y_px for p in track])
+        if bounce_idx is not None:
             bounce_est = bounce_est.__class__(index=int(bounce_idx), confidence=1.0)
 
-        if impact_idx is None:
-            impact_est = estimate_impact_index(len(track))
-        else:
+        impact_est = estimate_impact_index(len(track))
+        if impact_idx is not None:
             impact_est = impact_est.__class__(index=int(impact_idx), confidence=1.0)
 
+        # Clamp indices to keep downstream consumers safe.
+        bounce_i = _clamp_index(int(bounce_est.index), len(track))
+        impact_i = _clamp_index(int(impact_est.index), len(track))
+
         events_payload = {
-            "bounce": {"index": bounce_est.index, "confidence": bounce_est.confidence},
-            "impact": {"index": impact_est.index, "confidence": impact_est.confidence},
+            "bounce": {"index": bounce_i, "confidence": float(bounce_est.confidence)},
+            "impact": {"index": impact_i, "confidence": float(impact_est.confidence)},
         }
 
         lbw_payload = None
@@ -209,13 +215,15 @@ def run_pipeline(
             _progress(progress, 85, "lbw")
             pts_m = [(p["x_m"], p["y_m"]) for p in pitch_plane_payload["points_m"]]
             safe_bounce = max(0, min(len(pts_m) - 2, bounce_est.index))
-            safe_impact = max(safe_bounce + 1, min(len(pts_m) - 1, impact_est.index))
+
+            # Extract tracking confidences for weighted LBW prediction
+            point_confidences = [p.confidence for p in track]
 
             assessment = assess_lbw(
                 pitch_plane_points=pts_m,
                 pitch_index=safe_bounce,
-                impact_index=safe_impact,
-                prediction_tail_points=10,
+                prediction_tail_points=15,  # Use more points for better accuracy
+                point_confidences=point_confidences,
             )
 
             lbw_payload = {
@@ -227,7 +235,11 @@ def run_pipeline(
                     "impact_in_line": bool(assessment.impact_in_line),
                     "wickets_hitting": bool(assessment.wickets_hitting),
                 },
-                "prediction": {"y_at_stumps_m": float(assessment.y_at_stumps_m)},
+                "prediction": {
+                    "y_at_stumps_m": float(assessment.y_at_stumps_m),
+                    "confidence": float(assessment.prediction_confidence),
+                    "r_squared": float(assessment.prediction_r_squared),
+                },
                 "decision": assessment.decision_key,
                 "reason": assessment.reason,
             }

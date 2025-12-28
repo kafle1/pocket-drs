@@ -68,50 +68,64 @@ class VideoFrameProvider implements FrameProvider {
       throw StateError('VideoFrameProvider is disposed');
     }
 
+    if (timeMs < 0) {
+      throw ArgumentError.value(timeMs, 'timeMs', 'must be >= 0');
+    }
+
+    final safeQuality = quality.clamp(1, 100);
+
     final cached = _cache[timeMs];
     if (cached != null) return cached;
 
     final inFlight = _inFlight[timeMs];
     if (inFlight != null) return inFlight;
 
-    final future = _enqueueDecode(timeMs: timeMs, quality: quality);
+    final future = _enqueueDecode(timeMs: timeMs, quality: safeQuality);
     _inFlight[timeMs] = future;
     return future.whenComplete(() => _inFlight.remove(timeMs));
   }
 
   Future<Uint8List> _enqueueDecode({required int timeMs, required int quality}) {
-    final completer = Completer<Uint8List>();
+    final task = _decodeChain.then((_) => _decodeWithRetries(timeMs: timeMs, quality: quality));
 
-    _decodeChain = _decodeChain.then((_) async {
+    // Keep the chain alive even if a decode fails.
+    _decodeChain = task.then((_) {}, onError: (_) {});
+
+    return task.then((data) {
+      if (!_disposed) {
+        _cache[timeMs] = data;
+        if (_cache.length > maxCacheEntries) {
+          _cache.remove(_cache.keys.first);
+        }
+      }
+      return data;
+    });
+  }
+
+  Future<Uint8List> _decodeWithRetries({required int timeMs, required int quality}) async {
+    if (_disposed) {
+      throw StateError('VideoFrameProvider is disposed');
+    }
+
+    // Delay moved to frame_decoder_io for global serialization.
+    const maxRetries = 3;
+    for (var attempt = 0; attempt < maxRetries; attempt++) {
       if (_disposed) {
         throw StateError('VideoFrameProvider is disposed');
       }
-
-      final data = await _decode(
-        videoPath: videoPath,
-        timeMs: timeMs,
-        quality: quality,
-      );
-
-      if (data == null || data.isEmpty) {
-        throw StateError('Failed to decode video frame at ${timeMs}ms');
+      try {
+        final data = await _decode(videoPath: videoPath, timeMs: timeMs, quality: quality);
+        if (data != null && data.isNotEmpty) {
+          return data;
+        }
+      } catch (_) {
+        // Retry below.
       }
 
-      _cache[timeMs] = data;
-      if (_cache.length > maxCacheEntries) {
-        _cache.remove(_cache.keys.first);
-      }
+      // Exponential backoff: 100ms, 200ms, 400ms.
+      await Future.delayed(Duration(milliseconds: 100 << attempt));
+    }
 
-      completer.complete(data);
-    }).catchError((Object error, StackTrace stack) {
-      if (!completer.isCompleted) {
-        completer.completeError(error, stack);
-      }
-    });
-
-    // Prevent unhandled errors leaking out of the chain and breaking future calls.
-    _decodeChain = _decodeChain.catchError((_) {});
-
-    return completer.future;
+    throw StateError('Failed to decode video frame at ${timeMs}ms');
   }
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -26,6 +27,15 @@ from .models import (
 from .pipeline.process_job import map_exception_to_api_error, run_pipeline
 
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
 app = FastAPI(title="PocketDRS Server", version="1.0")
 
 # CORS is required for Flutter Web (browser) to call the API.
@@ -42,7 +52,7 @@ if _cors_origins:
     )
 
 _store: JobStore = default_job_store()
-_executor = ThreadPoolExecutor(max_workers=2)
+_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="job-worker")
 _log = logging.getLogger("pocket_drs")
 
 
@@ -69,9 +79,10 @@ def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], ar
 
     with job_log_context(job_id=job_id, artifacts_dir=artifacts_dir) as job_log:
         job_log.info(
-            "start video=%s artifacts=%s",
-            str(video_path),
-            str(artifacts_dir),
+            "Processing job_id=%s video=%s size=%dMB",
+            job_id,
+            video_path.name,
+            video_path.stat().st_size // (1024 * 1024) if video_path.exists() else 0,
         )
 
         def progress(pct: int, stage: str) -> None:
@@ -85,7 +96,7 @@ def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], ar
 
             # Keep logs readable: record stage changes and meaningful pct jumps.
             if stage != last_stage or last_pct is None or abs(pct - last_pct) >= 10:
-                job_log.info("progress pct=%s stage=%s", pct, stage)
+                job_log.info("Progress: %d%% - %s", pct, stage)
                 last_stage = stage
                 last_pct = pct
 
@@ -106,10 +117,12 @@ def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], ar
             )
             warnings = out.result.get("diagnostics", {}).get("warnings", [])
             n_points = len(out.result.get("track", {}).get("points", []))
-            job_log.info("done points=%s warnings=%s", n_points, len(warnings) if isinstance(warnings, list) else "-")
+            job_log.info("✓ Completed successfully: %d tracking points, %d warnings", n_points, len(warnings) if isinstance(warnings, list) else 0)
         except Exception as e:  # noqa: BLE001
             tb = traceback.format_exc()
-            job_log.error("failed error=%s\n%s", str(e) if str(e) else e.__class__.__name__, tb)
+            error_type = e.__class__.__name__
+            error_msg = str(e) if str(e) else error_type
+            job_log.error("✗ Failed with %s: %s\n%s", error_type, error_msg, tb)
             err = map_exception_to_api_error(e)
             _store.write_status(
                 paths,
@@ -117,7 +130,7 @@ def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], ar
                 progress=ProgressInfo(pct=100, stage="failed"),
                 error=err,
             )
-            _log.error("job failed job_id=%s code=%s message=%s", job_id, err.code, err.message)
+            _log.error("Job failed: job_id=%s error_code=%s message=%s", job_id, err.code, err.message)
 
 
 @app.post("/v1/jobs", response_model=CreateJobResponse)
@@ -131,19 +144,27 @@ async def create_job(
     try:
         CreateJobRequest.model_validate(req_dict)
     except Exception as e:  # noqa: BLE001
+        _log.warning("Invalid job request: %s", str(e))
         raise HTTPException(status_code=400, detail=str(e))
 
     job_id, paths = _store.create_job()
+    _log.info("Created job: job_id=%s filename=%s", job_id, video_file.filename)
 
     # Persist request + video.
     _store.write_request(paths, req_dict)
     try:
+        bytes_written = 0
         with paths.video_path.open("wb") as f:
             while True:
-                chunk = await video_file.read(1024 * 1024)
+                chunk = await video_file.read(1024 * 1024)  # 1MB chunks
                 if not chunk:
                     break
                 f.write(chunk)
+                bytes_written += len(chunk)
+        _log.debug("Video uploaded: job_id=%s size=%dMB", job_id, bytes_written // (1024 * 1024))
+    except Exception as e:
+        _log.error("Failed to save video: job_id=%s error=%s", job_id, str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to save video: {e}")
     finally:
         await video_file.close()
 

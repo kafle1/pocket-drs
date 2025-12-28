@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -19,6 +20,10 @@ class VideoFrameSelector extends StatefulWidget {
 class _VideoFrameSelectorState extends State<VideoFrameSelector> {
   late VideoPlayerController _controller;
   bool _ready = false;
+
+  Timer? _seekDebounce;
+  bool _scrubbing = false;
+  double? _scrubValueMs;
 
   @override
   void initState() {
@@ -47,9 +52,18 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
 
   @override
   void dispose() {
+    _seekDebounce?.cancel();
     _controller.removeListener(_onUpdate);
     _controller.dispose();
     super.dispose();
+  }
+
+  void _scheduleSeekMs(int ms) {
+    _seekDebounce?.cancel();
+    _seekDebounce = Timer(const Duration(milliseconds: 200), () {
+      if (!mounted) return;
+      _controller.seekTo(Duration(milliseconds: ms));
+    });
   }
 
   void _stepBack() {
@@ -84,6 +98,12 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
     final dur = _controller.value.duration;
     final playing = _controller.value.isPlaying;
 
+    final maxMs = dur.inMilliseconds <= 0 ? 1.0 : dur.inMilliseconds.toDouble();
+    final sliderValueMs = (_scrubbing ? (_scrubValueMs ?? pos.inMilliseconds.toDouble()) : pos.inMilliseconds.toDouble())
+      .clamp(0.0, maxMs)
+      .toDouble();
+    final shownPos = Duration(milliseconds: sliderValueMs.toInt());
+
     return Column(
       children: [
         // Video
@@ -112,7 +132,7 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                 // Timeline
                 Row(
                   children: [
-                    Text(_fmt(pos), style: theme.textTheme.labelSmall),
+                    Text(_fmt(shownPos), style: theme.textTheme.labelSmall),
                     const SizedBox(width: 12),
                     Expanded(
                       child: SliderTheme(
@@ -121,9 +141,29 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                           thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
                         ),
                         child: Slider(
-                          value: pos.inMilliseconds.toDouble(),
-                          max: dur.inMilliseconds.toDouble().clamp(1, double.infinity),
-                          onChanged: (v) => _controller.seekTo(Duration(milliseconds: v.toInt())),
+                          value: sliderValueMs,
+                          max: maxMs,
+                          onChangeStart: (_) {
+                            if (_controller.value.isPlaying) {
+                              _controller.pause();
+                            }
+                            setState(() {
+                              _scrubbing = true;
+                              _scrubValueMs = sliderValueMs;
+                            });
+                          },
+                          onChanged: (v) {
+                            setState(() => _scrubValueMs = v);
+                            _scheduleSeekMs(v.toInt());
+                          },
+                          onChangeEnd: (v) {
+                            _seekDebounce?.cancel();
+                            _controller.seekTo(Duration(milliseconds: v.toInt()));
+                            setState(() {
+                              _scrubbing = false;
+                              _scrubValueMs = null;
+                            });
+                          },
                         ),
                       ),
                     ),
