@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'home_shell.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
+import 'screens/login_screen.dart';
+import 'services/auth_service.dart';
 
 class PocketDrsApp extends StatefulWidget {
   const PocketDrsApp({super.key});
@@ -12,6 +15,8 @@ class PocketDrsApp extends StatefulWidget {
 }
 
 class _PocketDrsAppState extends State<PocketDrsApp> {
+  final _auth = AuthService();
+
   @override
   void initState() {
     super.initState();
@@ -29,7 +34,22 @@ class _PocketDrsAppState extends State<PocketDrsApp> {
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: mode,
-          home: const HomeShell(),
+          home: StreamBuilder<User?>(
+            stream: _auth.authStateChanges,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+              
+              if (snapshot.hasData) {
+                return const HomeShell();
+              }
+              
+              return const LoginScreen();
+            },
+          ),
         );
       },
     );

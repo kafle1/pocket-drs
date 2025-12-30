@@ -5,8 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 class AppSettings {
   static const _kServerUrl = 'serverUrl';
   static const _kThemeMode = 'themeMode_v1';
+  static const String _kServerUrlOverride = String.fromEnvironment(
+    'POCKET_DRS_SERVER_URL',
+    defaultValue: '',
+  );
 
   static String defaultServerUrl() {
+    if (_kServerUrlOverride.isNotEmpty) return _kServerUrlOverride;
+
     // Web runs on the same machine as the backend during development.
     if (kIsWeb) return 'http://localhost:8000';
 
@@ -25,6 +31,8 @@ class AppSettings {
   }
 
   static Future<String> getServerUrl() async {
+    if (_kServerUrlOverride.isNotEmpty) return _kServerUrlOverride;
+
     try {
       final p = await SharedPreferences.getInstance();
       final stored = p.getString(_kServerUrl);

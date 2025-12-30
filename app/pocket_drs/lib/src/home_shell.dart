@@ -14,6 +14,15 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
   @override
+  void initState() {
+    super.initState();
+  }
+
+  void _onTabChanged(int i) {
+    setState(() => _index = i);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
@@ -37,7 +46,7 @@ class _HomeShellState extends State<HomeShell> {
           top: false,
           child: NavigationBar(
             selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
+            onDestinationSelected: _onTabChanged,
             destinations: const [
               NavigationDestination(
                 icon: Icon(Icons.sports_cricket_outlined),

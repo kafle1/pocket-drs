@@ -1,14 +1,16 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 
 import '../api/analysis_result.dart';
 import '../api/pocket_drs_api.dart';
+import '../analysis/pitch_pose.dart';
 import '../utils/app_settings.dart';
 import '../utils/pitch_store.dart';
+import '../utils/app_logger.dart';
 import '../widgets/pitch_3d_viewer.dart';
 
 enum _Step { upload, trim, process, results }
@@ -47,6 +49,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
   int? _impactIndex;
   String? _decision;
   String? _decisionReason;
+  PitchPose? _pitchPose;
 
   @override
   void dispose() {
@@ -55,21 +58,32 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
   }
 
   void _log(String message) {
-    if (kDebugMode) {
-      debugPrint(message);
-    }
+    AppLogger.instance.log(message);
   }
 
   Future<void> _pickVideo(ImageSource source) async {
     try {
+      // Always free the previous controller/buffers before loading a new clip.
+      if (_controller != null) {
+        await _controller!.pause();
+        await _controller!.dispose();
+        _controller = null;
+        // Let the platform recycle buffers before spinning up another decoder.
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      }
+
       final video = await _picker.pickVideo(source: source);
       if (video == null || !mounted) return;
       final controller = VideoPlayerController.file(File(video.path));
       await controller.initialize();
+      // Keep paused by default to reduce GPU/Surface spam.
+      await controller.setVolume(0.0);
       if (mounted) {
         setState(() {
           _video = video;
           _controller = controller;
+          _start = null;
+          _end = null;
           _step = _Step.trim;
         });
       }
@@ -100,11 +114,26 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
     final platformName = Theme.of(context).platform.name;
 
     // Validate pitch calibration before processing.
-    final pitchBefore = await _pitchStore.loadById(widget.pitchId);
-    if (!mounted) return;
-    if (pitchBefore?.calibration?.pitchCalibration == null) {
-      _showCalibrationError();
+    try {
+      final pitchBefore = await _pitchStore.loadById(widget.pitchId);
+      if (!mounted) return;
+      if (pitchBefore?.calibration?.pitchCalibration == null) {
+        _showCalibrationError();
+        return;
+      }
+    } catch (_) {
+      if (!mounted) return;
+      _showError('Please sign in again');
       return;
+    }
+
+    // Free the playback surface to avoid buffer exhaustion before heavy work starts.
+    if (_controller != null) {
+      await _controller!.pause();
+      await _controller!.dispose();
+      _controller = null;
+      // Small grace period for decoder buffers to be reclaimed before uploads/processing.
+      await Future<void>.delayed(const Duration(milliseconds: 150));
     }
 
     setState(() => _step = _Step.process);
@@ -113,7 +142,16 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
     try {
       serverUrl = await AppSettings.getServerUrl();
       _log('[DELIVERY] Using server URL: $serverUrl');
-      final api = PocketDrsApi(baseUrl: serverUrl);
+      
+      // Create API client with auth token provider
+      final api = PocketDrsApi(
+        baseUrl: serverUrl,
+        getAuthToken: () async {
+          final user = FirebaseAuth.instance.currentUser;
+          if (user == null) return null;
+          return await user.getIdToken();
+        },
+      );
 
       final pitch = await _pitchStore.loadById(widget.pitchId);
       final calibration = pitch?.calibration;
@@ -121,6 +159,8 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
       if (pitch == null || calibration == null || pitchCal == null) {
         throw StateError('Pitch is not calibrated');
       }
+
+      final pitchPose = PitchPoseEstimator.fromCalibration(pitchCal);
 
       final bytes = await _video!.readAsBytes();
 
@@ -152,6 +192,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
         },
         'calibration': <String, Object?>{
           'mode': 'taps',
+          'pitch_id': widget.pitchId,
           'pitch_corners_norm': cornersNorm,
           if (pitchCal.stumpPointsNorm != null && pitchCal.stumpPointsNorm!.length == 4)
             'stump_bases_norm': <Map<String, Object?>>[
@@ -188,12 +229,24 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
 
       int pollCount = 0;
       const maxPolls = 240;
+
+      String? lastStatus;
+      int? lastPct;
+      String? lastStage;
+      int transientPollErrors = 0;
       while (mounted && pollCount < maxPolls) {
         pollCount++;
         
         try {
           final status = await api.getJobStatus(jobId);
-          _log('[DELIVERY] Poll #$pollCount: status=${status.status}, pct=${status.pct}, stage=${status.stage}');
+
+          final changed = status.status != lastStatus || status.pct != lastPct || status.stage != lastStage;
+          if (changed || pollCount == 1 || (pollCount % 10 == 0)) {
+            _log('[DELIVERY] Poll #$pollCount: status=${status.status}, pct=${status.pct}, stage=${status.stage}');
+            lastStatus = status.status;
+            lastPct = status.pct;
+            lastStage = status.stage;
+          }
           
           if (!mounted) return;
           
@@ -216,7 +269,10 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
           final delay = pollCount < 10 ? 500 : (pollCount < 30 ? 800 : 1200);
           await Future.delayed(Duration(milliseconds: delay));
         } catch (e) {
-          _log('[DELIVERY] Poll error: $e');
+          transientPollErrors++;
+          if (transientPollErrors <= 3) {
+            _log('[DELIVERY] Poll error (transient): $e');
+          }
           // Continue polling even on transient errors
           await Future.delayed(const Duration(milliseconds: 1000));
         }
@@ -237,6 +293,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
         _impactIndex = payload.impactIndex;
         _decision = payload.decision;
         _decisionReason = payload.reason;
+        _pitchPose = pitchPose;
         _step = _Step.results;
       });
     } catch (e, stack) {
@@ -332,7 +389,10 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
       _impactIndex = null;
       _decision = null;
       _decisionReason = null;
+      _pitchPose = null;
     });
+    // Allow decoder surfaces to drain before a new upload starts.
+    Future<void>.delayed(const Duration(milliseconds: 100));
   }
 
   void _goBack() {
@@ -409,6 +469,11 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
   }
 
   Widget _buildBody() {
+    // If we lost the controller (disposed after processing error), send user back to upload safely.
+    if (_step == _Step.trim && _controller == null) {
+      return _UploadStep(onPick: _pickVideo);
+    }
+
     switch (_step) {
       case _Step.upload:
         return _UploadStep(onPick: _pickVideo);
@@ -431,6 +496,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
           impactIndex: _impactIndex,
           decision: _decision,
           reason: _decisionReason,
+          pose: _pitchPose,
           onReset: _reset,
         );
     }
@@ -855,6 +921,7 @@ class _ResultsView extends StatelessWidget {
     required this.impactIndex,
     required this.decision,
     required this.reason,
+    required this.pose,
     required this.onReset,
   });
 
@@ -863,6 +930,7 @@ class _ResultsView extends StatelessWidget {
   final int? impactIndex;
   final String? decision;
   final String? reason;
+  final PitchPose? pose;
   final VoidCallback onReset;
 
   @override
@@ -899,6 +967,7 @@ class _ResultsView extends StatelessWidget {
             bounceIndex: bounceIndex,
             impactIndex: impactIndex,
             decision: decision,
+            pose: pose,
           ),
         ),
         Container(

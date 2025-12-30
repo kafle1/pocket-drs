@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/pitch.dart';
 import '../utils/pitch_store.dart';
+import 'pitch_calibration_screen.dart';
 import 'pitch_detail_screen.dart';
 import 'pitch_edit_screen.dart';
 
@@ -85,6 +86,39 @@ class _PitchesScreenState extends State<PitchesScreen> {
           );
         }
       }
+    }
+  }
+
+  Future<void> _createPitchAndCalibrate() async {
+    final name = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const PitchEditScreen()),
+    );
+
+    if (name == null || name.trim().isEmpty || !mounted) return;
+
+    Pitch pitch;
+    try {
+      pitch = await _store.create(name: name);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please sign in again'), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    if (!mounted) return;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PitchCalibrationScreen(
+          pitchId: pitch.id,
+          pitchName: pitch.name,
+        ),
+      ),
+    );
+
+    if (mounted) {
+      _load();
     }
   }
 
@@ -189,15 +223,7 @@ class _PitchesScreenState extends State<PitchesScreen> {
                       ),
                       const SizedBox(height: 32),
                       FilledButton.icon(
-                        onPressed: () async {
-                          final name = await Navigator.of(context).push<String>(
-                            MaterialPageRoute(builder: (_) => const PitchEditScreen()),
-                          );
-                          if (name != null && name.trim().isNotEmpty && mounted) {
-                            await _store.create(name: name);
-                            _load();
-                          }
-                        },
+                        onPressed: _createPitchAndCalibrate,
                         icon: const Icon(Icons.add_rounded),
                         label: const Text('Create Pitch'),
                         style: FilledButton.styleFrom(
@@ -233,15 +259,7 @@ class _PitchesScreenState extends State<PitchesScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          final name = await Navigator.of(context).push<String>(
-            MaterialPageRoute(builder: (_) => const PitchEditScreen()),
-          );
-          if (name != null && name.trim().isNotEmpty && mounted) {
-            await _store.create(name: name);
-            _load();
-          }
-        },
+        onPressed: _createPitchAndCalibrate,
         icon: const Icon(Icons.add_rounded),
         label: const Text('New Pitch'),
       ),

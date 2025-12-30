@@ -53,5 +53,16 @@
 	<string>PocketDRS needs photo library access to import delivery videos for review and analysis.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>PocketDRS may save processed clips and visualizations to your photo library (optional).</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.1066030241714-i3pq5mkrtgfr3c1orl37cpuvkjjbkbk9</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

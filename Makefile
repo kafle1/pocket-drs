@@ -16,6 +16,15 @@ SERVER_DIR := $(ROOT_DIR)/server
 VENV_DIR := $(SERVER_DIR)/.venv
 PYTHON := $(VENV_DIR)/bin/python
 PIP := $(VENV_DIR)/bin/pip
+POCKET_DRS_PORT ?= 8000
+DETECT_HOST_IP_SCRIPT := $(ROOT_DIR)/scripts/detect_host_ip.py
+DEV_HOST_IP := $(strip $(shell python3 "$(DETECT_HOST_IP_SCRIPT)" 2>/dev/null || python "$(DETECT_HOST_IP_SCRIPT)" 2>/dev/null || echo localhost))
+
+POCKET_DRS_FLUTTER_HOST ?= $(DEV_HOST_IP)
+FLUTTER_SERVER_URL := http://$(POCKET_DRS_FLUTTER_HOST):$(POCKET_DRS_PORT)
+FLUTTER_DART_DEFINES := \
+	--dart-define=POCKET_DRS_SERVER_URL=$(FLUTTER_SERVER_URL) \
+	--dart-define=POCKET_DRS_LOG_DIR=$(ROOT_DIR)/logs/flutter
 
 # Load environment variables from .env if present.
 # The .env format is intentionally Make-compatible: KEY=VALUE with optional # comments.
@@ -66,9 +75,11 @@ dev-server: setup-server
 	@cd "$(SERVER_DIR)" && "$(PYTHON)" run.py
 
 dev-app: setup-app
+	@mkdir -p "$(ROOT_DIR)/logs/flutter"
 	@cd "$(APP_DIR)" && \
 		flutter run $(if $(FLUTTER_DEVICE),-d $(FLUTTER_DEVICE),) \
-		$(if $(filter chrome edge web-server,$(FLUTTER_DEVICE)),--web-port $(FLUTTER_WEB_PORT) --web-hostname $(FLUTTER_WEB_HOSTNAME),)
+		$(if $(filter chrome edge web-server,$(FLUTTER_DEVICE)),--web-port $(FLUTTER_WEB_PORT) --web-hostname $(FLUTTER_WEB_HOSTNAME),) \
+		$(FLUTTER_DART_DEFINES)
 
 # No-setup variants for parallel start.
 
@@ -81,9 +92,11 @@ dev-server-only:
 	cd "$(SERVER_DIR)" && "$(PYTHON)" run.py
 
 dev-app-only:
+	@mkdir -p "$(ROOT_DIR)/logs/flutter"
 	@cd "$(APP_DIR)" && \
 		flutter run $(if $(FLUTTER_DEVICE),-d $(FLUTTER_DEVICE),) \
-		$(if $(filter chrome edge web-server,$(FLUTTER_DEVICE)),--web-port $(FLUTTER_WEB_PORT) --web-hostname $(FLUTTER_WEB_HOSTNAME),)
+		$(if $(filter chrome edge web-server,$(FLUTTER_DEVICE)),--web-port $(FLUTTER_WEB_PORT) --web-hostname $(FLUTTER_WEB_HOSTNAME),) \
+		$(FLUTTER_DART_DEFINES)
 
 # Convenience: start backend + Flutter Web on chrome.
 .PHONY: dev-web
@@ -105,7 +118,10 @@ server-test: setup-server
 	@cd "$(SERVER_DIR)" && "$(PYTHON)" -m pytest -q
 
 app-test: setup-app
-	@cd "$(APP_DIR)" && flutter test
+	@mkdir -p "$(ROOT_DIR)/logs/flutter"
+	@cd "$(APP_DIR)" && \
+		POCKET_DRS_FLUTTER_TEST_LOG_PATH="$(ROOT_DIR)/logs/flutter/flutter_test.log" \
+		flutter test $(FLUTTER_DART_DEFINES)
 
 clean:
 	@rm -rf "$(SERVER_DIR)/.venv" \

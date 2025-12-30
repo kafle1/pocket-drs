@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../analysis/pitch_pose.dart';
 import '../models/pitch.dart';
 import '../utils/pitch_store.dart';
 import '../widgets/pitch_3d_viewer.dart';
@@ -21,6 +22,12 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
   bool _loading = true;
   String? _error;
   Pitch? _pitch;
+
+  PitchPose? get _pitchPose {
+    final cal = _pitch?.calibration?.pitchCalibration;
+    if (cal == null) return null;
+    return PitchPoseEstimator.fromCalibration(cal);
+  }
 
   @override
   void initState() {
@@ -44,9 +51,15 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
     final name = await Navigator.of(context).push<String?>(
       MaterialPageRoute(builder: (_) => PitchEditScreen(initial: pitch)),
     );
-    if (name != null && mounted) {
+    if (name == null || !mounted) return;
+    try {
       await _store.update(pitch.copyWith(name: name, updatedAt: DateTime.now()));
       _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please sign in again'), behavior: SnackBarBehavior.floating),
+      );
     }
   }
 
@@ -69,8 +82,15 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
       ),
     );
     if (ok == true && mounted) {
-      await _store.delete(pitch.id);
-      if (mounted) Navigator.pop(context);
+      try {
+        await _store.delete(pitch.id);
+        if (mounted) Navigator.pop(context);
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please sign in again'), behavior: SnackBarBehavior.floating),
+        );
+      }
     }
   }
 
@@ -98,7 +118,7 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
 
   void _view3DFullscreen() {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const _Fullscreen3DViewer()),
+      MaterialPageRoute(builder: (_) => _Fullscreen3DViewer(pose: _pitchPose)),
     );
   }
 
@@ -151,7 +171,10 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
                               _StatusBanner(calibrated: calibrated),
                               const SizedBox(height: 20),
                               if (calibrated) ...[
-                                _ViewerCard(onView3D: _view3DFullscreen),
+                                _ViewerCard(
+                                  onView3D: _view3DFullscreen,
+                                  pose: _pitchPose,
+                                ),
                                 const SizedBox(height: 20),
                               ],
                               Text(
@@ -161,17 +184,17 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              _ActionCard(
-                                icon: Icons.analytics_outlined,
-                                title: 'Analyze Delivery',
-                                subtitle: calibrated
-                                    ? 'Upload or record a ball video'
-                                    : 'Calibrate the pitch first',
-                                enabled: calibrated,
-                                onTap: calibrated ? _analyze : null,
-                                color: theme.colorScheme.primary,
-                              ),
-                              const SizedBox(height: 12),
+                              if (calibrated) ...[
+                                _ActionCard(
+                                  icon: Icons.analytics_outlined,
+                                  title: 'Analyze Delivery',
+                                  subtitle: 'Upload or record a ball video',
+                                  enabled: true,
+                                  onTap: _analyze,
+                                  color: theme.colorScheme.primary,
+                                ),
+                                const SizedBox(height: 12),
+                              ],
                               _ActionCard(
                                 icon: Icons.tune_outlined,
                                 title: calibrated ? 'Re-calibrate' : 'Calibrate Pitch',
@@ -180,8 +203,6 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
                                 onTap: _calibrate,
                                 color: theme.colorScheme.secondary,
                               ),
-                              const SizedBox(height: 20),
-                              _InfoCard(pitch: pitch),
                             ]),
                           ),
                         ),
@@ -255,8 +276,9 @@ class _StatusBanner extends StatelessWidget {
 }
 
 class _ViewerCard extends StatelessWidget {
-  const _ViewerCard({required this.onView3D});
+  const _ViewerCard({required this.onView3D, this.pose});
   final VoidCallback onView3D;
+  final PitchPose? pose;
 
   @override
   Widget build(BuildContext context) {
@@ -280,6 +302,7 @@ class _ViewerCard extends StatelessWidget {
                 {'x': 0.0, 'y': 0.0, 'z': 0.5},
                 {'x': 20.12, 'y': 0.0, 'z': 0.0},
               ],
+              pose: pose,
             ),
             Positioned(
               left: 16,
@@ -394,88 +417,6 @@ class _ActionCard extends StatelessWidget {
   }
 }
 
-class _InfoCard extends StatelessWidget {
-  const _InfoCard({required this.pitch});
-  final Pitch pitch;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.info_outline, color: theme.colorScheme.primary, size: 24),
-                const SizedBox(width: 12),
-                Text(
-                  'Pitch Information',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _InfoRow(label: 'Name', value: pitch.name),
-            const SizedBox(height: 12),
-            _InfoRow(label: 'Created', value: _formatDateTime(pitch.createdAt)),
-            const SizedBox(height: 12),
-            _InfoRow(label: 'Last Updated', value: _formatDateTime(pitch.updatedAt)),
-            const SizedBox(height: 12),
-            _InfoRow(
-              label: 'Status',
-              value: pitch.isCalibrated ? 'Calibrated' : 'Not Calibrated',
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _formatDateTime(DateTime dt) {
-    return '${dt.day}/${dt.month}/${dt.year} at ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 110,
-          child: Text(
-            label,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _ErrorView extends StatelessWidget {
   const _ErrorView({required this.error, required this.onRetry});
   final String error;
@@ -516,7 +457,9 @@ class _ErrorView extends StatelessWidget {
 }
 
 class _Fullscreen3DViewer extends StatelessWidget {
-  const _Fullscreen3DViewer();
+  const _Fullscreen3DViewer({this.pose});
+
+  final PitchPose? pose;
 
   @override
   Widget build(BuildContext context) {
@@ -535,6 +478,7 @@ class _Fullscreen3DViewer extends StatelessWidget {
           {'x': 0.0, 'y': 0.0, 'z': 0.5},
           {'x': 20.12, 'y': 0.0, 'z': 0.0},
         ],
+        pose: pose,
       ),
     );
   }

@@ -40,7 +40,7 @@ Future<Uint8List?> decodeFrameJpeg({
     // Aggressive delay prevents Android decoder buffer exhaustion.
     // video_thumbnail uses MediaCodec/MediaMetadataRetriever which share
     // limited ImageReader buffer pools with video playback.
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await Future<void>.delayed(const Duration(milliseconds: 250));
     return VideoThumbnail.thumbnailData(
       video: videoPath,
       imageFormat: ImageFormat.JPEG,

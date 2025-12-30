@@ -207,6 +207,13 @@ make dev-app      # Flutter app only
 make server-test  # Run backend tests
 ```
 
+### Logging While Developing
+
+- `logs/server/` is populated whenever the backend starts (uvicorn writes startup/shutdown and API traffic there).
+- `logs/flutter/flutter.log` now receives log lines forwarded from the running Flutter app.
+- `make dev` automatically detects a reachable host IP and passes it to Flutter via `--dart-define=POCKET_DRS_SERVER_URL=...` so remote logging works even on physical devices. Logs begin flowing as soon as the app hits `AnalysisLogger.log(...)`.
+- Override the detected backend host by exporting `POCKET_DRS_FLUTTER_HOST` before running `make dev`, or run Flutter manually with `flutter run --dart-define=POCKET_DRS_SERVER_URL=http://your-ip:8000`.
+
 ### Technology Stack
 
 **Backend:**

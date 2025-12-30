@@ -18,8 +18,10 @@ class VideoFrameSelector extends StatefulWidget {
 }
 
 class _VideoFrameSelectorState extends State<VideoFrameSelector> {
-  late VideoPlayerController _controller;
+  VideoPlayerController? _controller;
   bool _ready = false;
+
+  bool _selecting = false;
 
   Timer? _seekDebounce;
   bool _scrubbing = false;
@@ -32,12 +34,19 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
   }
 
   Future<void> _init() async {
-    _controller = VideoPlayerController.file(File(widget.videoPath));
+    final controller = VideoPlayerController.file(File(widget.videoPath));
+    _controller = controller;
     try {
-      await _controller.initialize();
-      _controller.addListener(_onUpdate);
+      await controller.initialize();
+      controller.addListener(_onUpdate);
       if (mounted) setState(() => _ready = true);
     } catch (e) {
+      try {
+        await controller.dispose();
+      } catch (_) {}
+      if (_controller == controller) {
+        _controller = null;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load video'), behavior: SnackBarBehavior.floating),
@@ -53,8 +62,12 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
   @override
   void dispose() {
     _seekDebounce?.cancel();
-    _controller.removeListener(_onUpdate);
-    _controller.dispose();
+    final controller = _controller;
+    if (controller != null) {
+      controller.removeListener(_onUpdate);
+      controller.dispose();
+      _controller = null;
+    }
     super.dispose();
   }
 
@@ -62,24 +75,51 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
     _seekDebounce?.cancel();
     _seekDebounce = Timer(const Duration(milliseconds: 200), () {
       if (!mounted) return;
-      _controller.seekTo(Duration(milliseconds: ms));
+      _controller?.seekTo(Duration(milliseconds: ms));
     });
   }
 
   void _stepBack() {
-    final pos = _controller.value.position - const Duration(milliseconds: 100);
-    _controller.seekTo(pos.isNegative ? Duration.zero : pos);
+    final controller = _controller;
+    if (controller == null) return;
+    final pos = controller.value.position - const Duration(milliseconds: 100);
+    controller.seekTo(pos.isNegative ? Duration.zero : pos);
   }
 
   void _stepForward() {
-    final pos = _controller.value.position + const Duration(milliseconds: 100);
-    final max = _controller.value.duration;
-    _controller.seekTo(pos > max ? max : pos);
+    final controller = _controller;
+    if (controller == null) return;
+    final pos = controller.value.position + const Duration(milliseconds: 100);
+    final max = controller.value.duration;
+    controller.seekTo(pos > max ? max : pos);
   }
 
-  void _select() {
-    _controller.pause();
-    widget.onFrameSelected(_controller.value.position);
+  Future<void> _select() async {
+    if (_selecting) return;
+    final controller = _controller;
+    if (controller == null) return;
+
+    setState(() => _selecting = true);
+    try {
+      await controller.pause();
+
+      // Critical: release playback decoder BEFORE triggering frame extraction.
+      // Android's MediaCodec/ImageReader pools can be exhausted if video playback
+      // and thumbnail extraction overlap.
+      controller.removeListener(_onUpdate);
+      await controller.dispose();
+      if (_controller == controller) {
+        _controller = null;
+      }
+
+      // Give the platform a brief window to recycle ImageReader buffers before
+      // the thumbnail extractor spins up.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      widget.onFrameSelected(controller.value.position);
+    } finally {
+      if (mounted) setState(() => _selecting = false);
+    }
   }
 
   String _fmt(Duration d) {
@@ -93,10 +133,13 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
   Widget build(BuildContext context) {
     if (!_ready) return const Center(child: CircularProgressIndicator());
 
+    final controller = _controller;
+    if (controller == null) return const Center(child: CircularProgressIndicator());
+
     final theme = Theme.of(context);
-    final pos = _controller.value.position;
-    final dur = _controller.value.duration;
-    final playing = _controller.value.isPlaying;
+    final pos = controller.value.position;
+    final dur = controller.value.duration;
+    final playing = controller.value.isPlaying;
 
     final maxMs = dur.inMilliseconds <= 0 ? 1.0 : dur.inMilliseconds.toDouble();
     final sliderValueMs = (_scrubbing ? (_scrubValueMs ?? pos.inMilliseconds.toDouble()) : pos.inMilliseconds.toDouble())
@@ -112,8 +155,8 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
             color: const Color(0xFF0A0A0A),
             child: Center(
               child: AspectRatio(
-                aspectRatio: _controller.value.aspectRatio,
-                child: VideoPlayer(_controller),
+                aspectRatio: controller.value.aspectRatio,
+                child: VideoPlayer(controller),
               ),
             ),
           ),
@@ -144,8 +187,8 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                           value: sliderValueMs,
                           max: maxMs,
                           onChangeStart: (_) {
-                            if (_controller.value.isPlaying) {
-                              _controller.pause();
+                            if (controller.value.isPlaying) {
+                              controller.pause();
                             }
                             setState(() {
                               _scrubbing = true;
@@ -158,7 +201,7 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                           },
                           onChangeEnd: (v) {
                             _seekDebounce?.cancel();
-                            _controller.seekTo(Duration(milliseconds: v.toInt()));
+                            controller.seekTo(Duration(milliseconds: v.toInt()));
                             setState(() {
                               _scrubbing = false;
                               _scrubValueMs = null;
@@ -179,7 +222,7 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                     _ControlButton(icon: Icons.skip_previous, onTap: _stepBack, label: '-0.1s'),
                     const SizedBox(width: 16),
                     FloatingActionButton.small(
-                      onPressed: () => playing ? _controller.pause() : _controller.play(),
+                      onPressed: _selecting ? null : () => playing ? controller.pause() : controller.play(),
                       child: Icon(playing ? Icons.pause : Icons.play_arrow),
                     ),
                     const SizedBox(width: 16),
@@ -191,7 +234,7 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
-                    onPressed: _select,
+                    onPressed: _selecting ? null : _select,
                     icon: const Icon(Icons.check_circle_outline),
                     label: const Text('Use This Frame'),
                     style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),

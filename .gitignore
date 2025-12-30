@@ -3,10 +3,15 @@
 
 # Logs
 *.log
+logs/
+logs/**
 
 # Local environment (do not commit secrets / machine-specific config)
 .env
 .env.*
+
+# Firebase Service Account (server-side secret)
+firebase-service-account.json
 
 # IDE
 .vscode/

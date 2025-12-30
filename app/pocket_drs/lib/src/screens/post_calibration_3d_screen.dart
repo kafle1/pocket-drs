@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../analysis/pitch_calibration.dart';
+import '../analysis/pitch_pose.dart';
 import '../widgets/pitch_3d_viewer.dart';
 
 class PostCalibration3DScreen extends StatelessWidget {
@@ -16,6 +17,7 @@ class PostCalibration3DScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final pitchPoints = _generatePitchVisualization();
+    final pose = PitchPoseEstimator.fromCalibration(calibration);
 
     return Scaffold(
       body: Stack(
@@ -24,6 +26,7 @@ class PostCalibration3DScreen extends StatelessWidget {
             child: Pitch3DViewer(
               trajectoryPoints: pitchPoints,
               showAnimation: false,
+              pose: pose,
             ),
           ),
           Positioned.fill(

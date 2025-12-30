@@ -54,6 +54,8 @@ class PitchDimensionsM(BaseModel):
 
 class CalibrationRequest(BaseModel):
     mode: Literal["taps", "marker", "none"] = "taps"
+    # Optional identifier used by clients to associate analysis output with a pitch in Firestore.
+    pitch_id: str | None = None
     pitch_corners_px: list[Point2D] | None = None
     # Normalized [0..1] coordinates in the source image.
     pitch_corners_norm: list[Point2D] | None = None

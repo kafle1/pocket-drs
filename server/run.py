@@ -4,6 +4,8 @@ import os
 
 import uvicorn
 
+from app.logging_setup import build_uvicorn_log_config
+
 
 def main() -> None:
     host = os.environ.get("POCKET_DRS_HOST", "0.0.0.0")
@@ -14,12 +16,15 @@ def main() -> None:
 
     log_level = os.environ.get("POCKET_DRS_LOG_LEVEL", "info")
 
+    log_config = build_uvicorn_log_config(log_level=log_level)
+
     uvicorn.run(
         "app.main:app",
         host=host,
         port=port,
         reload=reload,
         log_level=log_level,
+        log_config=log_config,
     )
 
 

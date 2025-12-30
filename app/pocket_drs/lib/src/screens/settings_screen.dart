@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../utils/app_settings.dart';
 import '../theme/theme_controller.dart';
+import '../services/auth_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -10,61 +10,47 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _urlController = TextEditingController();
+  final _auth = AuthService();
   bool _loading = true;
-  String? _error;
   ThemeMode _themeMode = ThemeMode.system;
-  bool _hasChanges = false;
 
   @override
   void initState() {
     super.initState();
     _load();
-    _urlController.addListener(() {
-      if (!_hasChanges) setState(() => _hasChanges = true);
-    });
   }
 
   Future<void> _load() async {
-    final url = await AppSettings.getServerUrl();
-    final themeMode = await AppSettings.getThemeMode();
+    final themeMode = ThemeController.instance.themeMode.value;
     if (!mounted) return;
     setState(() {
-      _urlController.text = url;
       _themeMode = themeMode;
       _loading = false;
-      _hasChanges = false;
     });
   }
 
-  @override
-  void dispose() {
-    _urlController.dispose();
-    super.dispose();
-  }
-
-  bool _looksLikeUrl(String s) {
-    if (s.trim().isEmpty) return false;
-    final uri = Uri.tryParse(s.trim());
-    return uri != null && uri.hasScheme && uri.host.isNotEmpty;
-  }
-
-  Future<void> _save() async {
-    final url = _urlController.text.trim();
-    if (!_looksLikeUrl(url)) {
-      setState(() => _error = 'Enter a valid server URL like http://192.168.1.10:8000');
-      return;
-    }
-
-    setState(() => _error = null);
-    await AppSettings.setServerUrl(url);
-    await ThemeController.instance.setThemeMode(_themeMode);
-
-    if (!mounted) return;
-    setState(() => _hasChanges = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Settings saved successfully')),
+  Future<void> _signOut() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign Out'),
+        content: const Text('Are you sure you want to sign out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sign Out'),
+          ),
+        ],
+      ),
     );
+
+    if (confirmed == true) {
+      await _auth.signOut();
+    }
   }
 
   @override
@@ -95,6 +81,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   padding: const EdgeInsets.all(20),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
+                      _SectionTitle(title: 'Account'),
+                      const SizedBox(height: 12),
+                      _AccountCard(
+                        userName: _auth.userName ?? 'Unknown',
+                        userEmail: _auth.userEmail ?? '',
+                        photoUrl: _auth.userPhotoUrl,
+                        onSignOut: _signOut,
+                      ),
+                      const SizedBox(height: 24),
                       _SectionTitle(title: 'Appearance'),
                       const SizedBox(height: 12),
                       _ThemeCard(
@@ -102,32 +97,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onChanged: (mode) {
                           setState(() {
                             _themeMode = mode;
-                            _hasChanges = true;
                           });
                           ThemeController.instance.setThemeMode(mode);
                         },
-                      ),
-                      const SizedBox(height: 24),
-                      _SectionTitle(title: 'Server Connection'),
-                      const SizedBox(height: 12),
-                      _ServerCard(
-                        controller: _urlController,
-                        error: _error,
                       ),
                       const SizedBox(height: 24),
                       _SectionTitle(title: 'About'),
                       const SizedBox(height: 12),
                       _AboutCard(),
                       const SizedBox(height: 32),
-                      if (_hasChanges)
-                        FilledButton.icon(
-                          onPressed: _save,
-                          icon: const Icon(Icons.check_rounded),
-                          label: const Text('Save Changes'),
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 18),
-                          ),
-                        ),
                     ]),
                   ),
                 ),
@@ -154,6 +132,75 @@ class _SectionTitle extends StatelessWidget {
     );
   }
 }
+
+class _AccountCard extends StatelessWidget {
+  const _AccountCard({
+    required this.userName,
+    required this.userEmail,
+    this.photoUrl,
+    required this.onSignOut,
+  });
+
+  final String userName;
+  final String userEmail;
+  final String? photoUrl;
+  final VoidCallback onSignOut;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundImage: photoUrl != null ? NetworkImage(photoUrl!) : null,
+                  child: photoUrl == null ? const Icon(Icons.person, size: 30) : null,
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        userName,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        userEmail,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onSignOut,
+                icon: const Icon(Icons.logout),
+                label: const Text('Sign Out'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 
 class _ThemeCard extends StatelessWidget {
   const _ThemeCard({required this.themeMode, required this.onChanged});
@@ -226,72 +273,6 @@ class _ThemeCard extends StatelessWidget {
               onSelectionChanged: (v) {
                 if (v.isNotEmpty) onChanged(v.first);
               },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ServerCard extends StatelessWidget {
-  const _ServerCard({required this.controller, this.error});
-  final TextEditingController controller;
-  final String? error;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.secondaryContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    Icons.dns_outlined,
-                    color: theme.colorScheme.secondary,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Text(
-                    'Backend Server',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              decoration: InputDecoration(
-                labelText: 'Server URL',
-                hintText: 'http://192.168.1.10:8000',
-                errorText: error,
-                prefixIcon: const Icon(Icons.link),
-              ),
-              keyboardType: TextInputType.url,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Address of the Python backend running the computer vision pipeline.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
             ),
           ],
         ),

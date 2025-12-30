@@ -1,22 +1,31 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
+import 'package:firebase_core/firebase_core.dart';
 
+import 'firebase_options.dart';
 import 'src/pocket_drs_app.dart';
-import 'src/utils/analysis_logger.dart';
+import 'src/utils/app_logger.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  
+  await AppLogger.instance.init();
 
-  // Capture framework errors.
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
-    final st = details.stack ?? StackTrace.current;
-    AnalysisLogger.instance.logException(details.exception, st, context: 'flutter');
+    AppLogger.instance.error(
+      'Flutter error',
+      details.exception,
+      details.stack ?? StackTrace.current,
+    );
   };
 
-  // Capture async errors that escape the framework.
   PlatformDispatcher.instance.onError = (error, stack) {
-    AnalysisLogger.instance.logException(error, stack, context: 'platform');
+    AppLogger.instance.error('Platform error', error, stack);
     return true;
   };
 

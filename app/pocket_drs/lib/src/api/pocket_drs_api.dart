@@ -7,10 +7,22 @@ import 'package:http/http.dart' as http;
 import 'analysis_result.dart';
 
 class PocketDrsApi {
-  PocketDrsApi({required this.baseUrl, http.Client? client}) : _client = client ?? http.Client();
+  PocketDrsApi({
+    required this.baseUrl, 
+    http.Client? client,
+    this.getAuthToken,
+  }) : _client = client ?? http.Client();
 
   final String baseUrl;
   final http.Client _client;
+  final Future<String?> Function()? getAuthToken;
+
+  Future<Map<String, String>> _authHeaders() async {
+    if (getAuthToken == null) return const <String, String>{};
+    final token = await getAuthToken!();
+    if (token == null || token.isEmpty) return const <String, String>{};
+    return <String, String>{'Authorization': 'Bearer $token'};
+  }
 
   Uri _u(String path) {
     final b = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
@@ -23,6 +35,15 @@ class PocketDrsApi {
     required Map<String, Object?> requestJson,
   }) async {
     final req = http.MultipartRequest('POST', _u('/v1/jobs'));
+    
+    // Add Firebase auth token if available
+    if (getAuthToken != null) {
+      final token = await getAuthToken!();
+      if (token != null && token.isNotEmpty) {
+        req.headers['Authorization'] = 'Bearer $token';
+      }
+    }
+    
     req.fields['request_json'] = jsonEncode(requestJson);
     req.files.add(
       http.MultipartFile.fromBytes(
@@ -46,7 +67,9 @@ class PocketDrsApi {
   }
 
   Future<JobStatus> getJobStatus(String jobId) async {
-    final res = await _client.get(_u('/v1/jobs/$jobId')).timeout(const Duration(seconds: 15));
+    final res = await _client
+        .get(_u('/v1/jobs/$jobId'), headers: await _authHeaders())
+        .timeout(const Duration(seconds: 15));
     if (res.statusCode != 200) {
       throw StateError('Status request failed (${res.statusCode}): ${res.body}');
     }
@@ -56,7 +79,9 @@ class PocketDrsApi {
   }
 
   Future<AnalysisResult> getJobResult(String jobId) async {
-    final res = await _client.get(_u('/v1/jobs/$jobId/result')).timeout(const Duration(seconds: 30));
+    final res = await _client
+        .get(_u('/v1/jobs/$jobId/result'), headers: await _authHeaders())
+        .timeout(const Duration(seconds: 30));
     if (res.statusCode != 200) {
       throw StateError('Result request failed (${res.statusCode}): ${res.body}');
     }

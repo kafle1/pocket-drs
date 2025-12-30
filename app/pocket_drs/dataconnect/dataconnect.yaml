@@ -1,0 +1,6 @@
+# This project uses Firebase Auth + Firestore.
+#
+# Firebase Data Connect is NOT used. These files are kept as placeholders only
+# so that accidental generation commits don't reintroduce large sample specs.
+
+disabled: true

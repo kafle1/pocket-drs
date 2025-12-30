@@ -1,62 +1,40 @@
-import 'dart:convert';
 import 'dart:math';
-
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../analysis/calibration_config.dart';
 import '../models/pitch.dart';
+import '../services/auth_service.dart';
+import '../services/firestore_service.dart';
 
 class PitchStore {
-  PitchStore({SharedPreferences? prefs}) : _prefs = prefs;
+  PitchStore._(this._auth, this._firestore);
 
-  static const _pitchesKey = 'pitches_v1';
-
-  final SharedPreferences? _prefs;
-
-  Future<SharedPreferences> _getPrefs() async {
-    return _prefs ?? SharedPreferences.getInstance();
+  factory PitchStore({AuthService? authService, FirestoreService? firestoreService}) {
+    final auth = authService ?? AuthService();
+    final firestore = firestoreService ?? FirestoreService(auth);
+    return PitchStore._(auth, firestore);
   }
+
+  final AuthService _auth;
+  final FirestoreService _firestore;
 
   Future<List<Pitch>> loadAll() async {
-    final prefs = await _getPrefs();
-    final raw = prefs.getString(_pitchesKey);
-    if (raw == null || raw.isEmpty) return <Pitch>[];
-
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return <Pitch>[];
-      final pitches = <Pitch>[];
-      for (final v in decoded) {
-        if (v is! Map) continue;
-        try {
-          final map = Map<String, Object?>.from(v);
-          pitches.add(Pitch.fromJson(map));
-        } catch (_) {
-          // Skip corrupted entries.
-        }
-      }
-      pitches.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-      return pitches;
-    } catch (_) {
-      return <Pitch>[];
+    if (!_auth.isAuthenticated) {
+      throw StateError('User not authenticated');
     }
-  }
-
-  Future<void> saveAll(List<Pitch> pitches) async {
-    final prefs = await _getPrefs();
-    final list = pitches.map((p) => p.toJson()).toList(growable: false);
-    await prefs.setString(_pitchesKey, jsonEncode(list));
+    return _firestore.getPitches();
   }
 
   Future<Pitch?> loadById(String id) async {
-    final all = await loadAll();
-    for (final p in all) {
-      if (p.id == id) return p;
+    if (!_auth.isAuthenticated) {
+      throw StateError('User not authenticated');
     }
-    return null;
+    return _firestore.getPitch(id);
   }
 
   Future<Pitch> create({required String name}) async {
+    if (!_auth.isAuthenticated) {
+      throw StateError('User not authenticated');
+    }
     final now = DateTime.now();
     final pitch = Pitch(
       id: _newId(),
@@ -66,29 +44,23 @@ class PitchStore {
       calibration: null,
     );
 
-    final all = await loadAll();
-    all.insert(0, pitch);
-    await saveAll(all);
+    await _firestore.savePitch(pitch);
     return pitch;
   }
 
   Future<Pitch> update(Pitch pitch) async {
-    final all = await loadAll();
-    final idx = all.indexWhere((p) => p.id == pitch.id);
-    if (idx == -1) {
-      all.insert(0, pitch);
-    } else {
-      all[idx] = pitch;
+    if (!_auth.isAuthenticated) {
+      throw StateError('User not authenticated');
     }
-    all.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    await saveAll(all);
+    await _firestore.updatePitch(pitch);
     return pitch;
   }
 
   Future<void> delete(String id) async {
-    final all = await loadAll();
-    all.removeWhere((p) => p.id == id);
-    await saveAll(all);
+    if (!_auth.isAuthenticated) {
+      throw StateError('User not authenticated');
+    }
+    await _firestore.deletePitch(id);
   }
 
   static CalibrationConfig defaultCalibration() => CalibrationConfig.defaults();
@@ -99,3 +71,4 @@ class PitchStore {
     return '$now-$rand';
   }
 }
+

@@ -3,6 +3,7 @@
   'use strict';
 
   let scene, camera, renderer, controls;
+  let worldGroup, pitchGroup;
   let ballPathGroup, bounceMarker, impactMarker;
   let stumpsGroup;
   let ballMesh;
@@ -44,6 +45,12 @@
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1a2332);
     scene.fog = new THREE.Fog(0x1a2332, 15, 50);
+
+    worldGroup = new THREE.Group();
+    scene.add(worldGroup);
+
+    pitchGroup = new THREE.Group();
+    worldGroup.add(pitchGroup);
 
     // Camera
     camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100);
@@ -102,7 +109,7 @@
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
-    scene.add(ground);
+    pitchGroup.add(ground);
 
     // Pitch
     const pitchGeo = new THREE.PlaneGeometry(PITCH_LENGTH, PITCH_WIDTH);
@@ -116,7 +123,7 @@
     pitch.position.set(PITCH_LENGTH / 2, 0.01, 0); 
     pitch.receiveShadow = true;
     pitch.castShadow = false;
-    scene.add(pitch);
+    pitchGroup.add(pitch);
 
     // Crease lines
     const creaseMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
@@ -132,7 +139,7 @@
 
     // Stumps
     stumpsGroup = new THREE.Group();
-    scene.add(stumpsGroup);
+    pitchGroup.add(stumpsGroup);
     createStumps(0); // Batting end
     createStumps(PITCH_LENGTH); // Bowling end
 
@@ -159,7 +166,7 @@
     points.push(new THREE.Vector3(x2, 0.02, z2));
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     const line = new THREE.Line(geometry, material);
-    scene.add(line);
+    if (pitchGroup) pitchGroup.add(line);
   }
 
   function createStumps(xPos) {
@@ -218,18 +225,20 @@
     // If Flutter calls us before init() completes, keep the payload and bail.
     if (!scene || !camera || !renderer) return;
     
+    applyPose(data && data.pose);
+
     // Clear previous trajectory
-    if (ballPathGroup) {
-        scene.remove(ballPathGroup);
-        ballPathGroup = null;
+    if (ballPathGroup && worldGroup) {
+      worldGroup.remove(ballPathGroup);
+      ballPathGroup = null;
     }
-    if (bounceMarker) {
-        scene.remove(bounceMarker);
-        bounceMarker = null;
+    if (bounceMarker && worldGroup) {
+      worldGroup.remove(bounceMarker);
+      bounceMarker = null;
     }
-    if (impactMarker) {
-        scene.remove(impactMarker);
-        impactMarker = null;
+    if (impactMarker && worldGroup) {
+      worldGroup.remove(impactMarker);
+      impactMarker = null;
     }
 
     if (!data || !data.points || data.points.length < 2) {
@@ -281,7 +290,7 @@
         ballPathGroup.add(line3);
     }
 
-    scene.add(ballPathGroup);
+    if (worldGroup) worldGroup.add(ballPathGroup);
 
     // Markers
     if (pts[bounceIndex]) {
@@ -297,7 +306,7 @@
         );
         sphere.position.copy(pts[bounceIndex]);
         sphere.castShadow = true;
-        scene.add(sphere);
+        if (worldGroup) worldGroup.add(sphere);
         bounceMarker = sphere;
     }
     
@@ -314,7 +323,7 @@
         );
         sphere.position.copy(pts[impactIndex]);
         sphere.castShadow = true;
-        scene.add(sphere);
+        if (worldGroup) worldGroup.add(sphere);
         impactMarker = sphere;
     }
 
@@ -334,7 +343,7 @@
           })
         );
         ballMesh.castShadow = true;
-        scene.add(ballMesh);
+        if (worldGroup) worldGroup.add(ballMesh);
       }
       const curve = new THREE.CatmullRomCurve3(pts);
       ballMesh.visible = true;
@@ -363,6 +372,20 @@
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       return mesh;
+  }
+
+  function toRad(value) {
+    const n = Number(value);
+    if (!isFinite(n)) return 0;
+    return n * Math.PI / 180;
+  }
+
+  function applyPose(pose) {
+    if (!worldGroup) return;
+    const yaw = toRad(pose && pose.yawDeg);
+    const tilt = toRad(pose && pose.tiltDeg);
+    const roll = toRad(pose && pose.rollDeg);
+    worldGroup.rotation.set(tilt, yaw, roll);
   }
 
   function updateDecision(decision) {

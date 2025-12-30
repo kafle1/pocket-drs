@@ -3,6 +3,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../theme/app_spacing.dart';
+import '../utils/app_logger.dart';
+import '../analysis/pitch_pose.dart';
 
 class Pitch3DViewer extends StatefulWidget {
   const Pitch3DViewer({
@@ -12,6 +14,7 @@ class Pitch3DViewer extends StatefulWidget {
     this.bounceIndex,
     this.impactIndex,
     this.decision,
+    this.pose,
   });
 
   final List<Map<String, double>>? trajectoryPoints;
@@ -21,6 +24,7 @@ class Pitch3DViewer extends StatefulWidget {
 
   /// One of: out | not_out | umpires_call
   final String? decision;
+  final PitchPose? pose;
 
   @override
   State<Pitch3DViewer> createState() => _Pitch3DViewerState();
@@ -48,6 +52,10 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
     _controller = WebViewController()
       ..setBackgroundColor(Colors.transparent)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      // Disable WebView debug logging to reduce native log spam.
+      ..setOnConsoleMessage((message) {
+        // Silently ignore console messages from WebView to reduce spam.
+      })
       ..addJavaScriptChannel(
         'HawkEyeBridge',
         onMessageReceived: (message) {
@@ -92,6 +100,7 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
       }
       if (type == 'error') {
         final msg = decoded['message'];
+        AppLogger.instance.log('[3D] error: ${msg ?? 'unknown'}', level: 'ERROR');
         if (!mounted) return;
         setState(() {
           _loadError = msg is String && msg.trim().isNotEmpty ? msg : '3D renderer error';
@@ -106,7 +115,7 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
     if (_pollingReady || _jsReady == true) return;
     _pollingReady = true;
     try {
-      const maxAttempts = 25; // ~3s
+      const maxAttempts = 15; // Reduced from 25 to ~2s max
       for (var i = 0; i < maxAttempts; i++) {
         if (!mounted) return;
         if (_jsReady) return;
@@ -126,7 +135,7 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
           // Keep polling.
         }
 
-        await Future.delayed(const Duration(milliseconds: 120));
+        await Future.delayed(const Duration(milliseconds: 150));
       }
     } finally {
       _pollingReady = false;
@@ -152,7 +161,10 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
   void _queuePayload() {
     final pts = widget.trajectoryPoints;
     if (pts == null || pts.isEmpty) {
-      _pendingPayload = <String, Object?>{'points': const <Object?>[]};
+      _pendingPayload = <String, Object?>{
+        'points': const <Object?>[],
+        if (widget.pose != null) 'pose': widget.pose!.toJson(),
+      };
       _flushPayloadIfReady();
       return;
     }
@@ -180,6 +192,7 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
       'impactIndex': clampIndex(widget.impactIndex, fallback: safePoints.length - 1),
       'decision': widget.decision,
       'animate': widget.showAnimation,
+      if (widget.pose != null) 'pose': widget.pose!.toJson(),
     };
 
     _flushPayloadIfReady();
@@ -194,7 +207,8 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
         widget.bounceIndex != oldWidget.bounceIndex ||
         widget.impactIndex != oldWidget.impactIndex ||
         widget.decision != oldWidget.decision ||
-        widget.showAnimation != oldWidget.showAnimation) {
+        widget.showAnimation != oldWidget.showAnimation ||
+        widget.pose != oldWidget.pose) {
       _sendTrajectoryData();
     }
   }

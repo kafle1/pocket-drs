@@ -5,6 +5,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from .logging_setup import ensure_log_dirs
+
 
 def _make_formatter(job_id: str) -> logging.Formatter:
     return logging.Formatter(
@@ -26,19 +28,30 @@ def job_log_context(*, job_id: str, artifacts_dir: Path) -> Iterator[logging.Log
     """
 
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    log_path = artifacts_dir / "server.log"
+    artifact_log_path = artifacts_dir / "server.log"
+
+    # Centralized job logs live in /logs/server/jobs/<job_id>.log
+    dirs = ensure_log_dirs()
+    central_log_path = dirs["server_jobs"] / f"{job_id}.log"
 
     logger = logging.getLogger("pocket_drs.job")
     logger.setLevel(logging.INFO)
 
-    handler = logging.FileHandler(log_path, encoding="utf-8")
-    handler.setLevel(logging.INFO)
-    handler.setFormatter(_make_formatter(job_id))
+    artifact_handler = logging.FileHandler(artifact_log_path, encoding="utf-8")
+    artifact_handler.setLevel(logging.INFO)
+    artifact_handler.setFormatter(_make_formatter(job_id))
+
+    central_handler = logging.FileHandler(central_log_path, encoding="utf-8")
+    central_handler.setLevel(logging.INFO)
+    central_handler.setFormatter(_make_formatter(job_id))
 
     # Avoid double-handlers if something calls this twice for the same job.
-    logger.addHandler(handler)
+    logger.addHandler(artifact_handler)
+    logger.addHandler(central_handler)
     try:
         yield logger
     finally:
-        logger.removeHandler(handler)
-        handler.close()
+        logger.removeHandler(artifact_handler)
+        logger.removeHandler(central_handler)
+        artifact_handler.close()
+        central_handler.close()

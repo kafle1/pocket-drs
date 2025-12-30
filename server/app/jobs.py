@@ -17,6 +17,7 @@ class JobPaths:
     job_dir: Path
     video_path: Path
     request_path: Path
+    meta_path: Path
     status_path: Path
     result_path: Path
     artifacts_dir: Path
@@ -46,6 +47,7 @@ class JobStore:
             job_dir=job_dir,
             video_path=job_dir / "input.mp4",
             request_path=job_dir / "request.json",
+            meta_path=job_dir / "meta.json",
             status_path=job_dir / "status.json",
             result_path=job_dir / "result.json",
             artifacts_dir=artifacts_dir,
@@ -65,6 +67,7 @@ class JobStore:
             job_dir=job_dir,
             video_path=job_dir / "input.mp4",
             request_path=job_dir / "request.json",
+            meta_path=job_dir / "meta.json",
             status_path=job_dir / "status.json",
             result_path=job_dir / "result.json",
             artifacts_dir=job_dir / "artifacts",
@@ -88,6 +91,24 @@ class JobStore:
     def write_request(self, paths: JobPaths, request_obj: dict[str, Any]) -> None:
         with self._lock:
             self._atomic_write_json(paths.request_path, request_obj)
+
+    def write_meta(self, paths: JobPaths, meta: dict[str, Any]) -> None:
+        with self._lock:
+            self._atomic_write_json(paths.meta_path, meta)
+
+    def read_meta(self, paths: JobPaths) -> dict[str, Any]:
+        with self._lock:
+            if not paths.meta_path.exists():
+                return {}
+            raw = paths.meta_path.read_text()
+        if not raw.strip():
+            return {}
+        return json.loads(raw)
+
+    def read_owner_user_id(self, paths: JobPaths) -> str | None:
+        meta = self.read_meta(paths)
+        uid = meta.get("user_id")
+        return uid if isinstance(uid, str) and uid else None
 
     def read_request(self, paths: JobPaths) -> dict[str, Any]:
         with self._lock:
