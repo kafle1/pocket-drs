@@ -13,6 +13,14 @@ logs/**
 # Firebase Service Account (server-side secret)
 firebase-service-account.json
 
+# Firebase platform configuration files (contain API keys)
+google-services.json
+**/google-services.json
+GoogleService-Info.plist
+**/GoogleService-Info.plist
+firebase_options.dart
+**/firebase_options.dart
+
 # IDE
 .vscode/
 .idea/
