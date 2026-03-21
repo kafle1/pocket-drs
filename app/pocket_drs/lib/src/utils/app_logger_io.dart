@@ -9,6 +9,7 @@ class AppLogger {
   static final AppLogger instance = AppLogger._();
 
   static const String _logDirOverride = String.fromEnvironment('POCKET_DRS_LOG_DIR');
+  static const bool _echoInfoToConsole = bool.fromEnvironment('POCKET_DRS_VERBOSE_CONSOLE', defaultValue: false);
 
   IOSink? _sink;
   File? _file;
@@ -74,21 +75,25 @@ class AppLogger {
     }
   }
 
-  void log(String message, {String level = 'INFO'}) {
+  String? get currentLogFilePath => _file?.path;
+
+  void log(String message, {String level = 'INFO', bool toConsole = false}) {
     final ts = DateTime.now().toIso8601String();
     final line = '[$ts] [$level] $message';
 
-    // Console is still useful during dev and CI.
-    debugPrint(line);
+    final isConsoleLevel = level == 'ERROR' || level == 'WARN';
+    if (toConsole || isConsoleLevel || (_echoInfoToConsole && kDebugMode)) {
+      debugPrint(line);
+    }
 
     if (!_ready || _sink == null) return;
     _sink!.writeln(line);
   }
 
   void error(String message, [Object? error, StackTrace? stackTrace]) {
-    log(message, level: 'ERROR');
-    if (error != null) log('Error: $error', level: 'ERROR');
-    if (stackTrace != null) log('Stack: $stackTrace', level: 'ERROR');
+    log(message, level: 'ERROR', toConsole: true);
+    if (error != null) log('Error: $error', level: 'ERROR', toConsole: true);
+    if (stackTrace != null) log('Stack: $stackTrace', level: 'ERROR', toConsole: true);
 
     // Best-effort flush for crash scenarios.
     try {

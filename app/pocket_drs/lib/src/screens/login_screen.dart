@@ -31,97 +31,87 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              theme.colorScheme.primary,
-              theme.colorScheme.secondary,
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.2),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      Icons.sports_cricket,
-                      size: 50,
-                      color: theme.colorScheme.primary,
-                    ),
+      backgroundColor: colorScheme.surface,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Spacer(),
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary,
+                    borderRadius: BorderRadius.circular(20),
                   ),
-                  const SizedBox(height: 40),
-                  Text(
-                    'Pocket DRS',
-                    style: theme.textTheme.displaySmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Icon(
+                    Icons.sports_cricket_rounded,
+                    size: 36,
+                    color: colorScheme.onPrimary,
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Phone-based Hawk-Eye LBW System',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.9),
-                    ),
-                    textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 32),
+                Text(
+                  'Pocket DRS',
+                  style: theme.textTheme.displaySmall?.copyWith(
+                    color: colorScheme.onSurface,
                   ),
-                  const SizedBox(height: 60),
-                  if (_isLoading)
-                    const CircularProgressIndicator(color: Colors.white)
-                  else
-                    ElevatedButton.icon(
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Professional LBW tracking & analysis right in your pocket.',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    height: 1.5,
+                  ),
+                ),
+                const Spacer(),
+                if (_isLoading)
+                  Center(child: CircularProgressIndicator(color: colorScheme.primary))
+                else
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
                       onPressed: _signIn,
                       icon: Image.asset(
                         'assets/google_logo.png',
                         height: 24,
                         width: 24,
-                        errorBuilder: (_, __, ___) => const Icon(Icons.login),
+                        errorBuilder: (_, __, ___) => Icon(Icons.login, color: colorScheme.onSurface),
                       ),
-                      label: const Text('Sign in with Google'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.black87,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 16,
+                      label: Text(
+                        'Continue with Google',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: colorScheme.onSurface,
                         ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        side: BorderSide(color: colorScheme.outlineVariant),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(16),
                         ),
                       ),
                     ),
-                  const SizedBox(height: 40),
-                  Text(
-                    'Sign in to save your pitches and analysis history',
+                  ),
+                const SizedBox(height: 24),
+                Center(
+                  child: Text(
+                    'Use your account to sync pitches securely.',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.8),
+                      color: colorScheme.onSurfaceVariant,
                     ),
                     textAlign: TextAlign.center,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),

@@ -7,9 +7,13 @@ class AppLogger {
 
   Future<void> init() async {}
 
-  void log(String message, {String level = 'INFO'}) {
+  String? get currentLogFilePath => null;
+
+  void log(String message, {String level = 'INFO', bool toConsole = true}) {
     final ts = DateTime.now().toIso8601String();
-    debugPrint('[$ts] [$level] $message');
+    if (toConsole) {
+      debugPrint('[$ts] [$level] $message');
+    }
   }
 
   void error(String message, [Object? error, StackTrace? stackTrace]) {

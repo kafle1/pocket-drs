@@ -16,7 +16,6 @@ class PostCalibration3DScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final pitchPoints = _generatePitchVisualization();
     final pose = PitchPoseEstimator.fromCalibration(calibration);
 
     return Scaffold(
@@ -24,7 +23,6 @@ class PostCalibration3DScreen extends StatelessWidget {
         children: [
           Positioned.fill(
             child: Pitch3DViewer(
-              trajectoryPoints: pitchPoints,
               showAnimation: false,
               pose: pose,
             ),
@@ -140,24 +138,6 @@ class PostCalibration3DScreen extends StatelessWidget {
     );
   }
 
-  /// Generate a simple 3D visualization of the calibrated pitch
-  List<Map<String, double>> _generatePitchVisualization() {
-    // The Three.js scene uses:
-    // - x: along pitch length (batting stumps at x=0, bowling end at x=20.12)
-    // - y: lateral across the pitch (we feed this as "y" and hawkeye.js maps it to Z)
-    // - z: height
-    const pitchLength = 20.12;
-    const pitchWidth = 3.05;
-    final halfW = pitchWidth / 2.0;
-
-    return <Map<String, double>>[
-      {'x': 0.0, 'y': -halfW, 'z': 0.0},
-      {'x': 0.0, 'y': halfW, 'z': 0.0},
-      {'x': pitchLength, 'y': halfW, 'z': 0.0},
-      {'x': pitchLength, 'y': -halfW, 'z': 0.0},
-      {'x': 0.0, 'y': -halfW, 'z': 0.0},
-    ];
-  }
 }
 
 class _Chip extends StatelessWidget {

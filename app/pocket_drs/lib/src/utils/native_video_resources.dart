@@ -1,0 +1,1 @@
+export 'native_video_resources_io.dart' if (dart.library.html) 'native_video_resources_web.dart';

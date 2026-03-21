@@ -298,10 +298,6 @@ class _ViewerCard extends StatelessWidget {
         child: Stack(
           children: [
             Pitch3DViewer(
-              trajectoryPoints: [
-                {'x': 0.0, 'y': 0.0, 'z': 0.5},
-                {'x': 20.12, 'y': 0.0, 'z': 0.0},
-              ],
               pose: pose,
             ),
             Positioned(
@@ -474,10 +470,6 @@ class _Fullscreen3DViewer extends StatelessWidget {
       ),
       extendBodyBehindAppBar: true,
       body: Pitch3DViewer(
-        trajectoryPoints: [
-          {'x': 0.0, 'y': 0.0, 'z': 0.5},
-          {'x': 20.12, 'y': 0.0, 'z': 0.0},
-        ],
         pose: pose,
       ),
     );

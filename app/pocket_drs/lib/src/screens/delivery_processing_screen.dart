@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
@@ -11,6 +10,8 @@ import '../analysis/pitch_pose.dart';
 import '../utils/app_settings.dart';
 import '../utils/pitch_store.dart';
 import '../utils/app_logger.dart';
+import '../utils/native_video_resources.dart';
+import '../utils/video_controller_factory.dart';
 import '../widgets/pitch_3d_viewer.dart';
 
 enum _Step { upload, trim, process, results }
@@ -53,7 +54,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
 
   @override
   void dispose() {
-    _controller?.dispose();
+    unawaited(_releaseController());
     super.dispose();
   }
 
@@ -61,21 +62,27 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
     AppLogger.instance.log(message);
   }
 
+  Future<void> _releaseController() async {
+    final controller = _controller;
+    if (controller == null) return;
+
+    _controller = null;
+    await controller.pause();
+    await controller.dispose();
+    await coolDownNativeVideoResources();
+  }
+
   Future<void> _pickVideo(ImageSource source) async {
     try {
-      // Always free the previous controller/buffers before loading a new clip.
-      if (_controller != null) {
-        await _controller!.pause();
-        await _controller!.dispose();
-        _controller = null;
-        // Let the platform recycle buffers before spinning up another decoder.
-        await Future<void>.delayed(const Duration(milliseconds: 150));
-      }
+      await _releaseController();
 
       final video = await _picker.pickVideo(source: source);
       if (video == null || !mounted) return;
-      final controller = VideoPlayerController.file(File(video.path));
-      await controller.initialize();
+      final controller = createVideoPlayerController(video.path);
+      await runWithNativeVideoResources(() async {
+        await coolDownNativeVideoResources(delay: const Duration(milliseconds: 350));
+        await controller.initialize();
+      });
       // Keep paused by default to reduce GPU/Surface spam.
       await controller.setVolume(0.0);
       if (mounted) {
@@ -128,13 +135,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
     }
 
     // Free the playback surface to avoid buffer exhaustion before heavy work starts.
-    if (_controller != null) {
-      await _controller!.pause();
-      await _controller!.dispose();
-      _controller = null;
-      // Small grace period for decoder buffers to be reclaimed before uploads/processing.
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-    }
+    await _releaseController();
 
     setState(() => _step = _Step.process);
 
@@ -241,7 +242,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
           final status = await api.getJobStatus(jobId);
 
           final changed = status.status != lastStatus || status.pct != lastPct || status.stage != lastStage;
-          if (changed || pollCount == 1 || (pollCount % 10 == 0)) {
+          if (changed || pollCount == 1 || (pollCount % 20 == 0)) {
             _log('[DELIVERY] Poll #$pollCount: status=${status.status}, pct=${status.pct}, stage=${status.stage}');
             lastStatus = status.status;
             lastPct = status.pct;
@@ -361,18 +362,19 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
       points.add({'x': x, 'y': y, 'z': z});
     }
 
-    // Predicted path from impact -> stumps (x=0).
+    // Predicted path from impact -> stumps.
     final lbw = analysis.lbw;
     if (lbw != null) {
       final impact = ptsM[safeImpact].worldM;
       final yAtStumps = lbw.yAtStumpsM;
+      final stumpX = lbw.stumpXM;
 
       final impactZ = points[safeImpact]['z'] ?? 0.0;
 
       const n = 14;
       for (var i = 1; i <= n; i++) {
         final t = i / n;
-        final x = impact.dx + (0.0 - impact.dx) * t;
+        final x = impact.dx + (stumpX - impact.dx) * t;
         final y = impact.dy + (yAtStumps - impact.dy) * t;
         // Gently rise from impactZ toward stump height.
         final z = impactZ + (stumpHeight - impactZ) * t;
@@ -397,7 +399,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
   }
 
   void _reset() {
-    _controller?.dispose();
+    unawaited(_releaseController());
     setState(() {
       _step = _Step.upload;
       _video = null;
@@ -420,7 +422,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
   void _goBack() {
     switch (_step) {
       case _Step.trim:
-        _controller?.dispose();
+        unawaited(_releaseController());
         setState(() {
           _step = _Step.upload;
           _video = null;

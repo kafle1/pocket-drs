@@ -10,7 +10,7 @@ from app.pipeline.events import (
     estimate_impact_index,
     estimate_impact_index_from_pitch_plane,
 )
-from app.pipeline.process_job import _assess_lbw_2d
+from app.pipeline.process_job import TrackPoint, _assess_lbw_2d, _score_auto_track_candidate
 
 
 class TestBounceDetection:
@@ -164,3 +164,43 @@ class TestLbwDecision:
             point_confidences=[],
         )
         assert result is None
+
+
+class TestAutoTrackScoring:
+    """Test calibrated auto-track scoring used to avoid static false positives."""
+
+    def test_prefers_moving_pitch_trajectory_over_static_false_positive(self):
+        homography = pytest.importorskip("numpy").eye(3)
+
+        static_track = [
+            TrackPoint(t_ms=i * 16, x_px=20.0 + (0.03 if i % 2 else 0.0), y_px=0.6, confidence=0.7)
+            for i in range(24)
+        ]
+        moving_track = [
+            TrackPoint(
+                t_ms=i * 16,
+                x_px=20.0 - i * 0.55,
+                y_px=-0.4 + i * 0.04,
+                confidence=0.65,
+            )
+            for i in range(24)
+        ]
+
+        static_score, static_mapped = _score_auto_track_candidate(
+            track=static_track,
+            homography=homography,
+            pitch_length_m=20.12,
+            pitch_width_m=3.05,
+        )
+        moving_score, moving_mapped = _score_auto_track_candidate(
+            track=moving_track,
+            homography=homography,
+            pitch_length_m=20.12,
+            pitch_width_m=3.05,
+        )
+
+        assert len(static_mapped) == len(static_track)
+        assert len(moving_mapped) == len(moving_track)
+        assert static_score.moving_like == 0
+        assert moving_score.moving_like == 1
+        assert moving_score > static_score

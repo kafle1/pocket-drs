@@ -1,7 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+
+import '../utils/native_video_resources.dart';
+import '../utils/video_controller_factory.dart';
 
 class VideoFrameSelector extends StatefulWidget {
   const VideoFrameSelector({
@@ -34,19 +36,21 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
   }
 
   Future<void> _init() async {
-    final controller = VideoPlayerController.file(File(widget.videoPath));
-    _controller = controller;
     try {
-      await controller.initialize();
+      final controller = createVideoPlayerController(widget.videoPath);
+      await runWithNativeVideoResources(() async {
+        await coolDownNativeVideoResources(delay: const Duration(milliseconds: 350));
+        await controller.initialize();
+      });
+      _controller = controller;
       controller.addListener(_onUpdate);
       if (mounted) setState(() => _ready = true);
     } catch (e) {
+      final controller = _controller;
       try {
-        await controller.dispose();
+        await controller?.dispose();
       } catch (_) {}
-      if (_controller == controller) {
-        _controller = null;
-      }
+      _controller = null;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load video'), behavior: SnackBarBehavior.floating),
@@ -63,11 +67,12 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
   void dispose() {
     _seekDebounce?.cancel();
     final controller = _controller;
+    _controller = null;
     if (controller != null) {
       controller.removeListener(_onUpdate);
       controller.dispose();
-      _controller = null;
     }
+    unawaited(coolDownNativeVideoResources());
     super.dispose();
   }
 
@@ -112,9 +117,7 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
         _controller = null;
       }
 
-      // Give the platform a brief window to recycle ImageReader buffers before
-      // the thumbnail extractor spins up.
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await coolDownNativeVideoResources(delay: const Duration(milliseconds: 550));
 
       widget.onFrameSelected(controller.value.position);
     } finally {

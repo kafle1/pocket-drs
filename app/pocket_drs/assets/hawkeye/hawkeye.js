@@ -54,8 +54,8 @@
 
     // Camera
     camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100);
-    camera.position.set(PITCH_LENGTH + 4, 2.5, 0); 
-    camera.lookAt(0, 0.5, 0);
+    camera.position.set(PITCH_LENGTH + 4, 2.5, 0);
+    camera.lookAt(PITCH_LENGTH / 2, 0.4, 0);
 
     // Renderer
     const canvas = document.getElementById('canvas');
@@ -73,7 +73,7 @@
       controls.minDistance = 3;
       controls.maxDistance = 40;
       controls.maxPolarAngle = Math.PI / 2.1;
-      controls.target.set(PITCH_LENGTH / 2, 0.5, 0);
+      controls.target.set(PITCH_LENGTH / 2, 0.4, 0);
       controls.update();
     }
 
@@ -369,11 +369,37 @@
   }
 
   function applyPose(pose) {
-    if (!worldGroup) return;
+    if (!worldGroup || !camera) return;
     const yaw = toRad(pose && pose.yawDeg);
     const tilt = toRad(pose && pose.tiltDeg);
     const roll = toRad(pose && pose.rollDeg);
-    worldGroup.rotation.set(tilt, yaw, roll);
+    const distance = Math.max(6, Number(pose && pose.cameraDistanceM) || 18);
+    const height = Math.max(1.2, Number(pose && pose.cameraHeightM) || 2.4);
+    const lateral = Number(pose && pose.cameraLateralOffsetM) || 0;
+    const targetX = Number(pose && pose.targetXM);
+    const safeTargetX = isFinite(targetX) ? targetX : (PITCH_LENGTH / 2);
+
+    worldGroup.rotation.set(0, 0, 0);
+
+    const viewDirection = new THREE.Vector3(-1, 0, 0);
+    viewDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+    viewDirection.applyAxisAngle(new THREE.Vector3(0, 0, 1), tilt);
+
+    const target = new THREE.Vector3(safeTargetX, 0.35, 0);
+    const eye = target.clone().sub(viewDirection.multiplyScalar(distance));
+    eye.y = height;
+    eye.z += lateral;
+
+    camera.position.copy(eye);
+    camera.up.set(0, 1, 0);
+    camera.rotation.set(0, 0, 0);
+    camera.lookAt(target);
+    camera.rotateZ(roll);
+
+    if (controls) {
+      controls.target.copy(target);
+      controls.update();
+    }
   }
 
   function updateDecision(decision) {
@@ -381,6 +407,12 @@
     if (!el) return;
     el.className = '';
     el.style.display = '';
+
+    if (!decision) {
+      el.textContent = '';
+      el.style.display = 'none';
+      return;
+    }
 
     if (decision === 'out') {
       el.textContent = 'OUT';

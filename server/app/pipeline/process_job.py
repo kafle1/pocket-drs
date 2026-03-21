@@ -16,7 +16,7 @@ from .events import (
     estimate_impact_index,
     estimate_impact_index_from_pitch_plane,
 )
-from .tracking import CombinedBallDetector
+from .tracking import CombinedBallDetector, build_pitch_roi_mask
 from .video import VideoDecodeError, VideoReader
 
 
@@ -31,6 +31,16 @@ class TrackPoint:
     x_px: float
     y_px: float
     confidence: float
+
+
+@dataclass(frozen=True, order=True)
+class AutoTrackScore:
+    moving_like: int
+    x_span_m: float
+    distinct_positions: int
+    mapped_points: int
+    avg_conf: float
+    y_span_m: float
 
 
 def _rotate_frame(frame: np.ndarray, rotation_deg: int) -> np.ndarray:
@@ -51,6 +61,7 @@ def _find_seed_auto(
     frames_bgr: list[np.ndarray],
     detector: CombinedBallDetector,
     scan_count: int = 8,
+    roi_mask: np.ndarray | None = None,
 ) -> tuple[float, float] | None:
     """Scan the first *scan_count* frames and pick the most consistent cluster.
 
@@ -61,7 +72,7 @@ def _find_seed_auto(
     n = min(scan_count, len(frames_bgr))
     per_frame: list[list[dict]] = []
     for i in range(n):
-        per_frame.append(detector.detect(frames_bgr[i]))
+        per_frame.append(detector.detect(frames_bgr[i], roi_mask))
 
     # Build candidate pool from the first frame.
     if not per_frame or not per_frame[0]:
@@ -133,6 +144,179 @@ def _reject_outliers(track: list[TrackPoint], max_jump_px: float = 120.0) -> lis
     return clean
 
 
+def _count_distinct_track_positions(track: list[TrackPoint]) -> int:
+    return len({(round(p.x_px, 1), round(p.y_px, 1)) for p in track if p.confidence >= 0.1})
+
+
+def _map_track_to_pitch_plane(
+    *,
+    track: list[TrackPoint],
+    homography: np.ndarray,
+    pitch_length_m: float,
+    pitch_width_m: float,
+    max_jump_m: float | None = 2.0,
+    monotonic_tolerance_m: float | None = 1.0,
+) -> list[tuple[int, float, float, float]]:
+    mapped: list[tuple[int, float, float, float]] = []
+
+    half_w = pitch_width_m / 2.0
+    margin_x = 1.5
+    margin_y = 1.0
+    x_lo, x_hi = -margin_x, pitch_length_m + margin_x
+    y_lo, y_hi = -(half_w + margin_y), half_w + margin_y
+    prev_mapped: tuple[float, float] | None = None
+    for p in track:
+        if p.confidence < 0.1:
+            continue
+        x_m, y_m = apply_homography(homography, p.x_px, p.y_px)
+        if not (np.isfinite(x_m) and np.isfinite(y_m)):
+            continue
+        if not (x_lo <= x_m <= x_hi and y_lo <= y_m <= y_hi):
+            continue
+        if max_jump_m is not None and prev_mapped is not None:
+            dx = x_m - prev_mapped[0]
+            dy = y_m - prev_mapped[1]
+            if (dx * dx + dy * dy) ** 0.5 > max_jump_m:
+                continue
+        prev_mapped = (x_m, y_m)
+        mapped.append((p.t_ms, x_m, y_m, p.confidence))
+
+    if monotonic_tolerance_m is not None and len(mapped) >= 3:
+        x_first = mapped[0][1]
+        x_last = mapped[-1][1]
+        decreasing = x_last < x_first
+        cleaned: list[tuple[int, float, float, float]] = [mapped[0]]
+        for m in mapped[1:]:
+            prev_x = cleaned[-1][1]
+            if decreasing and m[1] > prev_x + monotonic_tolerance_m:
+                continue
+            if not decreasing and m[1] < prev_x - monotonic_tolerance_m:
+                continue
+            cleaned.append(m)
+        mapped = cleaned
+
+    return mapped
+
+
+def _score_auto_track_candidate(
+    *,
+    track: list[TrackPoint],
+    homography: np.ndarray,
+    pitch_length_m: float,
+    pitch_width_m: float,
+) -> tuple[AutoTrackScore, list[tuple[int, float, float, float]]]:
+    mapped = _map_track_to_pitch_plane(
+        track=track,
+        homography=homography,
+        pitch_length_m=pitch_length_m,
+        pitch_width_m=pitch_width_m,
+        max_jump_m=None,
+        monotonic_tolerance_m=None,
+    )
+
+    if not mapped:
+        return AutoTrackScore(0, 0.0, _count_distinct_track_positions(track), 0, 0.0, 0.0), mapped
+
+    xs = [p[1] for p in mapped]
+    ys = [p[2] for p in mapped]
+    x_span = float(max(xs) - min(xs))
+    y_span = float(max(ys) - min(ys))
+    distinct_positions = _count_distinct_track_positions(track)
+    confident = [p.confidence for p in track if p.confidence >= 0.1]
+    avg_conf = float(np.mean(confident)) if confident else 0.0
+
+    required_x_span = max(2.5, pitch_length_m * 0.15)
+    moving_like = int(len(mapped) >= 8 and x_span >= required_x_span and distinct_positions >= 12)
+
+    return AutoTrackScore(
+        moving_like=moving_like,
+        x_span_m=x_span,
+        distinct_positions=distinct_positions,
+        mapped_points=len(mapped),
+        avg_conf=avg_conf,
+        y_span_m=y_span,
+    ), mapped
+
+
+def _candidate_seeds_from_frames(
+    *,
+    frames_bgr: list[np.ndarray],
+    detector: CombinedBallDetector,
+    roi_mask: np.ndarray | None,
+    scan_count: int = 12,
+    per_frame_limit: int = 6,
+    dedupe_cell_px: float = 20.0,
+) -> list[tuple[float, float]]:
+    candidates: list[tuple[float, float]] = []
+    seen: set[tuple[int, int]] = set()
+
+    for frame in frames_bgr[:scan_count]:
+        for det in detector.detect(frame, roi_mask)[:per_frame_limit]:
+            key = (round(float(det["x"]) / dedupe_cell_px), round(float(det["y"]) / dedupe_cell_px))
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append((float(det["x"]), float(det["y"])))
+
+    return candidates
+
+
+def _track_points_auto_with_pitch_context(
+    *,
+    frames_bgr: list[np.ndarray],
+    times_ms: list[int],
+    search_radius_px: float,
+    ball_color: str,
+    roi_mask: np.ndarray | None,
+    homography: np.ndarray,
+    pitch_length_m: float,
+    pitch_width_m: float,
+) -> list[TrackPoint]:
+    fallback_track = _track_points(
+        frames_bgr=frames_bgr,
+        times_ms=times_ms,
+        mode="auto",
+        seed_xy=None,
+        search_radius_px=search_radius_px,
+        ball_color=ball_color,
+        roi_mask=roi_mask,
+    )
+    best_track = fallback_track
+    best_score, _ = _score_auto_track_candidate(
+        track=fallback_track,
+        homography=homography,
+        pitch_length_m=pitch_length_m,
+        pitch_width_m=pitch_width_m,
+    )
+
+    detector = CombinedBallDetector(ball_color=ball_color)
+    for seed_xy in _candidate_seeds_from_frames(
+        frames_bgr=frames_bgr,
+        detector=detector,
+        roi_mask=roi_mask,
+    ):
+        track = _track_points(
+            frames_bgr=frames_bgr,
+            times_ms=times_ms,
+            mode="seeded",
+            seed_xy=seed_xy,
+            search_radius_px=search_radius_px,
+            ball_color=ball_color,
+            roi_mask=roi_mask,
+        )
+        score, _ = _score_auto_track_candidate(
+            track=track,
+            homography=homography,
+            pitch_length_m=pitch_length_m,
+            pitch_width_m=pitch_width_m,
+        )
+        if score > best_score:
+            best_score = score
+            best_track = track
+
+    return best_track
+
+
 def _track_points(
     *,
     frames_bgr: list[np.ndarray],
@@ -141,6 +325,7 @@ def _track_points(
     seed_xy: tuple[float, float] | None,
     search_radius_px: float,
     ball_color: str = "red",
+    roi_mask: np.ndarray | None = None,
 ) -> list[TrackPoint]:
     """Track ball centres (pixel space) using combined motion+color detection.
 
@@ -148,6 +333,7 @@ def _track_points(
     - Auto-mode scans several frames and picks the most consistent cluster.
     - Adaptive search radius that tightens as the trajectory stabilises.
     - Constant-velocity prediction so the search window follows the ball.
+    - Optional ROI mask restricts detection to pitch area.
     - Post-tracking median smoothing + outlier rejection.
     """
 
@@ -167,12 +353,12 @@ def _track_points(
             raise ValueError("seed_px is required for seeded tracking")
         last_xy = (float(seed_xy[0]), float(seed_xy[1]))
     elif mode == "auto":
-        auto_seed = _find_seed_auto(frames_bgr, detector)
+        auto_seed = _find_seed_auto(frames_bgr, detector, roi_mask=roi_mask)
         if auto_seed is not None:
             last_xy = auto_seed
 
     for i, frame in enumerate(frames_bgr):
-        dets = detector.detect(frame)
+        dets = detector.detect(frame, roi_mask)
 
         chosen = None
         if dets:
@@ -293,9 +479,11 @@ def _assess_lbw_2d(
     bounce_index: int,
     impact_index: int,
     point_confidences: list[float] | None,
+    pitch_length_m: float = 20.12,
 ) -> dict | None:
     """2D LBW decision using only pitch-plane XY.
 
+    Handles both bowling directions (x decreasing or increasing).
     Produces the API shape expected by the Flutter client:
       - decision: out | not_out | umpires_call
       - prediction.y_at_stumps_m
@@ -309,12 +497,18 @@ def _assess_lbw_2d(
     if impact_i <= 0:
         impact_i = n - 1
 
+    # Determine bowling direction.
+    x_first = pitch_points_m[0][0]
+    x_last = pitch_points_m[-1][0]
+    decreasing = x_last < x_first  # ball moving toward x=0 (striker @ x=0)
+    stump_x = 0.0 if decreasing else pitch_length_m
+
     pitch_x, pitch_y = pitch_points_m[bounce_i]
     imp_x, imp_y = pitch_points_m[impact_i]
 
     line_thresh = (_WICKET_WIDTH_M / 2.0) + _BALL_RADIUS_M
 
-    # Fit y(x) from (post-bounce .. impact) and evaluate at x=0.
+    # Fit y(x) from (post-bounce .. impact) and evaluate at stump_x.
     i0 = max(0, min(bounce_i, impact_i))
     i1 = max(i0 + 1, impact_i)
     xs = np.array([pitch_points_m[i][0] for i in range(i0, i1 + 1)], dtype=float)
@@ -329,7 +523,6 @@ def _assess_lbw_2d(
     mask = np.isfinite(xs) & np.isfinite(ys) & np.isfinite(ws)
     xs, ys, ws = xs[mask], ys[mask], ws[mask]
     if len(xs) < 2:
-        # Always return a JSON-safe prediction.
         y_at_stumps = float(imp_y)
         r2 = 0.0
     else:
@@ -337,9 +530,8 @@ def _assess_lbw_2d(
         try:
             coeff = np.polyfit(xs, ys, deg=deg, w=ws)
             y_pred = np.polyval(coeff, xs)
-            y_at_stumps = float(np.polyval(coeff, 0.0))
+            y_at_stumps = float(np.polyval(coeff, stump_x))
         except Exception:
-            # Fall back to linear extrapolation using the last two points.
             x1, y1 = xs[-2], ys[-2]
             x2, y2 = xs[-1], ys[-1]
             if abs(x2 - x1) < 1e-9:
@@ -348,29 +540,26 @@ def _assess_lbw_2d(
             else:
                 m = (y2 - y1) / (x2 - x1)
                 b = y2 - m * x2
-                y_at_stumps = float(b)
+                y_at_stumps = float(m * stump_x + b)
                 y_pred = m * xs + b
 
-        # r^2-like quality metric.
         ss_res = float(np.sum((ys - y_pred) ** 2))
         ss_tot = float(np.sum((ys - float(np.mean(ys))) ** 2))
         r2 = 1.0 - (ss_res / ss_tot) if ss_tot > 1e-12 else 0.0
         r2 = float(np.clip(r2, 0.0, 1.0))
 
-    # Determine "leg side" sign from the impact location (best available proxy).
-    leg_sign = 1.0 if abs(imp_y) < 1e-6 else (1.0 if imp_y > 0 else -1.0)
+    # Determine leg side — positive y is leg side for right-hand batsman.
+    # We use the direction of the majority of points as a heuristic.
+    leg_sign = 1.0 if imp_y >= 0 else -1.0
 
     pitched_in_line = not (pitch_y * leg_sign > line_thresh)
-    # Simplified impact-in-line (assumes shot offered).
-    impact_in_line = abs(imp_y) <= line_thresh
+    impact_in_line = abs(imp_y) <= line_thresh * 2.0  # slightly wider for impact
 
-    # Hitting stumps in 2D = lateral intersection at x=0.
     dist_to_center = abs(y_at_stumps)
     hitting = dist_to_center <= line_thresh
 
-    # Umpire's call band near the edge.
-    edge = line_thresh
-    margin = 0.01  # 1cm band
+    # Umpire's call: ball clipping the edge of the stumps.
+    uc_margin = 0.02  # 2cm band around stump edge
     if not pitched_in_line:
         decision = "not_out"
         reason = "Pitched outside leg stump"
@@ -378,15 +567,19 @@ def _assess_lbw_2d(
         decision = "not_out"
         reason = "Impact outside off stump line"
     else:
-        if hitting and abs(dist_to_center - edge) <= margin:
+        if hitting and abs(dist_to_center - line_thresh) <= uc_margin:
             decision = "umpires_call"
             reason = "Projected clipping stumps (margin)"
         elif hitting:
             decision = "out"
             reason = "Projected to hit stumps"
         else:
-            decision = "not_out"
-            reason = "Projected to miss stumps"
+            if abs(dist_to_center - line_thresh) <= uc_margin:
+                decision = "umpires_call"
+                reason = "Projected just missing stumps (margin)"
+            else:
+                decision = "not_out"
+                reason = "Projected to miss stumps"
 
     confidence = float(np.clip(0.2 + 0.8 * r2, 0.0, 1.0))
 
@@ -399,6 +592,7 @@ def _assess_lbw_2d(
         },
         "prediction": {
             "y_at_stumps_m": float(y_at_stumps),
+            "stump_x_m": float(stump_x),
             "confidence": confidence,
             "r_squared": float(r2),
         },
@@ -498,14 +692,57 @@ def run_pipeline(
         frame_diag = (w * w + h * h) ** 0.5
         search_radius = min(100.0, max(30.0, frame_diag * 0.05))
 
-        track = _track_points(
-            frames_bgr=frames,
-            times_ms=times_ms,
-            mode=tracking_mode,
-            seed_xy=seed_xy,
-            search_radius_px=search_radius,
-            ball_color=ball_color,
-        )
+        # --- Build ROI mask from calibration corners before tracking ---
+        roi_mask: np.ndarray | None = None
+        auto_track_h: np.ndarray | None = None
+        auto_track_pitch_length_m = 20.12
+        auto_track_pitch_width_m = 3.05
+        cal_req_early = request_json.get("calibration") or {}
+        if cal_req_early.get("mode") == "taps":
+            _corners_px = cal_req_early.get("pitch_corners_px")
+            _corners_norm = cal_req_early.get("pitch_corners_norm")
+            _dims = cal_req_early.get("pitch_dimensions_m") or {}
+            if _corners_px:
+                roi_corners = [(float(p["x"]), float(p["y"])) for p in _corners_px]
+            elif _corners_norm:
+                roi_corners = [(float(p["x"]) * w, float(p["y"]) * h) for p in _corners_norm]
+            else:
+                roi_corners = None
+            if roi_corners and len(roi_corners) == 4:
+                roi_mask = build_pitch_roi_mask(frames[0].shape, roi_corners, margin_factor=0.6)
+                try:
+                    auto_track_pitch_length_m = float(_dims.get("length", auto_track_pitch_length_m))
+                    auto_track_pitch_width_m = float(_dims.get("width", auto_track_pitch_width_m))
+                    auto_track_h, _notes, _reproj = _compute_taps_homography(
+                        corners_px=roi_corners,
+                        pitch_length_m=auto_track_pitch_length_m,
+                        pitch_width_m=auto_track_pitch_width_m,
+                        stump_bases_px=None,
+                    )
+                except Exception:
+                    auto_track_h = None
+
+        if tracking_mode == "auto" and auto_track_h is not None:
+            track = _track_points_auto_with_pitch_context(
+                frames_bgr=frames,
+                times_ms=times_ms,
+                search_radius_px=search_radius,
+                ball_color=ball_color,
+                roi_mask=roi_mask,
+                homography=auto_track_h,
+                pitch_length_m=auto_track_pitch_length_m,
+                pitch_width_m=auto_track_pitch_width_m,
+            )
+        else:
+            track = _track_points(
+                frames_bgr=frames,
+                times_ms=times_ms,
+                mode=tracking_mode,
+                seed_xy=seed_xy,
+                search_radius_px=search_radius,
+                ball_color=ball_color,
+                roi_mask=roi_mask,
+            )
 
         if not track:
             raise RuntimeError("Tracking produced no points")
@@ -561,12 +798,44 @@ def run_pipeline(
 
             pitch_length_m = float(dims["length"])
             pitch_width_m = float(dims["width"])
-            H, notes, reproj_err = _compute_taps_homography(
+            base_h, base_notes, base_reproj_err = _compute_taps_homography(
                 corners_px=pts,
                 pitch_length_m=pitch_length_m,
                 pitch_width_m=pitch_width_m,
-                stump_bases_px=stump_pts,
+                stump_bases_px=None,
             )
+            H = base_h
+            notes = list(base_notes)
+            reproj_err = base_reproj_err
+
+            best_score, _ = _score_auto_track_candidate(
+                track=track,
+                homography=base_h,
+                pitch_length_m=pitch_length_m,
+                pitch_width_m=pitch_width_m,
+            )
+
+            if stump_pts is not None:
+                refined_h, refined_notes, refined_reproj_err = _compute_taps_homography(
+                    corners_px=pts,
+                    pitch_length_m=pitch_length_m,
+                    pitch_width_m=pitch_width_m,
+                    stump_bases_px=stump_pts,
+                )
+                refined_score, _ = _score_auto_track_candidate(
+                    track=track,
+                    homography=refined_h,
+                    pitch_length_m=pitch_length_m,
+                    pitch_width_m=pitch_width_m,
+                )
+                if refined_score > best_score:
+                    H = refined_h
+                    notes = list(refined_notes)
+                    reproj_err = refined_reproj_err
+                    best_score = refined_score
+                else:
+                    notes.append("Skipped stump refinement because corner-only mapping matched the track better")
+
             # Quality score: 0.9 for excellent (<0.3m error), down to 0.3 for poor (>2m).
             quality_score = float(np.clip(0.9 - reproj_err * 0.3, 0.3, 0.9))
             calibration_payload["homography"] = {"matrix": H.tolist()}
@@ -576,59 +845,46 @@ def run_pipeline(
                 "notes": notes,
             }
 
-            mapped = []
-            # Pitch extends [0, pitch_length_m] x [-half_w, half_w].
-            # Allow modest margin for real-world imprecision but reject
-            # obvious outliers (the old 25 % margin let x=-55 m through).
-            half_w = pitch_width_m / 2.0
-            margin_x = pitch_length_m * 0.10
-            margin_y = half_w + 1.0
-            x_lo, x_hi = -margin_x, pitch_length_m + margin_x
-            y_lo, y_hi = -margin_y, margin_y
-
-            max_jump_m = 3.0  # reject >3 m jump between consecutive points
-            prev_mapped: tuple[float, float] | None = None
-
-            for p in track:
-                if p.confidence < 0.1:
-                    continue
-                x_m, y_m = apply_homography(H, p.x_px, p.y_px)
-                if not (np.isfinite(x_m) and np.isfinite(y_m)):
-                    continue
-                if not (x_lo <= x_m <= x_hi and y_lo <= y_m <= y_hi):
-                    continue
-                # Reject large jumps between consecutive mapped points.
-                if prev_mapped is not None:
-                    dx = x_m - prev_mapped[0]
-                    dy = y_m - prev_mapped[1]
-                    if (dx * dx + dy * dy) ** 0.5 > max_jump_m:
-                        continue
-                prev_mapped = (x_m, y_m)
-                mapped.append((p.t_ms, x_m, y_m, p.confidence))
-
-            # Monotonic x enforcement (Step 3.3): the ball should progress
-            # consistently from bowler end toward striker end (or vice versa).
-            # Determine dominant direction from first to last point, then
-            # drop points that reverse by more than 1 m against that direction.
-            if len(mapped) >= 3:
-                x_first = mapped[0][1]
-                x_last = mapped[-1][1]
-                decreasing = x_last < x_first  # bowler→striker = decreasing x
-                cleaned: list[tuple[int, float, float, float]] = [mapped[0]]
-                for m in mapped[1:]:
-                    prev_x = cleaned[-1][1]
-                    if decreasing and m[1] > prev_x + 1.0:
-                        continue  # backward jump against dominant direction
-                    if not decreasing and m[1] < prev_x - 1.0:
-                        continue
-                    cleaned.append(m)
-                mapped = cleaned
+            strict_mapped = _map_track_to_pitch_plane(
+                track=track,
+                homography=H,
+                pitch_length_m=pitch_length_m,
+                pitch_width_m=pitch_width_m,
+            )
+            relaxed_mapped = _map_track_to_pitch_plane(
+                track=track,
+                homography=H,
+                pitch_length_m=pitch_length_m,
+                pitch_width_m=pitch_width_m,
+                max_jump_m=None,
+                monotonic_tolerance_m=None,
+            )
+            mapped = strict_mapped
+            if len(mapped) < 5 and len(relaxed_mapped) > len(mapped):
+                mapped = relaxed_mapped
+                notes.append(
+                    "Used relaxed pitch-plane filtering because strict filtering removed too many points"
+                )
 
             pitch_plane_points = [
                 {"t_ms": t_ms, "x_m": float(x_m), "y_m": float(y_m)}
                 for (t_ms, x_m, y_m, _conf) in mapped
             ]
             pitch_plane_payload = {"points_m": pitch_plane_points}
+
+            # Warn if we lost too many points during filtering.
+            raw_count = len(track)
+            mapped_count = len(mapped)
+            if mapped_count < 5:
+                warnings.append(
+                    f"Only {mapped_count}/{raw_count} track points survived pitch-plane "
+                    "filtering — calibration may be inaccurate or ball was off-pitch"
+                )
+            elif mapped_count < raw_count * 0.15:
+                warnings.append(
+                    f"Only {mapped_count}/{raw_count} track points survived pitch-plane "
+                    "filtering — many detections were outside the pitch area"
+                )
 
         _progress(progress, 75, "events")
 
@@ -683,6 +939,7 @@ def run_pipeline(
                 bounce_index=bounce_i,
                 impact_index=impact_i,
                 point_confidences=pp_confidences,
+                pitch_length_m=pitch_length_m,
             )
 
         _progress(progress, 98, "finalize")
