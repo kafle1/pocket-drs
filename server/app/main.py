@@ -279,10 +279,3 @@ def get_artifact(job_id: str, name: str, authorization: str | None = Header(None
 
     return FileResponse(str(file_path))
 
-
-
-
-
-
-
-

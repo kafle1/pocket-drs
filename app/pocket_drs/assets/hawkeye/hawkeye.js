@@ -43,8 +43,8 @@
 
     // Scene
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a2332);
-    scene.fog = new THREE.Fog(0x1a2332, 15, 50);
+    scene.background = new THREE.Color(0x0f172a);
+    scene.fog = new THREE.Fog(0x0f172a, 15, 50);
 
     worldGroup = new THREE.Group();
     scene.add(worldGroup);
@@ -245,18 +245,6 @@
       updateDecision(null);
       if (ballMesh) ballMesh.visible = false;
       anim = null;
-      if (ballPathGroup) {
-        scene.remove(ballPathGroup);
-        ballPathGroup = null;
-      }
-      if (bounceMarker) {
-        scene.remove(bounceMarker);
-        bounceMarker = null;
-      }
-      if (impactMarker) {
-        scene.remove(impactMarker);
-        impactMarker = null;
-      }
       return;
     }
 
@@ -392,7 +380,7 @@
     const el = document.getElementById('decision');
     if (!el) return;
     el.className = '';
-    el.style.display = 'none';
+    el.style.display = '';
 
     if (decision === 'out') {
       el.textContent = 'OUT';

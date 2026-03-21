@@ -138,7 +138,7 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
                   : CustomScrollView(
                       slivers: [
                         SliverAppBar(
-                          expandedHeight: 100,
+                          expandedHeight: 160,
                           floating: false,
                           pinned: true,
                           flexibleSpace: FlexibleSpaceBar(

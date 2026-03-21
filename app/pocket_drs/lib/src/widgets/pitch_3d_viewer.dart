@@ -264,16 +264,16 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
           )
         else if (!_pageLoaded)
           Container(
-            color: Colors.black,
-            child: const Center(
+            color: Theme.of(context).colorScheme.surfaceContainerLowest,
+            child: Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  CircularProgressIndicator(color: Colors.white),
-                  SizedBox(height: AppSpacing.md),
+                  CircularProgressIndicator(color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(height: AppSpacing.md),
                   Text(
                     'Loading 3D View...',
-                    style: TextStyle(color: Colors.white),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
                   ),
                 ],
               ),

@@ -321,38 +321,62 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
     final impactIdx = analysis.events?.impactIndex ?? (ptsM.length - 1);
 
     final safeBounce = bounceIdx.clamp(0, ptsM.length - 1);
-    final safeImpact = impactIdx.clamp(0, ptsM.length - 1);
+    var safeImpact = impactIdx.clamp(0, ptsM.length - 1);
+    // Ensure impact is strictly after bounce when possible.
+    if (safeImpact <= safeBounce && safeBounce < ptsM.length - 1) {
+      safeImpact = ptsM.length - 1;
+    }
 
     final points = <Map<String, double>>[];
 
-    // Synthetic height curve for a "3D" feel.
-    final preBounceDen = safeBounce == 0 ? 1.0 : safeBounce.toDouble();
+    const releaseHeight = 2.0;
+    const stumpHeight = 0.71;
+    const postBounceMaxHeight = stumpHeight * 0.8;
+
     for (var i = 0; i < ptsM.length; i++) {
       final p = ptsM[i].worldM;
       final x = p.dx;
       final y = p.dy;
       double z;
       if (i <= safeBounce) {
-        final t = i / preBounceDen;
-        z = (1.8 * (1.0 - (t - 0.55).abs() * 1.6)).clamp(0.0, 1.8);
+        // When bounce is at index 0, the very first point starts at ground level (bounce).
+        // Otherwise, synthesize a descending arc from release height.
+        if (safeBounce == 0) {
+          z = 0.0;
+        } else {
+          final t = i / safeBounce.toDouble();
+          z = (releaseHeight * (1.0 - t * t)).clamp(0.0, releaseHeight);
+        }
+      } else if (i <= safeImpact) {
+        final postRange = safeImpact - safeBounce;
+        final t = postRange <= 0 ? 1.0 : ((i - safeBounce) / postRange.toDouble());
+        z = (postBounceMaxHeight * 4.0 * t * (1.0 - t)).clamp(0.0, postBounceMaxHeight);
       } else {
-        z = 0.0;
+        // After impact — gently descend toward the ground.
+        final remaining = ptsM.length - 1 - safeImpact;
+        final t = remaining <= 0 ? 1.0 : ((i - safeImpact) / remaining.toDouble());
+        final lastZ = points.isNotEmpty ? (points.last['z'] ?? 0.0) : 0.0;
+        z = (lastZ * (1.0 - t)).clamp(0.0, releaseHeight);
       }
       points.add({'x': x, 'y': y, 'z': z});
     }
 
-    // Predicted path from impact -> stumps (x=0), using server-provided y_at_stumps if available.
+    // Predicted path from impact -> stumps (x=0).
     final lbw = analysis.lbw;
-    if (lbw != null && safeImpact < ptsM.length) {
+    if (lbw != null) {
       final impact = ptsM[safeImpact].worldM;
       final yAtStumps = lbw.yAtStumpsM;
+
+      final impactZ = points[safeImpact]['z'] ?? 0.0;
 
       const n = 14;
       for (var i = 1; i <= n; i++) {
         final t = i / n;
         final x = impact.dx + (0.0 - impact.dx) * t;
         final y = impact.dy + (yAtStumps - impact.dy) * t;
-        points.add({'x': x, 'y': y, 'z': 0.0});
+        // Gently rise from impactZ toward stump height.
+        final z = impactZ + (stumpHeight - impactZ) * t;
+        points.add({'x': x, 'y': y, 'z': z});
       }
     }
 
@@ -391,8 +415,6 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
       _decisionReason = null;
       _pitchPose = null;
     });
-    // Allow decoder surfaces to drain before a new upload starts.
-    Future<void>.delayed(const Duration(milliseconds: 100));
   }
 
   void _goBack() {
@@ -447,9 +469,10 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final showAppBar = _step != _Step.results;
     return Scaffold(
-      backgroundColor: _step == _Step.results ? Colors.black : null,
+      backgroundColor: _step == _Step.results ? theme.colorScheme.surfaceContainerLowest : null,
       appBar: showAppBar
           ? AppBar(
               backgroundColor: Colors.transparent,
@@ -872,43 +895,53 @@ class _ProcessingView extends StatelessWidget {
     final p = (pct ?? 0).clamp(0, 100);
     final stageText = stage ?? 'working';
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 72,
-            height: 72,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CircularProgressIndicator(
-                  strokeWidth: 3,
-                  value: p <= 0 ? null : p / 100.0,
+      child: Card(
+        elevation: 0,
+        color: theme.colorScheme.surfaceContainer,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 48),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 88,
+                height: 88,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CircularProgressIndicator(
+                      strokeWidth: 4,
+                      value: p <= 0 ? null : p / 100.0,
+                      color: theme.colorScheme.primary,
+                      backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                    ),
+                    Center(
+                      child: Text(
+                        '$p%',
+                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
                 ),
-                Center(
-                  child: Text(
-                    '$p%',
-                    style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-                  ),
+              ),
+              const SizedBox(height: 32),
+              Text('Analyzing delivery…', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Text(
+                error == null ? stageText : 'Error: $error',
+                style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
+              if (jobId != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Job: $jobId',
+                  style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                 ),
               ],
-            ),
+            ],
           ),
-          const SizedBox(height: 32),
-          Text('Analyzing delivery…', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          Text(
-            error == null ? stageText : 'Error: $error',
-            style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-          ),
-          if (jobId != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Job: $jobId',
-              style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
