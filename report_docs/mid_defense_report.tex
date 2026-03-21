@@ -266,9 +266,9 @@ The design can be understood through the following views: overall system archite
 \node[smallbox] (r1) at ([xshift=-2.0cm,yshift=-2.5mm]result.center) {3D Trajectory};
 \node[smallbox] (r2) at ([xshift=2.0cm,yshift=-2.5mm]result.center) {Decision Summary};
 
-\draw[flow] (mobile.south) -- node[right, font=\scriptsize] {video + calibration config} (api.north);
-\draw[flow] (api.south) -- node[right, font=\scriptsize] {decoded frames for processing} (pipeline.north);
-\draw[flow] (pipeline.south) -- node[right, font=\scriptsize] {track path, events, \& LBW verdict} (result.north);
+\draw[flow] (mobile.south) -- node[right, font=\scriptsize, align=center] {video + calibration config} (api.north);
+\draw[flow] (api.south) -- node[right, font=\scriptsize, align=center] {decoded frames for processing} (pipeline.north);
+\draw[flow] (pipeline.south) -- node[right, font=\scriptsize, align=center] {track path, events, \& LBW verdict} (result.north);
 \end{tikzpicture}
 }
 \caption{Overall architecture of PocketDRS.}
@@ -398,7 +398,7 @@ The working flow is kept short so that the user can follow it easily:
 \draw[arrow] (a3.east) -- (s1.west);
 \draw[arrow] (s1.south) -- (s2.north);
 \draw[arrow] (s2.west) -- node[above, font=\scriptsize] {No} (a5.east);
-\draw[arrow] (s2.south) -- node[right, font=\scriptsize] {Yes} (s3.north);
+\draw[arrow] (s2.south) -- node[right, font=\scriptsize, align=center] {Yes} (s3.north);
 \draw[arrow] (s3.west) -- (a4.east);
 \draw[arrow] (a4.south) |- (u3.east);
 \end{tikzpicture}
