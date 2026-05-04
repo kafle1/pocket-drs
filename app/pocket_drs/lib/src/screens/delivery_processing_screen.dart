@@ -284,7 +284,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
       }
 
       final analysis = await api.getJobResult(jobId);
-      _log('[DELIVERY] Result fetched: ${analysis.pitchPlane.length} points');
+      _log('[DELIVERY] Result fetched: ${analysis.worldTrajectory.points.length} 3D points');
       final payload = _buildHawkEyePayload(analysis);
 
       if (!mounted) return;
@@ -313,73 +313,35 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
   }
 
   _HawkEyePayload _buildHawkEyePayload(AnalysisResult analysis) {
-    final ptsM = analysis.pitchPlane;
-    if (ptsM.isEmpty) {
-      throw StateError('Server did not return pitch-plane points. Recalibrate the pitch and try again.');
+    final world = analysis.worldTrajectory;
+    if (!world.hasTrajectory) {
+      throw StateError(
+        'Server returned no 3D trajectory. The ball may not be detectable in this video, '
+        'or the pitch calibration may be inaccurate. Try a clearer video or recalibrate.',
+      );
     }
 
-    final bounceIdx = analysis.events?.bounceIndex ?? (ptsM.length ~/ 2);
-    final impactIdx = analysis.events?.impactIndex ?? (ptsM.length - 1);
+    // Real (x,y,z) world points from the bundle-adjusted projectile fit.
+    final points = <Map<String, double>>[
+      for (final p in world.points) p.toViewerJson(),
+    ];
 
-    final safeBounce = bounceIdx.clamp(0, ptsM.length - 1);
-    var safeImpact = impactIdx.clamp(0, ptsM.length - 1);
-    // Ensure impact is strictly after bounce when possible.
-    if (safeImpact <= safeBounce && safeBounce < ptsM.length - 1) {
-      safeImpact = ptsM.length - 1;
+    var bounceIdx = -1;
+    var impactIdx = -1;
+    final events = analysis.events;
+    if (events?.bounce != null) {
+      bounceIdx = _indexOfNearestT(world.points, events!.bounce!.tMs);
     }
-
-    final points = <Map<String, double>>[];
-
-    const releaseHeight = 2.0;
-    const stumpHeight = 0.71;
-    const postBounceMaxHeight = stumpHeight * 0.8;
-
-    for (var i = 0; i < ptsM.length; i++) {
-      final p = ptsM[i].worldM;
-      final x = p.dx;
-      final y = p.dy;
-      double z;
-      if (i <= safeBounce) {
-        // When bounce is at index 0, the very first point starts at ground level (bounce).
-        // Otherwise, synthesize a descending arc from release height.
-        if (safeBounce == 0) {
-          z = 0.0;
-        } else {
-          final t = i / safeBounce.toDouble();
-          z = (releaseHeight * (1.0 - t * t)).clamp(0.0, releaseHeight);
-        }
-      } else if (i <= safeImpact) {
-        final postRange = safeImpact - safeBounce;
-        final t = postRange <= 0 ? 1.0 : ((i - safeBounce) / postRange.toDouble());
-        z = (postBounceMaxHeight * 4.0 * t * (1.0 - t)).clamp(0.0, postBounceMaxHeight);
-      } else {
-        // After impact — gently descend toward the ground.
-        final remaining = ptsM.length - 1 - safeImpact;
-        final t = remaining <= 0 ? 1.0 : ((i - safeImpact) / remaining.toDouble());
-        final lastZ = points.isNotEmpty ? (points.last['z'] ?? 0.0) : 0.0;
-        z = (lastZ * (1.0 - t)).clamp(0.0, releaseHeight);
-      }
-      points.add({'x': x, 'y': y, 'z': z});
+    if (events?.impact != null) {
+      impactIdx = _indexOfNearestT(world.points, events!.impact!.tMs);
     }
+    if (bounceIdx < 0) bounceIdx = (points.length / 2).floor();
+    if (impactIdx < 0) impactIdx = points.length - 1;
 
-    // Predicted path from impact -> stumps.
-    final lbw = analysis.lbw;
-    if (lbw != null) {
-      final impact = ptsM[safeImpact].worldM;
-      final yAtStumps = lbw.yAtStumpsM;
-      final stumpX = lbw.stumpXM;
-
-      final impactZ = points[safeImpact]['z'] ?? 0.0;
-
-      const n = 14;
-      for (var i = 1; i <= n; i++) {
-        final t = i / n;
-        final x = impact.dx + (stumpX - impact.dx) * t;
-        final y = impact.dy + (yAtStumps - impact.dy) * t;
-        // Gently rise from impactZ toward stump height.
-        final z = impactZ + (stumpHeight - impactZ) * t;
-        points.add({'x': x, 'y': y, 'z': z});
-      }
+    // Append predicted continuation from impact to stump plane (drawn in
+    // a different colour by the 3D viewer).
+    for (final p in world.predictedToStumps) {
+      points.add(p.toViewerJson());
     }
 
     final decision = switch (analysis.lbw?.decision) {
@@ -391,11 +353,24 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
 
     return _HawkEyePayload(
       points: points,
-      bounceIndex: safeBounce,
-      impactIndex: safeImpact,
+      bounceIndex: bounceIdx,
+      impactIndex: impactIdx,
       decision: decision,
       reason: analysis.lbw?.reason,
     );
+  }
+
+  int _indexOfNearestT(List<WorldPointM> pts, int tMs) {
+    var best = -1;
+    var bestDelta = 1 << 30;
+    for (var i = 0; i < pts.length; i++) {
+      final d = (pts[i].tMs - tMs).abs();
+      if (d < bestDelta) {
+        bestDelta = d;
+        best = i;
+      }
+    }
+    return best;
   }
 
   void _reset() {

@@ -75,6 +75,43 @@ _store: JobStore = default_job_store()
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="job-worker")
 
 
+def _sanitize_for_firestore(value: Any) -> Any:
+    """Recursively coerce a result dict into Firestore-friendly primitives.
+
+    Firestore rejects numpy scalars/arrays, tuples, sets, NaN/Inf, and any
+    object whose runtime type isn't one of (dict, list, str, int, float, bool,
+    None, datetime).  We map everything to those.
+    """
+    import math as _math
+    try:
+        import numpy as _np
+        np_scalar = _np.generic
+        np_ndarray = _np.ndarray
+    except Exception:
+        np_scalar = ()  # type: ignore[assignment]
+        np_ndarray = ()  # type: ignore[assignment]
+
+    if value is None or isinstance(value, (bool, str)):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if _math.isnan(value) or _math.isinf(value):
+            return None
+        return value
+    if np_scalar and isinstance(value, np_scalar):
+        v = value.item()
+        return _sanitize_for_firestore(v)
+    if np_ndarray and isinstance(value, np_ndarray):
+        return [_sanitize_for_firestore(x) for x in value.tolist()]
+    if isinstance(value, dict):
+        return {str(k): _sanitize_for_firestore(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_sanitize_for_firestore(x) for x in value]
+    # Fallback: stringify anything exotic so we don't lose the field entirely.
+    return str(value)
+
+
 def _load_json(s: str) -> dict[str, Any]:
     try:
         v = json.loads(s)
@@ -146,7 +183,7 @@ def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], ar
                     db.collection('users').document(user_id).collection('analyses').add({
                         'jobId': job_id,
                         'pitchId': pitch_id,
-                        'result': out.result,
+                        'result': _sanitize_for_firestore(out.result),
                         'createdAt': fb_firestore.SERVER_TIMESTAMP,
                     })
                     job_log.info("✓ Saved to Firestore for user %s", user_id)

@@ -5,6 +5,7 @@ import '../analysis/pitch_pose.dart';
 import '../models/pitch.dart';
 import '../utils/pitch_store.dart';
 import '../widgets/pitch_3d_viewer.dart';
+import 'analyses_screen.dart';
 import 'delivery_processing_screen.dart';
 import 'pitch_calibration_screen.dart';
 import 'pitch_edit_screen.dart';
@@ -192,6 +193,19 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
                                   enabled: true,
                                   onTap: _analyze,
                                   color: theme.colorScheme.primary,
+                                ),
+                                const SizedBox(height: 12),
+                                _ActionCard(
+                                  icon: Icons.timeline_outlined,
+                                  title: 'Past Analyses',
+                                  subtitle: 'Review every previous delivery on this pitch',
+                                  enabled: true,
+                                  onTap: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => AnalysesScreen(pitchId: pitch.id),
+                                    ),
+                                  ),
+                                  color: theme.colorScheme.tertiary,
                                 ),
                                 const SizedBox(height: 12),
                               ],

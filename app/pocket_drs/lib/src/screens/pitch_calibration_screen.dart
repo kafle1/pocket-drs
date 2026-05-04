@@ -280,6 +280,7 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
         await Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) => PostCalibration3DScreen(
+              pitchId: widget.pitchId,
               pitchName: widget.pitchName,
               calibration: calibration.pitchCalibration!,
             ),

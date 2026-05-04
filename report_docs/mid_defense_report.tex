@@ -86,41 +86,43 @@ University ID: LC0003001674\\[30pt]
 
 \section{Introduction}
 
-Cricket uses more technology every year. In top level matches, systems like Hawk-Eye help umpires review close decisions. These systems work well, but they need many cameras, special equipment, and trained operators. That makes them too expensive for local grounds, schools, clubs, and small tournaments \cite{hawkeye2024}.
+Cricket officiating increasingly depends on technology for reviewing close decisions, especially Leg Before Wicket (LBW) cases. In elite matches, systems such as Hawk-Eye reconstruct the ball trajectory using multiple synchronized high-speed cameras and specialized processing infrastructure. Although these systems are highly effective, they are costly, complex to operate, and impractical for schools, clubs, local leagues, and training environments \cite{hawkeye2024}.
 
-PocketDRS is built to solve that gap. It tries to give a simple decision support system using a single phone camera and a lightweight processing server. The user records a delivery, marks pitch points on the screen, submits the clip, and gets a result with a ball path view and an LBW decision.
+PocketDRS is proposed as a low-cost decision-support system that uses a single smartphone camera and a lightweight backend service to analyze a delivery. The user records or selects a short video clip, calibrates the visible pitch by marking known reference points, submits the delivery for processing, and receives a visual explanation together with an LBW assessment.
 
-The project focuses on a practical version of DRS that people can actually use in low-cost cricket setups. Instead of chasing perfect broadcast level accuracy, the goal is to produce a stable and understandable result from normal hardware.
+The project emphasizes practicality over broadcast-grade precision. The goal is not to replace certified professional DRS, but to demonstrate that a constrained single-view pipeline can provide meaningful review support in low-resource cricket settings. The current prototype focuses on reliable pitch-plane tracking, event detection, and explainable visualization, while acknowledging the accuracy limits of monocular analysis.
 
 \section{Problem Statement}
 
-Professional DRS systems depend on multiple synchronized cameras. They find the ball in different views and rebuild its path in 3D. That approach is accurate, but it is expensive and hard to use outside major venues.
+Professional DRS systems depend on multiple synchronized cameras to recover depth and reconstruct the trajectory of the ball in three dimensions. This produces strong results, but the required equipment, installation effort, and operating cost make such systems inaccessible outside major venues.
 
-When the same problem is moved to a single camera, three main issues appear:
+When the same decision-review problem is shifted to a single consumer camera, several technical and practical difficulties arise:
 
 \begin{enumerate}
-    \item A single camera does not give direct depth information.
-    \item A cricket ball is small, fast, and easy to lose in the frame.
-    \item Any small calibration mistake can affect the final decision.
+    \item A monocular view does not provide direct depth information.
+    \item A cricket ball is small, fast, motion-blurred, and can easily be confused with background objects.
+    \item Small calibration errors can produce large errors when detections are mapped to pitch coordinates.
+    \item Lighting variation, camera shake, player occlusion, and inconsistent recording conditions reduce reliability in real grounds.
 \end{enumerate}
 
-The main question of this project is simple: can one phone camera and a lightweight vision pipeline track the ball well enough to help with LBW review on ordinary cricket grounds?
+Therefore, the central problem addressed by this project is whether a single-phone-camera workflow, supported by pitch calibration and lightweight computer-vision techniques, can produce a sufficiently consistent and understandable LBW review aid for ordinary cricket grounds.
 
 \section{Objectives}
 
 \subsection{General Objective}
 
-To build a simple and low-cost cricket review system that can track the ball from a single camera view, estimate its path, and support LBW decisions.
+To design and implement a low-cost cricket decision-support system that uses a single camera view to analyze a delivery, estimate the ball path in calibrated pitch coordinates, and assist LBW review.
 
 \subsection{Specific Objectives}
 
 \begin{enumerate}
-    \item Study existing DRS tools and similar research to identify methods that can work on normal devices.
-    \item Build a pitch calibration step that maps screen points to real pitch positions.
-    \item Track the ball using motion and colour based detection.
-    \item Detect bounce and impact points from the tracked path.
-    \item Estimate whether the ball would hit the stumps.
-    \item Show the result in a clear 3D view that is easy to understand.
+    \item Study existing decision-review systems and relevant literature on monocular sports tracking.
+    \item Develop a user-guided calibration process based on pitch corners and stump reference points.
+    \item Detect and track the ball from delivery video using combined motion and colour cues.
+    \item Map tracked pixel positions to pitch-plane coordinates using homography.
+    \item Detect important events such as bounce and impact from the tracked trajectory.
+    \item Estimate an LBW outcome using rule-based checks on pitching line, impact line, and projected stump contact.
+    \item Present the result through a simple interactive visualization that helps users interpret the decision.
 \end{enumerate}
 
 \section{Methodology}
@@ -129,11 +131,11 @@ To build a simple and low-cost cricket review system that can track the ball fro
 
 \subsubsection{Study of Existing System}
 
-Existing systems such as Hawk-Eye use many cameras, shared calibration data, and powerful servers. They are designed for large professional setups. PocketDRS uses a smaller workflow. It keeps one camera, one trimmed clip, a user guided calibration step, and a simpler analysis pipeline. This makes the system cheaper and easier to deploy.
+Existing systems such as Hawk-Eye use multiple calibrated cameras, controlled camera placement, high frame rates, and proprietary reconstruction pipelines. These systems are designed for professional broadcasting environments. In contrast, PocketDRS adopts a constrained workflow built for affordability: one mobile camera, one short trimmed delivery clip, one user-guided calibration step, and a lightweight server-side analysis pipeline. The trade-off is lower accuracy than professional systems, but much lower deployment cost and complexity.
 
 \subsubsection{Literature Review}
 
-Related work shows that single-view sports tracking becomes possible when the scene has known geometry and the motion follows a predictable pattern. In cricket, the pitch gives fixed reference points, and the ball usually follows a smooth path between release, bounce, impact, and wicket line. Homography-based mapping from a calibrated view can project 2D detections onto a known plane \cite{zhang2000}. Background subtraction methods like MOG2, combined with colour-space filtering, are effective for real-time ball detection in controlled settings \cite{opencv2024}. Restricting the detection region to the pitch area further reduces false positives from players and the surrounding environment. This makes a practical single-view solution possible, even if it is simpler than a full professional DRS \cite{ponglertnapakorn2021}.
+Related research shows that single-view sports analysis becomes more feasible when the scene contains known geometry and the target motion follows domain constraints. In cricket, the pitch provides stable reference landmarks, while the ball generally follows a predictable sequence from release to bounce, then impact, and finally the projected wicket line. Homography-based mapping from image coordinates to a known plane is a practical way to convert 2D observations into real-world pitch coordinates \cite{zhang2000}. Background subtraction and colour filtering remain effective low-cost detection strategies in controlled or semi-controlled environments, especially when the search space is reduced through domain knowledge \cite{opencv2024}. Recent work on monocular ball trajectory estimation further suggests that strong constraints can compensate for missing depth information, although monocular systems remain more fragile than multi-camera solutions \cite{ponglertnapakorn2021}. These findings support the feasibility of a student-scale prototype that prioritizes explainability and affordability.
 
 \subsubsection{Requirement Analysis}
 
@@ -144,11 +146,11 @@ Related work shows that single-view sports tracking becomes possible when the sc
     \item User records or selects a video.
     \item User creates or reuses pitch calibration.
     \item User trims the clip and submits it.
-    \item Server tracks the ball.
-    \item Server maps the path to the pitch.
-    \item Server detects bounce and impact.
-    \item Server checks LBW outcome.
-    \item App shows the result in a simple 3D view.
+    \item Server tracks the ball through the selected segment.
+    \item Server maps the track to pitch coordinates.
+    \item Server detects bounce and impact points.
+    \item Server evaluates the LBW outcome.
+    \item App shows the decision, warnings, and an interactive visual result.
 \end{enumerate}
 
 \textbf{Non-functional requirements}
@@ -157,8 +159,10 @@ Related work shows that single-view sports tracking becomes possible when the sc
     \item The system should stay easy to use for a first-time user.
     \item Processing should finish in a short time for one delivery.
     \item The app should run on both Android and iOS.
-    \item The server should work with normal video quality and common frame rates.
-    \item The final result should be clear enough for a user to follow without technical knowledge.
+    \item The server should work with common phone video quality and practical frame rates.
+    \item The final result should be understandable to non-technical users.
+    \item The system should provide diagnostic warnings when calibration or tracking quality is weak.
+    \item The architecture should remain modular so that stronger tracking or reconstruction methods can be added later.
 \end{enumerate}
 
 \begin{figure}[htbp]
@@ -202,15 +206,15 @@ Related work shows that single-view sports tracking becomes possible when the sc
 
 \subsubsection{Technical Feasibility}
 
-The current prototype uses tools that are already stable and widely used. Flutter handles the mobile app. FastAPI handles the server API. OpenCV handles video analysis. Three.js is used for the 3D result view inside a WebView. This stack is realistic for a student project and works on consumer hardware.
+The proposed system is technically feasible because it is built from mature and widely supported technologies. Flutter provides cross-platform mobile development, FastAPI provides lightweight and testable backend services, OpenCV supports frame processing and tracking, and Firebase handles authentication and cloud persistence. The present implementation already demonstrates upload, calibration, server-side analysis, and result visualization on consumer devices. Although monocular video imposes accuracy limits, the required software stack is realistic for a student project and deployable on ordinary hardware.
 
 \subsubsection{Operational Feasibility}
 
-The workflow is simple enough for normal use. A phone on a tripod records the ball. The user marks pitch points once, trims the clip, and waits for the result. The steps are short and easy to repeat during testing.
+The operational workflow is simple enough for field use during testing and demonstrations. A user places a phone near square leg or a side-on view, records a delivery, calibrates the pitch by tapping known points, trims the clip, and waits for the generated result. This procedure is repeatable, requires minimal training, and fits the needs of clubs, student projects, and coaching sessions.
 
 \subsubsection{Economic Feasibility}
 
-The project does not need special sensors or paid software. It uses open source libraries and devices that are already available. That keeps the cost very low.
+The project is economically feasible because it does not require specialized camera arrays, licensed broadcast systems, or custom hardware. It relies primarily on a smartphone, a tripod, and open-source libraries. Compared with professional DRS infrastructure, the expected deployment cost is extremely low, making the proposed system suitable for academic demonstration and low-budget cricket environments.
 
 \begin{table}[htbp]
 \centering
@@ -233,7 +237,7 @@ Testing & pytest and Flutter analyzer \\
 
 \subsection{High Level Design of System}
 
-The design can be understood through the following views: overall system architecture, context-level data flow, level-1 processing flow, application activity flow, software components, and deployment structure. Together these diagrams show how PocketDRS moves from user input to final LBW decision output.
+The proposed system is designed as a mobile-to-server workflow. The mobile application handles video capture or selection, pitch calibration, job submission, and result presentation. The backend decodes the selected segment, tracks the ball, computes a homography from user-provided pitch points, maps detections to pitch coordinates, detects key events, evaluates the LBW decision, and returns structured output to the client. The following diagrams summarize the architecture, data flow, software components, deployment structure, and working mechanism of the system.
 
 \begin{figure}[htbp]
 \centering
@@ -357,42 +361,41 @@ The design can be understood through the following views: overall system archite
 
 \subsubsection{Working Flow}
 
-The working flow is kept short so that the user can follow it easily:
+The working flow is kept short so that users can perform the analysis with minimal overhead:
 
 \begin{figure}[htbp]
 \centering
 \resizebox{0.96\textwidth}{!}{%
 \begin{tikzpicture}[
-    node distance=1.0cm and 1.5cm,
     head/.style={font=\small\bfseries, align=center},
-    flowstep/.style={draw, rounded corners=3pt, minimum width=3.0cm, minimum height=1.0cm, align=center, font=\small, fill=gray!8},
-    decision/.style={draw, diamond, aspect=2.0, minimum width=2.6cm, align=center, font=\small, fill=gray!8},
-    arrow/.style={-{Stealth[length=2.3mm]}, line width=0.8pt}
+    flowstep/.style={draw, rounded corners=3pt, minimum width=3.8cm, minimum height=1.2cm, align=center, font=\small, fill=gray!8},
+    decision/.style={draw, diamond, aspect=2.1, minimum width=3.2cm, minimum height=1.4cm, align=center, font=\small, fill=gray!8},
+    arrow/.style={-{Stealth[length=2.4mm]}, line width=0.85pt}
 ]
 
-\def\w{4.2}
+\def\w{5.6}
 \node[head] (h1) at (-\w, 0) {User};
 \node[head] (h2) at (0, 0) {Mobile App};
 \node[head] (h3) at (\w, 0) {Server};
 
-\draw[dashed, gray] (-\w-2.0, -0.6) -- (\w+2.0, -0.6);
-\draw[gray] (-0.5*\w, 0.6) -- (-0.5*\w, -13.0);
-\draw[gray] (0.5*\w, 0.6) -- (0.5*\w, -13.0);
+\draw[dashed, gray] (-\w-2.0, -0.7) -- (\w+2.0, -0.7);
+\draw[gray] (-0.5*\w, 0.6) -- (-0.5*\w, -14.4);
+\draw[gray] (0.5*\w, 0.6) -- (0.5*\w, -14.4);
 
-\node[flowstep] (u1) at (-\w, -1.6) {Choose Delivery};
-\node[flowstep] (a1) at (0, -1.6) {Load \& Trim Video};
-\node[flowstep] (u2) at (-\w, -3.2) {Tap Pitch Corners};
-\node[flowstep] (a2) at (0, -3.2) {Prepare Payload};
-\node[flowstep] (a3) at (0, -4.8) {Upload \& Poll Job};
-\node[flowstep] (s1) at (\w, -4.8) {Decode \& Track};
-\node[decision] (s2) at (\w, -6.8) {Track Valid?};
-\node[flowstep] (a5) at (0, -6.8) {Show Error Message};
-\node[flowstep] (s3) at (\w, -9.2) {Map Pitch, Events,\\Assess LBW};
-\node[flowstep] (a4) at (0, -9.2) {Receive Result\\\& Build 3D};
-\node[flowstep] (u3) at (-\w, -11.4) {Review 3D Path\\\& Decision};
+\node[flowstep] (u1) at (-\w, -1.7) {Choose Delivery};
+\node[flowstep] (a1) at (0, -1.7) {Load \& Trim Video};
+\node[flowstep] (u2) at (-\w, -4.0) {Tap Pitch Corners};
+\node[flowstep] (a2) at (0, -4.0) {Prepare Payload};
+\node[flowstep] (a3) at (0, -6.3) {Upload \& Poll Job};
+\node[flowstep] (s1) at (\w, -6.3) {Decode \& Track};
+\node[decision] (s2) at (\w, -8.9) {Track Valid?};
+\node[flowstep] (a5) at (0, -8.9) {Show Error Message};
+\node[flowstep] (s3) at (\w, -11.6) {Map Pitch, Events,\\Assess LBW};
+\node[flowstep] (a4) at (0, -11.6) {Receive Result\\\& Build 3D};
+\node[flowstep] (u3) at (-\w, -13.9) {Review 3D Path\\\& Decision};
 
 \draw[arrow] (u1.east) -- (a1.west);
-\draw[arrow] (a1.south) |- (u2.east);
+\draw[arrow] (a1.west) -- ++(-1.3,0) |- (u2.north);
 \draw[arrow] (u2.east) -- (a2.west);
 \draw[arrow] (a2.south) -- (a3.north);
 \draw[arrow] (a3.east) -- (s1.west);
@@ -413,26 +416,25 @@ The working flow is kept short so that the user can follow it easily:
 \centering
 \resizebox{0.96\textwidth}{!}{%
 \begin{tikzpicture}[
-    node distance=1.0cm and 2.5cm,
-    pkg/.style={draw, rounded corners=4pt, minimum width=5.5cm, minimum height=4.5cm},
-    comp/.style={draw, rounded corners=3pt, minimum width=4.5cm, minimum height=0.9cm, align=center, font=\small, fill=gray!8},
-    arrow/.style={-{Stealth[length=2.5mm]}, line width=0.8pt},
+    pkg/.style={draw, rounded corners=4pt, minimum width=6.8cm, minimum height=5.6cm},
+    comp/.style={draw, rounded corners=3pt, minimum width=5.6cm, minimum height=1.05cm, align=center, font=\small, fill=gray!8},
+    arrow/.style={-{Stealth[length=2.5mm]}, line width=0.85pt},
     lbl/.style={font=\scriptsize, align=center}
 ]
 
 \node[pkg] (mobile) at (-4, 0) {};
 \node[font=\small\bfseries] at (mobile.north) [yshift=-5mm] {Mobile Client};
-\node[comp] (c1) at (-4, 0.8) {Flutter Screens};
-\node[comp] (c2) at (-4, -0.4) {Calibration / Result Widgets};
-\node[comp] (c3) at (-4, -1.6) {PocketDRS API Client};
+\node[comp] (c1) at (-4, 1.5) {Flutter Screens};
+\node[comp] (c2) at (-4, 0) {Calibration / Result Widgets};
+\node[comp] (c3) at (-4, -1.5) {PocketDRS API Client};
 
 \node[pkg] (backend) at (4, 0) {};
 \node[font=\small\bfseries] at (backend.north) [yshift=-5mm] {Backend Service};
-\node[comp] (b1) at (4, 0.8) {FastAPI App \& Routes};
-\node[comp] (b2) at (4, -0.4) {Job Manager \& Logging};
-\node[comp] (b3) at (4, -1.6) {Tracking \& LBW Pipeline};
+\node[comp] (b1) at (4, 1.5) {FastAPI App \& Routes};
+\node[comp] (b2) at (4, 0) {Job Manager \& Logging};
+\node[comp] (b3) at (4, -1.5) {Tracking \& LBW Pipeline};
 
-\node[comp, minimum width=5.5cm] (firebase) at (0, -4.2) {Firebase Auth \& Firestore};
+\node[comp, minimum width=6.0cm] (firebase) at (0, -5.0) {Firebase Auth \& Firestore};
 
 \draw[arrow] (c1.south) -- (c2.north);
 \draw[arrow] (c2.south) -- (c3.north);
@@ -442,13 +444,15 @@ The working flow is kept short so that the user can follow it easily:
 
 \draw[arrow] (c3.east) -- node[lbl, above] {HTTP JSON} (b3.west |- c3.east);
 
-\draw[arrow] (c2.south) |- node[lbl, above, near end] {auth/metadata} (firebase.west);
-\draw[arrow] (firebase.east) -| node[lbl, above, near start] {verification} (b1.south);
+\draw[arrow] (c2.west) -- ++(-1.6,0) |- node[lbl, above, near end] {auth/metadata} (firebase.west);
+\draw[arrow] (firebase.east) -- ++(1.6,0) |- node[lbl, above, near end] {verification} (b1.east);
 \end{tikzpicture}
 }
 \caption{Main software components.}
 \label{fig:component}
 \end{figure}
+
+\clearpage
 
 \subsubsection{Deployment View}
 
@@ -456,32 +460,31 @@ The working flow is kept short so that the user can follow it easily:
 \centering
 \resizebox{0.96\textwidth}{!}{%
 \begin{tikzpicture}[
-    node distance=1.5cm and 3cm,
-    nodebox/.style={draw, rounded corners=4pt, minimum width=5.5cm, minimum height=3.6cm, align=center, font=\small},
-    inner/.style={draw, rounded corners=3pt, minimum width=4.5cm, minimum height=0.9cm, align=center, font=\small, fill=gray!8},
-    arrow/.style={-{Stealth[length=2.5mm]}, line width=0.8pt},
+    nodebox/.style={draw, rounded corners=4pt, minimum width=6.8cm, minimum height=4.6cm, align=center, font=\small},
+    inner/.style={draw, rounded corners=3pt, minimum width=5.6cm, minimum height=1.05cm, align=center, font=\small, fill=gray!8},
+    arrow/.style={-{Stealth[length=2.5mm]}, line width=0.85pt},
     lbl/.style={font=\scriptsize, align=center}
 ]
 
 \node[nodebox] (phone) at (-4.2, 0) {};
 \node[font=\small\bfseries] at (phone.north) [yshift=-5mm] {Smartphone Device};
-\node[inner] (m1) at (-4.2, 0.5) {Flutter Application};
-\node[inner] (m2) at (-4.2, -0.7) {Video Player \& WebView};
+\node[inner] (m1) at (-4.2, 1.05) {Flutter Application};
+\node[inner] (m2) at (-4.2, -1.05) {Video Player \& WebView};
 
 \node[nodebox] (server) at (4.2, 0) {};
 \node[font=\small\bfseries] at (server.north) [yshift=-5mm] {Processing Server};
-\node[inner] (s1) at (4.2, 0.5) {FastAPI \& Job Queue};
-\node[inner] (s2) at (4.2, -0.7) {OpenCV Tracking Pipeline};
+\node[inner] (s1) at (4.2, 1.05) {FastAPI \& Job Queue};
+\node[inner] (s2) at (4.2, -1.05) {OpenCV Tracking Pipeline};
 
-\node[nodebox, minimum height=2.4cm] (cloud) at (0, -4.5) {};
+\node[nodebox, minimum height=2.7cm] (cloud) at (0, -5.9) {};
 \node[font=\small\bfseries] at (cloud.north) [yshift=-5mm] {Firebase Cloud Services};
-\node[inner] (f1) at (0, -5.0) {Authentication \& Firestore};
+\node[inner] (f1) at (0, -6.4) {Authentication \& Firestore};
 
 \draw[arrow] (m1.east) -- node[lbl, above] {upload request} (s1.west);
 \draw[arrow] (s2.west) -- node[lbl, below] {result JSON} (m2.east);
 
 \draw[arrow] (m2.south) |- node[lbl, above, pos=0.8] {user auth} (f1.west);
-\draw[arrow] (f1.east) -| node[lbl, right, near end] {validation} (s1.south);
+\draw[arrow] (f1.east) -- ++(1.8,0) |- node[lbl, above, near end] {validation} (s1.east);
 
 \end{tikzpicture}
 }
@@ -491,19 +494,21 @@ The working flow is kept short so that the user can follow it easily:
 
 \subsubsection{Current Implementation Status}
 
-The project is not only planned on paper. A working prototype already exists and has gone through a full cycle of implementation and improvement. Below is the current state of each part of the system.
+The project has progressed beyond initial planning and currently exists as a working prototype. The following summary reflects the present implementation state rather than the long-term vision of the project.
 
-\textbf{Mobile Application.} The Flutter app supports sign in with Firebase, video selection and recording, an interactive pitch calibration step where the user taps four pitch corners and two stump bases, video trimming, submission to the server, live progress polling, and a full result screen with a 3D trajectory view. The calibration screen validates user inputs and checks for geometric consistency before allowing the user to proceed.
+\textbf{Mobile Application.} The Flutter app supports Firebase sign-in, video selection or recording, an interactive pitch calibration step, video trimming, job submission, progress polling, and result display. The calibration workflow collects four pitch corners and stump reference points and validates the geometry before submission.
 
-\textbf{Server and API.} The FastAPI server accepts video uploads and processes them as background jobs. Each job goes through frame decoding, ball tracking, calibration mapping, bounce and impact detection, and LBW assessment. The job API returns structured results including track points, pitch plane coordinates, event indices, and an LBW decision with reasons.
+\textbf{Server and API.} The FastAPI backend accepts authenticated uploads and processes them as background jobs. Each job performs frame decoding, ball tracking, calibration mapping, event estimation, and LBW assessment. The API returns structured JSON including track points, calibration quality, pitch-plane points, bounce and impact indices, decision details, and diagnostic warnings.
 
-\textbf{Ball Tracking Pipeline.} Tracking uses a combined motion and colour detection approach. A MOG2 background subtractor detects moving objects while an HSV colour detector finds the ball by its known colour. The two detectors are fused so that matches between them receive higher confidence. A recent improvement adds a region-of-interest (ROI) mask built from the calibration corners, which restricts detection to the pitch area and its surroundings. This eliminates false positives from fielders, boundary boards, and camera shake in the background.
+\textbf{Ball Tracking Pipeline.} Tracking uses a combined motion-and-colour strategy. A motion detector based on background subtraction is combined with HSV colour filtering so that detections supported by both cues receive higher confidence. A pitch ROI mask derived from the calibration corners restricts the search region and reduces false positives from players, spectators, and background motion.
 
-\textbf{Pitch Calibration and Homography.} The user marks four pitch corners and two stump bases on a reference frame. The server uses these to compute a homography matrix that maps pixel positions to real pitch coordinates. Stump base points refine the homography. A reprojection quality score warns the user when calibration may be inaccurate.
+\textbf{Pitch Calibration and Homography.} The user marks four pitch corners and stump reference points on a reference frame. The backend computes a homography that maps image coordinates to pitch-plane coordinates in meters. When stump points are available, they are used to refine the mapping. A reprojection-based quality score is generated so that low-quality calibration can be flagged.
 
-\textbf{Event Detection and LBW.} Bounce and impact events are detected using both pixel-space and pitch-plane heuristics. The system looks for velocity changes and lateral direction shifts to identify the bounce point, and finds the first point near the striker crease as impact. The LBW module fits a curve through the post-bounce trajectory and evaluates where the ball would cross the stump line. It checks pitching in line, impact in line, and whether the ball would hit the stumps, and reports a decision with a confidence metric.
+\textbf{Event Detection and LBW.} Bounce and impact are estimated primarily from the pitch-plane trajectory after calibration. The LBW module then applies rule-based checks for pitching line, impact line, and projected stump contact. The current implementation is a calibrated 2D pitch-plane approximation intended for decision support rather than certified officiating.
 
-\textbf{3D Visualization.} The result view uses Three.js loaded in a WebView. It renders a realistic cricket pitch with stumps, crease lines, and the ball trajectory as coloured tubes (blue before bounce, green after bounce, amber for the predicted path). Bounce and impact points are shown as highlighted markers. The user can rotate the view using touch controls.
+\textbf{Visualization Layer.} The result view uses Three.js inside a WebView to display the pitch, stumps, key trajectory points, and decision summary. At the current stage, the visualization is primarily explanatory: the displayed height component is synthesized for presentation, while the core analytical decision is computed from calibrated pitch-plane data.
+
+\textbf{Scope and Limitations.} The current prototype is appropriate for research demonstration, supervised testing, and low-cost review support. It is not ICC-certified, is sensitive to camera placement and lighting, and may fail when the ball is heavily occluded or the calibration input is poor. Full monocular 3D reconstruction remains a future enhancement rather than a completed feature in the current build.
 
 \section{Gantt Chart}
 
@@ -515,30 +520,31 @@ The project is not only planned on paper. A working prototype already exists and
 \toprule
 \textbf{Task} & \textbf{Dec} & \textbf{Jan} & \textbf{Feb} & \textbf{Mar} & \textbf{Apr} \\
 \midrule
-Problem study and review & X & X &  &  &  \\
-System design &  & X & X &  &  \\
-App and server development &  & X & X & X &  \\
-Tracking and decision logic &  &  & X & X &  \\
-Testing and refinement &  &  &  & X & X \\
-Final improvement and report work &  &  &  & X & X \\
+Problem identification and literature review & X & X &  &  &  \\
+Requirement analysis and system design &  & X & X &  &  \\
+Mobile app and backend implementation &  & X & X & X &  \\
+Tracking, calibration, and LBW logic &  &  & X & X &  \\
+Testing, debugging, and refinement &  &  &  & X & X \\
+Documentation and mid/final report updates &  &  &  & X & X \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
 \section{Expected Outcome}
 
-The expected outcome of PocketDRS is a working low-cost review tool for cricket that can:
+The expected outcome of PocketDRS is a working prototype of a low-cost cricket review-support tool that can:
 
 \begin{enumerate}
     \item Accept a single delivery clip from a phone.
-    \item Map the video to the cricket pitch using user selected points.
+    \item Calibrate the visible pitch using user-selected reference points.
     \item Track the ball through the important part of the delivery.
-    \item Mark bounce and impact in a useful way.
-    \item Give a simple LBW decision with a clear visual result.
-    \item Help clubs and student level cricket use a DRS-like tool without expensive equipment.
+    \item Map the tracked detections onto pitch-plane coordinates.
+    \item Estimate bounce and impact points with diagnostic feedback.
+    \item Produce an interpretable LBW decision with a visual explanation.
+    \item Demonstrate that a practical DRS-like workflow is possible on a small budget.
 \end{enumerate}
 
-If accuracy improves further with more testing data, the same system can later grow into a stronger tool for coaching, match review, and training support.
+In addition, the project is expected to establish a foundation for future work such as stronger ball detectors, more robust calibration, improved prediction models, and true monocular 3D reconstruction. Even in its current form, the system is valuable as a research prototype, a teaching aid, and a demonstration of affordable sports-analytics workflow design.
 
 \section{References}
 

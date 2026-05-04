@@ -1,15 +1,22 @@
 import 'package:flutter/material.dart';
+
 import '../analysis/pitch_calibration.dart';
 import '../analysis/pitch_pose.dart';
 import '../widgets/pitch_3d_viewer.dart';
+import 'delivery_processing_screen.dart';
 
+/// Shown right after calibration succeeds.  Confirms that the camera pose
+/// is locked in, surfaces a quality hint, and offers a one-tap path into
+/// delivery analysis without bouncing back to the pitch list.
 class PostCalibration3DScreen extends StatelessWidget {
   const PostCalibration3DScreen({
     super.key,
+    required this.pitchId,
     required this.pitchName,
     required this.calibration,
   });
 
+  final String pitchId;
   final String pitchName;
   final PitchCalibration calibration;
 
@@ -32,8 +39,8 @@ class PostCalibration3DScreen extends StatelessWidget {
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    Colors.black.withValues(alpha: 0.35),
-                    Colors.black.withValues(alpha: 0.15),
+                    Colors.black.withValues(alpha: 0.30),
+                    Colors.black.withValues(alpha: 0.10),
                   ],
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
@@ -48,10 +55,10 @@ class PostCalibration3DScreen extends StatelessWidget {
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      _Chip(text: 'Calibration success', color: const Color(0xFF4ADE80)),
+                      const _StatusChip(),
                       const Spacer(),
                       IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
+                        onPressed: () => Navigator.of(context).pop(true),
                         icon: const Icon(Icons.close, color: Colors.white),
                         style: IconButton.styleFrom(
                           backgroundColor: Colors.white.withValues(alpha: 0.14),
@@ -70,9 +77,9 @@ class PostCalibration3DScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.25),
+                        color: Colors.black.withValues(alpha: 0.20),
                         blurRadius: 22,
-                        offset: const Offset(0, 16),
+                        offset: const Offset(0, 12),
                       ),
                     ],
                   ),
@@ -86,41 +93,55 @@ class PostCalibration3DScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Pitch corners and stumps are locked in. Deliveries on this pitch can now be analyzed with calibrated accuracy.',
+                        'Pitch corners and stumps are locked in. Run an analysis on a delivery video to see the 3D ball trajectory and the LBW decision.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 16),
-                      Row(
+                      const Row(
                         children: [
-                          _Stat(label: 'Pitch length', value: '20.12 m'),
-                          const SizedBox(width: 12),
+                          _Stat(label: 'Length', value: '20.12 m'),
+                          SizedBox(width: 12),
                           _Stat(label: 'Width', value: '3.05 m'),
-                          const SizedBox(width: 12),
-                          _Stat(label: 'Stump height', value: '0.71 m'),
+                          SizedBox(width: 12),
+                          _Stat(label: 'Stumps', value: '0.71 m'),
                         ],
                       ),
                       const SizedBox(height: 22),
                       Row(
                         children: [
                           Expanded(
-                            child: FilledButton.icon(
-                              onPressed: () => Navigator.of(context).pop(),
+                            child: OutlinedButton.icon(
+                              onPressed: () => Navigator.of(context).pop(true),
                               icon: const Icon(Icons.check),
                               label: const Text('Done'),
-                              style: FilledButton.styleFrom(
+                              style: OutlinedButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(vertical: 16),
                               ),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => Navigator.of(context).pop(),
+                            child: FilledButton.icon(
+                              onPressed: () async {
+                                // Pop this confirmation, then immediately push
+                                // straight into the delivery flow on top of the
+                                // pitch list so the user lands back at "Pitches"
+                                // when they're done analyzing.
+                                Navigator.of(context).pop(true);
+                                await Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => DeliveryProcessingScreen(
+                                      pitchId: pitchId,
+                                      pitchName: pitchName,
+                                    ),
+                                  ),
+                                );
+                              },
                               icon: const Icon(Icons.analytics_outlined),
                               label: const Text('Analyze now'),
-                              style: OutlinedButton.styleFrom(
+                              style: FilledButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(vertical: 16),
                               ),
                             ),
@@ -137,30 +158,26 @@ class PostCalibration3DScreen extends StatelessWidget {
       ),
     );
   }
-
 }
 
-class _Chip extends StatelessWidget {
-  const _Chip({required this.text, required this.color});
-  final String text;
-  final Color color;
-
+class _StatusChip extends StatelessWidget {
+  const _StatusChip();
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
+        color: Colors.white.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.check_circle, color: color, size: 16),
+          const Icon(Icons.check_circle, color: Color(0xFF4ADE80), size: 16),
           const SizedBox(width: 8),
           Text(
-            text.toUpperCase(),
+            'CALIBRATION SUCCESS',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -185,7 +202,7 @@ class _Stat extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Column(

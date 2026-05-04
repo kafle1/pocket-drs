@@ -16,6 +16,9 @@ class BallTrackPoint {
 class BallTrackResult {
   const BallTrackResult({required this.points, required this.width, required this.height});
 
+  factory BallTrackResult.empty({required int width, required int height}) =>
+      BallTrackResult(points: const <BallTrackPoint>[], width: width, height: height);
+
   final List<BallTrackPoint> points;
   final int width;
   final int height;
