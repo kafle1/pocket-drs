@@ -1,0 +1,20 @@
+1. Object Modeling Using Class and Object Diagrams
+Class diagrams represent the static structure of a system by showing classes, their attributes, operations, and relationships
+Key Components
+• Classes: Represented as rectangles with three compartments
+• Top: Class name
+• Middle: Attributes (data fields)
+Bottom: Operations (methods/functions)
+• Relationships:
+• Association: General connection between classes (solid line)
+• Aggregation: "Has-a" relationship, weak ownership (hollow diamond)
+• Composition: Strong ownership, lifecycle dependency (filled diamond)
+• Inheritance/Generalization: "Is-a" relationship (hollow arrow)
+• Dependency: One class uses another (dashed arrow)
+• Multiplicity: Indicates how many instances participate (1, 0.. 1, 1..*
+,, O..)
+• Visibility:
+• + public
+• - private
+• # protected
+• ~ package
