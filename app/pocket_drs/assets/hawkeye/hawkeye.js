@@ -125,17 +125,20 @@
     pitch.castShadow = false;
     pitchGroup.add(pitch);
 
-    // Crease lines
-    const creaseMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
-    // Bowling crease (at x=PITCH_LENGTH)
-    createLine(PITCH_LENGTH, -PITCH_WIDTH/2, PITCH_LENGTH, PITCH_WIDTH/2, creaseMat);
-    // Popping crease (at x=PITCH_LENGTH - 1.22)
-    createLine(PITCH_LENGTH - 1.22, -PITCH_WIDTH/2, PITCH_LENGTH - 1.22, PITCH_WIDTH/2, creaseMat);
-    
-    // Batting crease (at x=0)
-    createLine(0, -PITCH_WIDTH/2, 0, PITCH_WIDTH/2, creaseMat);
-    // Popping crease (at x=1.22)
-    createLine(1.22, -PITCH_WIDTH/2, 1.22, PITCH_WIDTH/2, creaseMat);
+    // Crease markings (white painted lines). Drawn as thin raised strips so
+    // they stay visible at any camera angle (THREE.Line ignores linewidth in
+    // most WebGL implementations).
+    const RETURN_HALF = 0.66; // return creases are ~1.32 m apart
+    // Bowling end (x = PITCH_LENGTH)
+    createCrease(PITCH_LENGTH, -PITCH_WIDTH / 2, PITCH_LENGTH, PITCH_WIDTH / 2);
+    createCrease(PITCH_LENGTH - 1.22, -PITCH_WIDTH / 2, PITCH_LENGTH - 1.22, PITCH_WIDTH / 2);
+    createCrease(PITCH_LENGTH - 1.22, -RETURN_HALF, PITCH_LENGTH + 0.4, -RETURN_HALF);
+    createCrease(PITCH_LENGTH - 1.22, RETURN_HALF, PITCH_LENGTH + 0.4, RETURN_HALF);
+    // Batting end (x = 0)
+    createCrease(0, -PITCH_WIDTH / 2, 0, PITCH_WIDTH / 2);
+    createCrease(1.22, -PITCH_WIDTH / 2, 1.22, PITCH_WIDTH / 2);
+    createCrease(1.22, -RETURN_HALF, -0.4, -RETURN_HALF);
+    createCrease(1.22, RETURN_HALF, -0.4, RETURN_HALF);
 
     // Stumps
     stumpsGroup = new THREE.Group();
@@ -160,13 +163,25 @@
     }
   }
 
-  function createLine(x1, z1, x2, z2, material) {
-    const points = [];
-    points.push(new THREE.Vector3(x1, 0.02, z1));
-    points.push(new THREE.Vector3(x2, 0.02, z2));
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-    const line = new THREE.Line(geometry, material);
-    if (pitchGroup) pitchGroup.add(line);
+  function createCrease(x1, z1, x2, z2) {
+    const dx = Math.abs(x2 - x1);
+    const dz = Math.abs(z2 - z1);
+    const STRIP_W = 0.05; // painted-line thickness in metres
+    const lengthwise = dx >= dz;
+    const w = lengthwise ? Math.max(dx, STRIP_W) : STRIP_W;
+    const d = lengthwise ? STRIP_W : Math.max(dz, STRIP_W);
+    const geometry = new THREE.BoxGeometry(w, 0.012, d);
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.6,
+      metalness: 0.0,
+      emissive: 0xffffff,
+      emissiveIntensity: 0.18
+    });
+    const strip = new THREE.Mesh(geometry, material);
+    strip.position.set((x1 + x2) / 2, 0.022, (z1 + z2) / 2);
+    strip.receiveShadow = true;
+    if (pitchGroup) pitchGroup.add(strip);
   }
 
   function createStumps(xPos) {
