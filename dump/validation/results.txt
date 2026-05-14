@@ -1,0 +1,21 @@
+-- input  ----------------------------------
+video       : /var/folders/xk/9kt10h_s3zs2wtnbqlts61qm0000gn/T/synth_ed0men7j/synth.mp4
+frames      : 144  (2.40s @ 60fps)
+h_fov_deg   : 61.93
+cam world   : [-3.5, 0.0, 1.8]
+corners px  : [(169.8, 639.1), (910.2, 639.1), (598.0, 1010.9), (482.0, 1010.9)]
+bounce gt   : t=500ms xyz=[13.75, 0.04, 0.039]
+impact gt   : t=2133ms xyz=[-0.133, 0.007, 0.039]
+
+-- pipeline output ------------------------
+reproj px   : 0.00
+cam center  : [-3.5, 0.0, 1.8]
+track       : candidates=126 inliers=97 rms_px=15.34
+world pts   : 97
+bounce reco : t=561ms xyz=(14.32317713154645, 0.04428966439119753, ?)
+impact reco : t=2057ms xyz=(0.5867364537536464, 0.007123389903113196, 0.0)
+lbw         : umpires_call — Umpire's call — clipping (margin 0.0cm)
+
+-- accuracy --------------------------------
+bounce xy err : 57.3 cm  (target < 50 cm)
+impact 3d err : 72.1 cm  (target < 50 cm)

@@ -302,11 +302,9 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
       _log('[DELIVERY] Stack: $stack');
       if (mounted) {
         setState(() => _step = _Step.trim);
-        final msg = e is StateError
+        final msg = e is ApiException
             ? e.message
-            : (e.toString().contains('SocketException')
-                ? 'Cannot reach server${serverUrl != null ? ' at $serverUrl' : ''}'
-                : 'Analysis failed: $e');
+            : 'Analysis failed: $e';
         _showError(msg);
       }
     }

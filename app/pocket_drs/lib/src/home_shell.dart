@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'screens/analyses_screen.dart';
 import 'screens/pitches_screen.dart';
 import 'screens/settings_screen.dart';
+import 'utils/app_settings.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -13,6 +14,29 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkServerReachable();
+  }
+
+  Future<void> _checkServerReachable() async {
+    final url = await AppSettings.getServerUrl();
+    final reachable = await AppSettings.probeServerReachable(url);
+    if (!reachable && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Server unreachable'),
+          action: SnackBarAction(
+            label: 'Set Server URL',
+            onPressed: () => setState(() => _index = 2),
+          ),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    }
+  }
 
   static const _pages = <Widget>[
     PitchesScreen(),

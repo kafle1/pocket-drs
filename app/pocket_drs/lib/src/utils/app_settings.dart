@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AppSettings {
@@ -66,6 +67,16 @@ class AppSettings {
       };
     } catch (_) {
       return ThemeMode.dark;
+    }
+  }
+
+  static Future<bool> probeServerReachable(String url) async {
+    try {
+      final uri = Uri.parse(url.endsWith('/') ? '${url}healthz' : '$url/healthz');
+      final res = await http.get(uri).timeout(const Duration(seconds: 3));
+      return res.statusCode < 500;
+    } catch (_) {
+      return false;
     }
   }
 

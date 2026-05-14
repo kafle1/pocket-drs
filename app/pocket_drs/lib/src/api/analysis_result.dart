@@ -299,7 +299,7 @@ class LbwResult {
     required this.confidence,
   });
 
-  final LbwDecisionKey decision;
+  final LbwDecisionKey? decision;
   final String reason;
   final bool pitchedInLine;
   final bool impactInLine;
@@ -315,21 +315,23 @@ class LbwResult {
       'out' => LbwDecisionKey.out,
       'not_out' => LbwDecisionKey.notOut,
       'umpires_call' => LbwDecisionKey.umpiresCall,
-      _ => throw const FormatException('Invalid lbw.decision'),
+      _ => null,
     };
 
-    final checks = _requireMap(json, 'checks');
-    final pred = _requireMap(json, 'prediction');
+    final checksRaw = json['checks'];
+    final checks = checksRaw is Map ? checksRaw.cast<String, Object?>() : const <String, Object?>{};
+    final predRaw = json['prediction'];
+    final pred = predRaw is Map ? predRaw.cast<String, Object?>() : null;
     return LbwResult(
       decision: decision,
       reason: (json['reason'] as String?)?.trim() ?? '',
       pitchedInLine: (checks['pitching_in_line'] as bool?) ?? false,
       impactInLine: (checks['impact_in_line'] as bool?) ?? false,
       wicketsHitting: (checks['wickets_hitting'] as bool?) ?? false,
-      yAtStumpsM: _readDouble(pred, 'y_at_stumps_m'),
-      zAtStumpsM: _readDouble(pred, 'z_at_stumps_m'),
-      stumpXM: _readDouble(pred, 'stump_x_m') ?? 0,
-      confidence: _readDouble(pred, 'confidence') ?? 0.0,
+      yAtStumpsM: pred != null ? _readDouble(pred, 'y_at_stumps_m') : null,
+      zAtStumpsM: pred != null ? _readDouble(pred, 'z_at_stumps_m') : null,
+      stumpXM: pred != null ? (_readDouble(pred, 'stump_x_m') ?? 0) : 0,
+      confidence: pred != null ? (_readDouble(pred, 'confidence') ?? 0.0) : 0.0,
     );
   }
 }

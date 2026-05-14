@@ -57,7 +57,7 @@ def _startup() -> None:
         # A simple read forces credentials + Firestore availability checks.
         db.collection("_health").document("startup").get()
     except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"Firestore is not reachable: {e}")
+        raise RuntimeError(f"Firestore is not reachable: {e}. Check internet connectivity, that the service account project_id matches your Firebase project, and that Firestore is enabled in the Firebase console.")
     _log.info("Firebase initialized and Firestore reachable")
 
 _cors_origins_raw = os.environ.get("POCKET_DRS_CORS_ORIGINS", "").strip()

@@ -180,28 +180,56 @@ def solve_camera_pose(
     obj_arr = np.array(object_pts, dtype=np.float64)
     img_arr = np.array(image_pts, dtype=np.float64)
 
-    # IPPE works better than ITERATIVE for planar inputs; use it when all
-    # object points are coplanar (Z=0 only).
+    # Planar PnP has a twofold mirror ambiguity. solvePnPGeneric with IPPE
+    # returns both solutions; we pick the one whose camera centre lies above
+    # the pitch (Z > 0), breaking the underground-twin failure mode.
     z_zero = np.allclose(obj_arr[:, 2], 0.0)
-    if z_zero:
-        flag = cv2.SOLVEPNP_IPPE if len(obj_arr) >= 4 else cv2.SOLVEPNP_ITERATIVE
+    if z_zero and len(obj_arr) >= 4:
+        flag = cv2.SOLVEPNP_IPPE
+        n_sols, rvecs, tvecs, _ = cv2.solvePnPGeneric(obj_arr, img_arr, K, dist, flags=flag)
+        if n_sols == 0:
+            raise CalibrationError("solvePnP failed to converge")
+        candidates = list(zip(rvecs, tvecs))
     else:
         flag = cv2.SOLVEPNP_ITERATIVE
+        ok, rvec_it, tvec_it = cv2.solvePnP(obj_arr, img_arr, K, dist, flags=flag)
+        if not ok:
+            raise CalibrationError("solvePnP failed to converge")
+        candidates = [(rvec_it, tvec_it)]
 
-    ok, rvec, tvec = cv2.solvePnP(obj_arr, img_arr, K, dist, flags=flag)
-    if not ok:
-        raise CalibrationError("solvePnP failed to converge")
+    best_rvec = best_tvec = None
+    best_R = best_R_inv = best_cam = None
+    best_reproj = float("inf")
+    above_found = False
+    for rv, tv in candidates:
+        R_i, _ = cv2.Rodrigues(rv)
+        R_inv_i = R_i.T
+        cam_i = -R_inv_i @ tv.reshape(3, 1)
+        proj_i, _ = cv2.projectPoints(obj_arr, rv, tv, K, dist)
+        proj_i = proj_i.reshape(-1, 2)
+        reproj_i = float(np.sqrt(np.mean(np.sum((proj_i - img_arr) ** 2, axis=1))))
+        above = float(cam_i[2, 0]) > 0.0
+        # Strict preference: any above-ground solution beats any below; within
+        # the same class, lower reprojection error wins.
+        if above and not above_found:
+            best_rvec, best_tvec = rv, tv
+            best_R, best_R_inv, best_cam = R_i, R_inv_i, cam_i
+            best_reproj = reproj_i
+            above_found = True
+        elif above == above_found and reproj_i < best_reproj:
+            best_rvec, best_tvec = rv, tv
+            best_R, best_R_inv, best_cam = R_i, R_inv_i, cam_i
+            best_reproj = reproj_i
+    rvec, tvec = best_rvec, best_tvec
+    R, R_inv, cam_center = best_R, best_R_inv, best_cam
+    reproj = best_reproj
 
-    # Reprojection error.
-    proj, _ = cv2.projectPoints(obj_arr, rvec, tvec, K, dist)
-    proj = proj.reshape(-1, 2)
-    reproj = float(np.sqrt(np.mean(np.sum((proj - img_arr) ** 2, axis=1))))
-
-    R, _ = cv2.Rodrigues(rvec)
-    R_inv = R.T
-    cam_center = -R_inv @ tvec.reshape(3, 1)
-
-    notes: list[str] = [f"{len(obj_arr)}-point PnP", f"flag={flag}"]
+    notes: list[str] = [
+        f"{len(obj_arr)}-point PnP",
+        f"flag={flag}",
+        f"sols={len(candidates)}",
+        f"cam_above_pitch={above_found}",
+    ]
     return CameraPose(
         K=K,
         rvec=rvec,

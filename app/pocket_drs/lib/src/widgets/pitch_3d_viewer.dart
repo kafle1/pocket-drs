@@ -140,6 +140,10 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
     } finally {
       _pollingReady = false;
     }
+    // Polling exhausted without JS signalling ready.
+    if (mounted && !_jsReady && _pendingPayload != null && _loadError == null) {
+      setState(() => _loadError = 'Failed to initialize 3D viewer');
+    }
   }
 
   void _flushPayloadIfReady() {

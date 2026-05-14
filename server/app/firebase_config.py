@@ -48,7 +48,8 @@ def initialize_firebase() -> firestore.Client:
             raise RuntimeError(
                 "Firebase Admin SDK not configured. "
                 f"Missing service account file at {sa_path}. "
-                "Set FIREBASE_SERVICE_ACCOUNT to the key path or place the key at server/firebase-service-account.json."
+                "Set FIREBASE_SERVICE_ACCOUNT to the key path or place the key at server/firebase-service-account.json. "
+                "Copy server/firebase-service-account.json.template and fill in your project credentials to get started."
             )
         _app = firebase_admin.initialize_app()
 

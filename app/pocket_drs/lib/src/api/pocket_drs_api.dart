@@ -1,10 +1,35 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
 import 'analysis_result.dart';
+
+enum ApiErrorKind { network, timeout, unauthorized, server, badResponse }
+
+class ApiException implements Exception {
+  final ApiErrorKind kind;
+  final String message;
+  final int? statusCode;
+  ApiException(this.kind, this.message, {this.statusCode});
+  @override
+  String toString() => message;
+}
+
+String _sliceBody(String body) {
+  final stripped = body.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+  return stripped.length > 200 ? stripped.substring(0, 200) : stripped;
+}
+
+String _extractDetail(String body) {
+  try {
+    final decoded = jsonDecode(body);
+    if (decoded is Map && decoded['detail'] is String) return decoded['detail'] as String;
+  } catch (_) {}
+  return _sliceBody(body);
+}
 
 class PocketDrsApi {
   PocketDrsApi({
@@ -53,10 +78,24 @@ class PocketDrsApi {
       ),
     );
 
-    final res = await _client.send(req).timeout(const Duration(seconds: 60));
-    final body = await res.stream.bytesToString();
+    late http.StreamedResponse res;
+    late String body;
+    try {
+      res = await _client.send(req).timeout(const Duration(seconds: 60));
+      body = await res.stream.bytesToString();
+    } on SocketException {
+      throw ApiException(ApiErrorKind.network, 'Cannot reach server');
+    } on TimeoutException {
+      throw ApiException(ApiErrorKind.timeout, 'Server did not respond');
+    }
+    if (res.statusCode == 401) {
+      throw ApiException(ApiErrorKind.unauthorized, 'Please sign in again', statusCode: 401);
+    }
+    if (res.statusCode >= 500) {
+      throw ApiException(ApiErrorKind.server, 'Server error (${res.statusCode})', statusCode: res.statusCode);
+    }
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw StateError('Create job failed (${res.statusCode}): $body');
+      throw ApiException(ApiErrorKind.badResponse, _extractDetail(body), statusCode: res.statusCode);
     }
 
     final decoded = jsonDecode(body);
@@ -67,11 +106,24 @@ class PocketDrsApi {
   }
 
   Future<JobStatus> getJobStatus(String jobId) async {
-    final res = await _client
-        .get(_u('/v1/jobs/$jobId'), headers: await _authHeaders())
-        .timeout(const Duration(seconds: 15));
+    late http.Response res;
+    try {
+      res = await _client
+          .get(_u('/v1/jobs/$jobId'), headers: await _authHeaders())
+          .timeout(const Duration(seconds: 15));
+    } on SocketException {
+      throw ApiException(ApiErrorKind.network, 'Cannot reach server');
+    } on TimeoutException {
+      throw ApiException(ApiErrorKind.timeout, 'Server did not respond');
+    }
+    if (res.statusCode == 401) {
+      throw ApiException(ApiErrorKind.unauthorized, 'Please sign in again', statusCode: 401);
+    }
+    if (res.statusCode >= 500) {
+      throw ApiException(ApiErrorKind.server, 'Server error (${res.statusCode})', statusCode: res.statusCode);
+    }
     if (res.statusCode != 200) {
-      throw StateError('Status request failed (${res.statusCode}): ${res.body}');
+      throw ApiException(ApiErrorKind.badResponse, _extractDetail(res.body), statusCode: res.statusCode);
     }
     final decoded = jsonDecode(res.body);
     if (decoded is! Map) throw const FormatException('Invalid status response');
@@ -79,18 +131,31 @@ class PocketDrsApi {
   }
 
   Future<AnalysisResult> getJobResult(String jobId) async {
-    final res = await _client
-        .get(_u('/v1/jobs/$jobId/result'), headers: await _authHeaders())
-        .timeout(const Duration(seconds: 30));
+    late http.Response res;
+    try {
+      res = await _client
+          .get(_u('/v1/jobs/$jobId/result'), headers: await _authHeaders())
+          .timeout(const Duration(seconds: 30));
+    } on SocketException {
+      throw ApiException(ApiErrorKind.network, 'Cannot reach server');
+    } on TimeoutException {
+      throw ApiException(ApiErrorKind.timeout, 'Server did not respond');
+    }
+    if (res.statusCode == 401) {
+      throw ApiException(ApiErrorKind.unauthorized, 'Please sign in again', statusCode: 401);
+    }
+    if (res.statusCode >= 500) {
+      throw ApiException(ApiErrorKind.server, 'Server error (${res.statusCode})', statusCode: res.statusCode);
+    }
     if (res.statusCode != 200) {
-      throw StateError('Result request failed (${res.statusCode}): ${res.body}');
+      throw ApiException(ApiErrorKind.badResponse, _extractDetail(res.body), statusCode: res.statusCode);
     }
     final decoded = jsonDecode(res.body);
-    if (decoded is! Map) throw const FormatException('Invalid result response');
+    if (decoded is! Map) throw ApiException(ApiErrorKind.badResponse, 'Invalid result response');
     final status = decoded['status'];
     if (status != 'succeeded') {
       final err = decoded['error'];
-      throw StateError('Job not succeeded (status=$status, error=$err)');
+      throw ApiException(ApiErrorKind.badResponse, 'Job not succeeded (status=$status, error=$err)');
     }
     final result = decoded['result'];
     if (result is! Map) throw const FormatException('Missing result');

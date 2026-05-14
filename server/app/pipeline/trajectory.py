@@ -126,9 +126,12 @@ def find_ball_trajectory(
 
     best_fit: TrajectoryFit | None = None
 
-    # Reasonable image-space gravity for phone footage at typical framings:
-    # ~1.5 px / ms^2 downward.  The exact value is refined during LSQ.
-    g_seed_options = [0.5, 1.5, 3.0]
+    # Image-space gravity for a phone-held camera at typical pitch framings.
+    # Physical g of 9.81 m/s^2 projects to ~1e-3 px/ms^2 at 5-10 m subject
+    # distance with fy ~ 900. We sample a small grid plus zero (umpire-POV
+    # motion can be almost purely along the camera axis, giving near-zero
+    # image acceleration). The LSQ refinement adjusts the exact value.
+    g_seed_options = [0.0, 5e-4, 2e-3]
 
     for (i, ai, j, bj) in seed_pairs:
         x0, y0 = candidates[i][ai]["x"], candidates[i][ai]["y"]
@@ -139,10 +142,14 @@ def find_ball_trajectory(
         vx = (x1 - x0) / dt_ij
         vy = (y1 - y0) / dt_ij
 
-        # Reject seeds that imply implausibly slow ball — eliminates
-        # stationary clutter, fielders standing still etc.
-        speed_px_per_ms = (vx * vx + vy * vy) ** 0.5
-        if speed_px_per_ms < 0.1:  # < 100 px/s in image
+        # Reject seeds whose total displacement is too small to be the ball.
+        # Use displacement (scaled to the image diagonal) rather than absolute
+        # speed: under umpire-POV the ball moves chiefly along the camera axis
+        # and its image-plane velocity can be modest even at 130 km/h. The
+        # original 0.1 px/ms cutoff masked exactly that case.
+        disp_px = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+        min_disp_px = max(2.0, 0.002 * image_diagonal_px)  # ~4 px on 1080p
+        if disp_px < min_disp_px:
             continue
 
         for g_seed in g_seed_options:

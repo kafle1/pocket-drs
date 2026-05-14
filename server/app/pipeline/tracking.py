@@ -100,21 +100,34 @@ def build_pitch_roi_mask(
     y_min = float(pts[:, 1].min())
     y_max = float(pts[:, 1].max())
     span_y = max(1.0, y_max - y_min)
+    y_mid = (y_min + y_max) * 0.5
 
-    # Lateral margin scaled by pitch image-width at the bottom.
-    bottom_pts = pts[pts[:, 1] > (y_min + y_max) * 0.5]
-    if len(bottom_pts) >= 2:
-        bottom_width = float(bottom_pts[:, 0].max() - bottom_pts[:, 0].min())
-    else:
-        bottom_width = float(pts[:, 0].max() - pts[:, 0].min())
-    lat = max(8.0, lateral_margin_frac * bottom_width)
+    # The narrower end in image is the far end (perspective foreshortening).
+    # The airborne ball arc lives just beyond that far end, so we extend the
+    # envelope in that direction. Standard umpire-POV has the far/bowler end
+    # at the top of the image, but we infer the direction from geometry so
+    # the mask also works when the camera is inverted.
+    top_pts = pts[pts[:, 1] <= y_mid]
+    bottom_pts = pts[pts[:, 1] > y_mid]
+    top_width = (float(top_pts[:, 0].max() - top_pts[:, 0].min())
+                 if len(top_pts) >= 2 else 0.0)
+    bottom_width = (float(bottom_pts[:, 0].max() - bottom_pts[:, 0].min())
+                    if len(bottom_pts) >= 2 else 0.0)
+    far_is_top = top_width <= bottom_width
+    envelope_sign = -1.0 if far_is_top else 1.0  # -1 = extend up, +1 = down
+    near_width = max(top_width, bottom_width, 1.0)
+
+    lat = max(8.0, lateral_margin_frac * near_width)
     cx = float(pts[:, 0].mean())
 
-    # Build polygon: original corners + their upward-shifted twins (above the pitch).
+    # Build polygon: original corners + envelope twins beyond the far end.
+    # Near corners get a larger envelope in pixels because the image scale is
+    # bigger there (a fixed physical height occupies more pixels close-up).
     extended: list[tuple[float, float]] = []
     for x, y in pts:
-        depth_norm = (y - y_min) / span_y  # 0 at far/striker end, 1 at near/bowler end
-        dy = -vertical_envelope_px * (0.25 + 0.75 * depth_norm)
+        depth_norm = (y - y_min) / span_y  # 0 at top, 1 at bottom
+        near_norm = depth_norm if far_is_top else (1.0 - depth_norm)
+        dy = envelope_sign * vertical_envelope_px * (0.25 + 0.75 * near_norm)
         dx = (-lat) if x < cx else lat
         extended.append((float(x + dx), float(y + dy)))
 

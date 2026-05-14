@@ -284,13 +284,15 @@ def run_pipeline(
         raise ValueError("calibration.pitch_corners_px or .pitch_corners_norm required")
     stump_bases_px = _decode_stump_bases(cal_req, width, height)
 
+    # Optional camera-specific overrides; sensible default works for typical phones.
+    h_fov_deg = float(cal_req.get("h_fov_deg") or 67.0)
+
     pose_attempts: list[tuple[str, list[tuple[float, float]]]] = [
         ("as-given", pitch_corners_px),
         # Reverse to handle a user who tapped counter-clockwise.
         ("reversed", list(reversed(pitch_corners_px))),
     ]
-    best_pose = None
-    best_attempt_label = ""
+    candidate_poses: list[tuple[str, object]] = []
     for label, corners in pose_attempts:
         try:
             pose = solve_camera_pose(
@@ -299,13 +301,38 @@ def run_pipeline(
                 pitch_length_m=pitch_length_m,
                 pitch_width_m=pitch_width_m,
                 stump_bases_px=stump_bases_px,
+                h_fov_deg=h_fov_deg,
             )
         except CalibrationError as e:
             warnings.append(f"PnP '{label}' failed: {e}")
             continue
-        if best_pose is None or pose.reproj_error_px < best_pose.reproj_error_px:
-            best_pose = pose
-            best_attempt_label = label
+        candidate_poses.append((label, pose))
+
+    if not candidate_poses:
+        raise CalibrationError("All PnP attempts failed — calibration is degenerate")
+
+    # A symmetric pitch (no stumps) lets multiple corner orderings reproject
+    # equally well. Among orderings within 1 px of the best reproj, prefer the
+    # one where the *first* corner pair (declared striker corners) is closer
+    # to the recovered camera than the bowler corners — this is the convention
+    # the calibration UI emits.
+    def _striker_proximity(corners: list[tuple[float, float]], pose_obj) -> float:
+        cam = pose_obj.cam_center_world.flatten()
+        striker_x = 0.0
+        bowler_x = pitch_length_m
+        d_striker = abs(float(cam[0]) - striker_x)
+        d_bowler = abs(float(cam[0]) - bowler_x)
+        return d_striker - d_bowler  # negative means striker is closer (preferred)
+
+    best_reproj = min(p.reproj_error_px for _, p in candidate_poses)
+    tied = [(lbl, p) for (lbl, p) in candidate_poses if p.reproj_error_px <= best_reproj + 1.0]
+    # Among tied candidates, smallest striker-proximity wins; reproj is the
+    # final tie-breaker for unambiguous cases.
+    tied.sort(key=lambda lp: (_striker_proximity(
+        pitch_corners_px if lp[0] == "as-given" else list(reversed(pitch_corners_px)),
+        lp[1],
+    ), lp[1].reproj_error_px))
+    best_attempt_label, best_pose = tied[0]
     if best_pose is None:
         raise CalibrationError("All PnP attempts failed — calibration is degenerate")
     pose = best_pose
