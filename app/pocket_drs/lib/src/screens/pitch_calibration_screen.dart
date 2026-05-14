@@ -249,6 +249,20 @@ class _PitchCalibrationScreenState extends State<PitchCalibrationScreen> {
       final stumpMarkers = _stumpMarkers;
       final stumpPts = stumpMarkers?.map((p) => Offset(p.dx * w, p.dy * h)).toList();
 
+      // Reject degenerate quads (collinear, non-convex, or too small) before
+      // persisting. Without this the server-side reconstruction fails much
+      // later with a confusing error; the tap UI enforces 4 taps but not
+      // their geometry.
+      try {
+        PitchCalibration(imagePoints: pitchPts).validateImageQuad();
+      } catch (e) {
+        if (mounted) {
+          setState(() => _saving = false);
+          _showError(e is StateError ? e.message : 'Invalid pitch calibration');
+        }
+        return;
+      }
+
       String? ballPath;
       if (_ballImage != null) {
         ballPath = await _persistBallImage(widget.pitchId, _ballImage!);

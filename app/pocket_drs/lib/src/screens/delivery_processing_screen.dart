@@ -73,28 +73,38 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
   }
 
   Future<void> _pickVideo(ImageSource source) async {
+    VideoPlayerController? controller;
     try {
       await _releaseController();
 
       final video = await _picker.pickVideo(source: source);
       if (video == null || !mounted) return;
-      final controller = createVideoPlayerController(video.path);
+      controller = createVideoPlayerController(video.path);
       await runWithNativeVideoResources(() async {
         await coolDownNativeVideoResources(delay: const Duration(milliseconds: 350));
-        await controller.initialize();
+        await controller!.initialize();
       });
       // Keep paused by default to reduce GPU/Surface spam.
       await controller.setVolume(0.0);
-      if (mounted) {
-        setState(() {
-          _video = video;
-          _controller = controller;
-          _start = null;
-          _end = null;
-          _step = _Step.trim;
-        });
+      if (!mounted) {
+        // Screen was disposed during initialization — release the native
+        // decoder we just created instead of leaking it.
+        await controller.dispose();
+        return;
       }
+      setState(() {
+        _video = video;
+        _controller = controller;
+        _start = null;
+        _end = null;
+        _step = _Step.trim;
+      });
     } catch (e) {
+      // initialize() / setVolume() can throw; make sure the partially-created
+      // controller is disposed so the native video decoder is not leaked.
+      if (controller != null && !identical(controller, _controller)) {
+        await controller.dispose();
+      }
       _showError('Failed to load video');
     }
   }
@@ -144,13 +154,20 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
       serverUrl = await AppSettings.getServerUrl();
       _log('[DELIVERY] Using server URL: $serverUrl');
       
-      // Create API client with auth token provider
+      // Create API client with auth token provider. getIdToken() can throw
+      // (revoked session, token-refresh network failure); swallow it and
+      // return null so the API layer surfaces a clean "sign in again" error
+      // rather than a raw FirebaseAuthException.
       final api = PocketDrsApi(
         baseUrl: serverUrl,
         getAuthToken: () async {
           final user = FirebaseAuth.instance.currentUser;
           if (user == null) return null;
-          return await user.getIdToken();
+          try {
+            return await user.getIdToken();
+          } catch (_) {
+            return null;
+          }
         },
       );
 
@@ -230,6 +247,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
 
       int pollCount = 0;
       const maxPolls = 240;
+      const maxTransientErrors = 8;
 
       String? lastStatus;
       int? lastPct;
@@ -237,48 +255,58 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
       int transientPollErrors = 0;
       while (mounted && pollCount < maxPolls) {
         pollCount++;
-        
-        try {
-          final status = await api.getJobStatus(jobId);
 
-          final changed = status.status != lastStatus || status.pct != lastPct || status.stage != lastStage;
-          if (changed || pollCount == 1 || (pollCount % 20 == 0)) {
-            _log('[DELIVERY] Poll #$pollCount: status=${status.status}, pct=${status.pct}, stage=${status.stage}');
-            lastStatus = status.status;
-            lastPct = status.pct;
-            lastStage = status.stage;
-          }
-          
-          if (!mounted) return;
-          
-          setState(() {
-            _progressPct = status.pct;
-            _progressStage = status.stage ?? status.status;
-            _progressError = status.errorMessage;
-          });
-          
-          if (status.status == 'succeeded') {
-            _log('[DELIVERY] Job succeeded after $pollCount polls');
-            break;
-          }
-          
-          if (status.status == 'failed') {
-            throw StateError(status.errorMessage ?? 'Server analysis failed');
-          }
-          
-          // Progressive delay: faster checks at start, slower later
-          final delay = pollCount < 10 ? 500 : (pollCount < 30 ? 800 : 1200);
-          await Future.delayed(Duration(milliseconds: delay));
+        final JobStatus status;
+        try {
+          status = await api.getJobStatus(jobId);
         } catch (e) {
+          // Genuine job failure (StateError) is terminal — propagate it.
+          // Network / API errors are transient up to a cap, after which we
+          // surface the real error instead of polling silently to timeout.
+          if (e is StateError) rethrow;
           transientPollErrors++;
           if (transientPollErrors <= 3) {
-            _log('[DELIVERY] Poll error (transient): $e');
+            _log('[DELIVERY] Poll error (transient $transientPollErrors): $e');
           }
-          // Continue polling even on transient errors
+          if (transientPollErrors >= maxTransientErrors) {
+            throw StateError('Lost connection to server while analysing');
+          }
           await Future.delayed(const Duration(milliseconds: 1000));
+          continue;
         }
+
+        final changed = status.status != lastStatus || status.pct != lastPct || status.stage != lastStage;
+        if (changed || pollCount == 1 || (pollCount % 20 == 0)) {
+          _log('[DELIVERY] Poll #$pollCount: status=${status.status}, pct=${status.pct}, stage=${status.stage}');
+          lastStatus = status.status;
+          lastPct = status.pct;
+          lastStage = status.stage;
+        }
+
+        if (!mounted) return;
+
+        setState(() {
+          _progressPct = status.pct;
+          _progressStage = status.stage ?? status.status;
+          _progressError = status.errorMessage;
+        });
+
+        if (status.status == 'succeeded') {
+          _log('[DELIVERY] Job succeeded after $pollCount polls');
+          break;
+        }
+        if (status.status == 'failed') {
+          throw StateError(status.errorMessage ?? 'Server analysis failed');
+        }
+
+        // Progressive delay: faster checks at start, slower later.
+        final delay = pollCount < 10 ? 500 : (pollCount < 30 ? 800 : 1200);
+        await Future.delayed(Duration(milliseconds: delay));
       }
-      
+
+      // The loop can also exit because the screen was disposed; bail before
+      // doing any further work or touching State.
+      if (!mounted) return;
       if (pollCount >= maxPolls) {
         throw StateError('Analysis timed out after $pollCount attempts');
       }

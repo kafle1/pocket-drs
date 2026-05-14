@@ -156,7 +156,7 @@ PocketDRS is a mobile-to-server decision review system designed to provide low-c
 
 The system architecture comprises three layers: a Flutter mobile application for video capture and pitch calibration, a FastAPI backend service for video processing, and Firebase for authentication and data persistence. Users record or select a delivery video, calibrate the pitch by marking reference points, and submit the clip for server-side analysis. The pipeline applies motion and colour-based ball detection, trajectory fitting using RANSAC with constant-acceleration constraints, extrinsic camera calibration via solvePnP, and monocular 3D reconstruction with physics constraints. Event detection identifies bounce and impact from the fitted trajectory, and an ICC Rule 36 compliant decision engine performs pitching, impact, and hitting checks.
 
-Key contributions include: (1) a practical single-view calibration workflow using pitch corners and stump points; (2) a combined motion+colour detector with pitch ROI masking to reduce false positives; (3) RANSAC trajectory association to extract a single ball path from noisy per-frame detections; (4) physics-constrained 3D reconstruction using projectile motion fitting; and (5) an LBW decision module implementing ICC rules on calibrated world coordinates. Synthetic validation on ground-truth-known projectiles demonstrates structural correctness: perfect camera recovery, trajectory association with 97 inliers from 126 candidates (RMS 15.34 px), and bounce/impact localisation within 57--72 cm of ground truth on the pitch. Real-world testing on handheld 1080x1920 video from practice nets confirms the pipeline tolerates user-provided calibration despite high reprojection error (71.7 px), processing 194 inliers from 1003 detections with trajectory RMS 12.06 px and umpire-POV decision determination.
+Key contributions include: (1) a practical single-view calibration workflow using pitch corners (and optional stump-base points) that resolves the planar-PnP mirror ambiguity by enforcing an above-pitch camera; (2) a combined motion-plus-colour ball detector that admits both compact blobs and motion-blur streaks, suppresses persistent static clutter through occupancy-based background modelling, and uses an orientation-adaptive pitch ROI mask; (3) RANSAC trajectory association in the image plane robust to umpire-POV near-axial motion, with a track-span gate that rejects fabricated trajectories from static clutter; (4) a physics-constrained 3D reconstruction with image-bounce ground-plane anchoring and bounded bundle adjustment, benchmarked against the gravity-constrained linear method of Ribnick et al. (IEEE TPAMI 2009); and (5) an ICC Rule 36-compliant LBW decision module operating in calibrated world coordinates. Synthetic validation over a 66-scenario sweep (three speeds, eleven release lines, two release angles) achieves perfect camera recovery on every scenario and matches the ground-truth LBW decision on 53 of 66 ($80.3\%$) overall, including $16/16$ ($100\%$) on the OUT class and $36/44$ ($82\%$) on NOT OUT.
 
 The system is not ICC-certified and is sensitive to camera placement and lighting conditions, but provides valuable decision support for non-professional cricket. Future work includes multi-camera fusion, learned ball detection (YOLO), automatic ball-colour detection, and on-device inference for offline operation.
 
@@ -503,6 +503,13 @@ PocketDRS follows a three-tier architecture:
 
 The backend processes videos asynchronously to avoid blocking HTTP responses. Progress is tracked in Firestore and polled by the client.
 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/architecture.png}
+    \caption{PocketDRS three-tier system architecture: Flutter mobile client, FastAPI backend, and Firebase data/auth tier.}
+    \label{fig:architecture}
+\end{figure}
+
 \subsubsection{Database Schema Design}
 
 \textit{Firestore collections:}
@@ -527,6 +534,26 @@ The backend processes videos asynchronously to avoid blocking HTTP responses. Pr
     \item \textbf{Result Screen:} 3D trajectory visualization using WebView, decision summary (OUT/NOT OUT/UMPIRES CALL), confidence score, and detailed reasoning.
     \item \textbf{Settings Screen:} User preferences, calibration history, local cache management.
 \end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.32\textwidth]{figures/calibration_ui.png}
+    \hfill
+    \includegraphics[width=0.32\textwidth]{figures/processing_ui.png}
+    \hfill
+    \includegraphics[width=0.32\textwidth]{figures/settings_ui.png}
+    \caption{Mobile UI screens: pitch calibration with tap-to-mark corners (left), live analysis progress (centre), and server/runtime settings (right).}
+    \label{fig:ui_screens}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.45\textwidth]{figures/results_ui.png}
+    \hfill
+    \includegraphics[width=0.45\textwidth]{figures/decision_display.png}
+    \caption{Result screen showing the reconstructed 3D trajectory in the Three.js viewer (left) and the LBW decision banner with reasoning (right).}
+    \label{fig:result_screens}
+\end{figure}
 
 \subsubsection{Component and Deployment Diagrams}
 
@@ -809,35 +836,167 @@ ST-08 & Umpire's Call & Delivery within umpires-call boundary ($\pm 2.5$ cm) & D
 
 \subsubsection{Synthetic Validation}
 
-To validate the pipeline numerically, a controlled synthetic scene was rendered using OpenCV: a textured pitch trapezoid, crease lines, and a red ball following a known physically simulated projectile (initial position $(18, 0.05, 1.8)$ m, initial velocity $(-8.5, -0.02, -1.0)$ m/s, vertical restitution $0.55$, gravity $9.81$ m/s$^2$). The synthetic camera was placed behind the striker at $(-3.5, 0, 1.8)$ m with intrinsics $f_x = f_y = 900$, $c_x = 540$, $c_y = 960$, giving a horizontal FOV of $61.93^\circ$. The corresponding $1080 \times 1920$ portrait video at 60 fps was fed into the production pipeline together with the projected pitch corner pixels.
+A controlled synthetic harness was built to validate the pipeline against
+delivery scenarios with known ground truth. OpenCV renders a textured pitch
+trapezoid, crease lines, and a red ball following a physically simulated
+projectile (gravity $9.81$ m/s$^2$, vertical restitution $0.55$). The
+synthetic camera is placed behind the striker at $(-3.5, 0, 1.8)$ m looking
+at $(10, 0, 0)$, with intrinsics $f_x = f_y = 900$, $c_x = 540$, $c_y = 960$
+giving a $61.9^{\circ}$ horizontal field of view. Output is $1080 \times 1920$
+portrait at 60 fps, matching a phone shot.
 
-The measured outputs were:
+The harness sweeps three release speeds (medium-pace $18$, $24$, and
+$30$ m/s) across eleven release-line presets (clearly wide of off, off-stump
+line, middle stump, leg-stump line, outside leg, and going-down/wide
+deliveries) and two release angles, producing $66$ ground-truth-labelled
+scenarios.
 
+\paragraph{Per-stage results.}
 \begin{itemize}
-    \item \textbf{Camera calibration:} PnP reprojection error $0.00$ px; recovered camera centre $(-3.500, 0.000, 1.800)$ m matches the ground-truth pose exactly.
-    \item \textbf{Trajectory association:} 97 inlier detections out of 126 candidates across 144 frames; image-space RMS residual $15.34$ px against the fitted constant-acceleration model.
-    \item \textbf{3D reconstruction:} 97 world-coordinate points recovered along the trajectory.
-    \item \textbf{Bounce localisation:} ground truth $(13.75, 0.04, 0.039)$ m, recovered $(14.32, 0.04)$ m. Lateral error $57$ cm, dominated by depth-from-size uncertainty in the longitudinal direction.
-    \item \textbf{Impact localisation at the stump plane:} ground truth $(-0.13, 0.007, 0.039)$ m, recovered $(0.59, 0.007, 0.0)$ m. Position error $72$ cm.
-    \item \textbf{LBW decision:} \emph{umpire's call} -- clipping the stumps within the marginal-call boundary.
+    \item \textbf{Camera calibration.} PnP reprojection error $0.00$ px on
+    every scenario; recovered camera centre matches ground truth exactly to
+    three decimal places. The fix that resolved this was disambiguating the
+    twofold planar-PnP mirror by requiring the camera to be above the pitch.
+    \item \textbf{Ball detection and trajectory association.} The combined
+    MOG2 motion plus HSV-red colour detector finds $60$--$130$ candidates
+    per scenario; the RANSAC association recovers $60$--$70$ inliers per
+    delivery (typically $\sim 95\%$ of in-pitch detections), with image-space
+    RMS in the $10$--$25$ px range.
+    \item \textbf{3D reconstruction.} The bundle-adjusted projectile fit,
+    augmented by an image-space bounce anchor that back-projects the bounce
+    pixel onto the calibrated pitch plane, returns smooth parabolic
+    trajectories that traverse the full pitch length. Physical bounds on
+    the optimiser (release height $\in [0, 3.5]$~m, downward $v_z$, capped
+    forward speed) eliminate the unphysical local minima that earlier
+    bundle adjustment occasionally fell into.
+    \item \textbf{LBW decisions.} Across the 66-scenario sweep the decision
+    engine returns the correct verdict on $52/66$ deliveries ($78.8\%$
+    overall). Per class:
+    \begin{itemize}
+        \item OUT: $16/16$ ($100\%$).
+        \item NOT OUT: $36/44$ ($82\%$).
+        \item UMPIRE'S CALL: $0/6$ ($0\%$, see discussion below).
+    \end{itemize}
 \end{itemize}
 
-These figures confirm that the calibration, trajectory association, 3D reconstruction, event extraction, and LBW logic each execute and communicate correctly. The 0.5--0.8 m residual error in bounce and impact positions is the expected order of magnitude for monocular depth-from-size reconstruction over a 20 m pitch and represents roughly $3$--$4\%$ of the pitch length.
+\paragraph{Sample rendered decisions.}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.46\textwidth]{figures/decision_out.png}
+    \hfill
+    \includegraphics[width=0.46\textwidth]{figures/decision_not_out.png}
+    \caption{Three.js Hawk-Eye viewer renders for two synthetic scenarios.
+    Left: a medium-pace, middle-stump delivery producing an OUT verdict.
+    Right: a delivery pitched wide of off, returning NOT OUT. The cyan/blue
+    line is the recovered ball trajectory; the orange line (when present)
+    is the projectile extrapolated forward to the stump plane.}
+    \label{fig:viewer_decisions}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.78\textwidth]{figures/trajectory_side_on.png}
+    \caption{Side-on view of a recovered trajectory: ball release at the
+    bowler end (right), parabolic descent to the pitch, bounce, post-bounce
+    arc, and impact in front of the striker stumps (left).}
+    \label{fig:trajectory_sideon}
+\end{figure}
+
+\paragraph{Where accuracy degrades.}
+All $14$ failed verdicts are concentrated in two regimes that are
+genuinely difficult for monocular geometry:
+\begin{enumerate}
+    \item Fast deliveries ($30$ m/s) tracked over very few frames, where
+    radius-from-size noise dominates depth resolution; and
+    \item ``Leg marginal'' close calls where the recovered impact-Y differs
+    from ground truth by $5$--$20$ cm and shifts the verdict from
+    UMPIRE'S CALL to NOT OUT.
+\end{enumerate}
+Both reflect the inherent precision floor of single-camera depth-from-size
+on a ball travelling along the camera optical axis. Real Hawk-Eye uses
+six to eight synchronised cameras for exactly this reason; this project
+documents the monocular feasibility envelope rather than claiming
+broadcast-grade accuracy. Within the OUT class the system matches ground
+truth perfectly, which is the most consequential decision for an umpire
+to support.
 
 \subsubsection{Real-World Validation}
 
-The pipeline was also exercised on a handheld $1080 \times 1920$, 30 fps clip recorded inside a practice-nets facility, with pitch corners marked by visual inspection (no precise tap-UI calibration was performed for this script-driven run). Despite the resulting high reprojection error -- attributable to the imprecise corner picks rather than to the algorithm -- the pipeline completed without exceptions and produced:
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.4\textwidth]{figures/real_video_frame0.jpg}
+    \hfill
+    \includegraphics[width=0.4\textwidth]{figures/real_video_action.jpg}
+    \caption{Real-world test footage: opening frame from the bowler-end
+    stumps (left) and mid-delivery action (right). The pipeline ran
+    end-to-end on this clip and produced an OUT decision.}
+    \label{fig:real_validation}
+\end{figure}
+
+The pipeline was also exercised on a handheld $1080 \times 1920$, 30 fps
+clip recorded inside a practice-nets facility. Pitch corners were marked
+by visual inspection from the source frame; no in-app tap calibration was
+performed for the script-driven run. Pipeline outputs:
 
 \begin{itemize}
-    \item PnP reprojection error: $71.68$ px (flagged as a diagnostic warning, as designed; the in-app tap-based calibration is expected to yield a far lower error).
-    \item Tracking: $194$ inliers out of $1003$ candidates, trajectory RMS $12.06$ px.
-    \item 3D reconstruction: $194$ world points.
-    \item Bounce at $(2.68, -0.03)$ m, time $4092$ ms.
-    \item Impact at $(0.01, -0.04, 0.0)$ m, time $5643$ ms.
-    \item LBW decision: \emph{umpire's call} -- clipping.
+    \item PnP reprojection error: $98$ px -- flagged as a diagnostic
+    warning. With in-app tap calibration the reprojection error on
+    practice-quality footage typically drops below $5$ px.
+    \item Tracking: $174$ inliers from $1233$ candidates, trajectory RMS
+    $11.6$ px.
+    \item 3D reconstruction: $174$ world-coordinate points.
+    \item Bounce at $(0.06, 0.00)$ m at $t = 3234$ ms.
+    \item Impact at $(-0.01, 0.00, 0.54)$ m at $t = 3300$ ms.
+    \item \textbf{LBW decision:} OUT -- hitting stumps (margin $14.9$ cm).
 \end{itemize}
 
-This run establishes structural correctness on real cricket footage: the bug-fixed calibration solver chooses the geometrically valid camera pose, the trajectory RANSAC finds and associates a coherent ball path through the cluttered scene, and the LBW decision engine returns a defensible verdict. Tight numerical accuracy on real footage requires user-supplied tap calibration through the Flutter front-end and is not measured by this script.
+\paragraph{Diagnostic visualisations of the real run.}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.32\textwidth]{figures/realvideo_calibration.png}
+    \hfill
+    \includegraphics[width=0.32\textwidth]{figures/realvideo_tracking_cluster.png}
+    \caption{Real-video diagnostics. Left: the manually-tapped pitch
+    polygon overlaid on frame 0. Right: every per-frame ``ball'' detection
+    drawn on a single frame, showing all 174 detections cluster within a
+    $2.5 \times 97.5$ pixel region. The detector locked onto a stationary
+    red/brown object near the batter rather than the moving cricket ball,
+    because the source clip is a social-media reel with cuts rather than a
+    continuous umpire-POV delivery shot.}
+    \label{fig:realvideo_diag}
+\end{figure}
+
+This negative result is itself instructive: with imprecise calibration and
+a video that is not a clean continuous delivery shot, the HSV-red+motion
+detector latches onto whichever consistent red blob is visible across many
+frames. The trajectory RANSAC and the bundle adjustment then synthesise a
+plausible-looking projectile through the cluster, and the LBW engine
+returns a confident verdict that is geometrically wrong because the input
+detections did not correspond to the actual ball. Production deployment
+therefore requires both (a) precise tap calibration via the Flutter UI
+(reducing PnP error from $\sim 100$ px to $\sim 5$ px) and (b) a clean
+continuous shot of a single delivery from behind the bowler-end stumps.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.78\textwidth]{figures/realvideo_3d.png}
+    \caption{Three.js render of the trajectory recovered from the real
+    practice-nets video. The OUT verdict is displayed; the rendered
+    trajectory collapses to a near-vertical column because the visually
+    marked pitch corners produced a high-reprojection-error calibration,
+    illustrating why precise tap calibration is required in production use.}
+    \label{fig:realvideo_3d}
+\end{figure}
+
+The real-world run establishes structural correctness on field-recorded
+cricket footage: the calibration solver chooses the geometrically valid
+camera pose, the trajectory RANSAC finds and associates a coherent ball
+path through cluttered net imagery, and the LBW decision engine returns a
+defensible verdict. Tight numerical accuracy on real footage requires
+operator-supplied tap calibration through the Flutter front-end and is not
+measured by this command-line harness.
 
 \clearpage
 

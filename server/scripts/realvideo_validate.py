@@ -26,11 +26,14 @@ def main() -> int:
     # the pitch (small v); the practice pitch is the green strip framed by
     # dirt/sand edges. Pipeline order: striker-left, striker-right,
     # bowler-right, bowler-left.
+    # Corners picked precisely off a coordinate-grid overlay of frame 0. The
+    # green playing strip runs from the batter's (striker) end at the far
+    # side down to the bowler-end stumps near the camera.
     corners_px = [
-        {"x": 200.0, "y": 470.0},   # striker-left (far end, off side from striker POV)
-        {"x": 380.0, "y": 470.0},   # striker-right
-        {"x": 450.0, "y": 1080.0},  # bowler-right (near end, image bottom)
-        {"x": 110.0, "y": 1080.0},  # bowler-left
+        {"x": 185.0, "y": 1075.0},   # striker-left  (far end, left edge of green)
+        {"x": 405.0, "y": 1075.0},   # striker-right (far end, right edge of green)
+        {"x": 445.0, "y": 1700.0},   # bowler-right  (near end, right edge of green)
+        {"x":  78.0, "y": 1700.0},   # bowler-left   (near end, left edge of green)
     ]
 
     req = {

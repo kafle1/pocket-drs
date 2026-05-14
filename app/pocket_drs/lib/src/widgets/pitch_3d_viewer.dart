@@ -140,8 +140,11 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
     } finally {
       _pollingReady = false;
     }
-    // Polling exhausted without JS signalling ready.
-    if (mounted && !_jsReady && _pendingPayload != null && _loadError == null) {
+    // Polling exhausted without JS signalling ready. A 3D viewer whose JS
+    // never initialised is unusable regardless of payload state, so surface
+    // the error unconditionally (the payload-presence check previously here
+    // could leave the viewer stuck on a blank screen with no feedback).
+    if (mounted && !_jsReady && _loadError == null) {
       setState(() => _loadError = 'Failed to initialize 3D viewer');
     }
   }
@@ -173,12 +176,21 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
       return;
     }
 
+    // Coerce every coordinate to a finite double. A NaN or Infinity (which
+    // are valid `num` values and so survive the `?? 0.0` fallback) would make
+    // jsonEncode throw, and a huge-but-finite value would collapse the 3D
+    // scene; both are reduced to 0.0 here.
+    double finite(Object? v) {
+      final d = (v is num) ? v.toDouble() : 0.0;
+      return d.isFinite ? d : 0.0;
+    }
+
     final safePoints = pts
         .map(
           (p) => <String, num>{
-            'x': (p['x'] ?? 0.0),
-            'y': (p['y'] ?? 0.0),
-            'z': (p['z'] ?? 0.0),
+            'x': finite(p['x']),
+            'y': finite(p['y']),
+            'z': finite(p['z']),
           },
         )
         .toList(growable: false);

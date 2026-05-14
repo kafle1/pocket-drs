@@ -34,6 +34,14 @@ class VideoReader:
 
         self._meta = VideoMeta(fps=fps, frame_count=frame_count, duration_ms=duration_ms)
         self._last_frame: np.ndarray | None = None
+        # Consecutive times we have fallen back to the stale last frame. A
+        # one-off seek hiccup is tolerable; sustained failure means the file
+        # is truncated past this point (the container's frame_count metadata
+        # over-reports what is actually decodable, which is common in
+        # phone-recorded / re-encoded clips).
+        self._consecutive_stale = 0
+
+    _MAX_CONSECUTIVE_STALE = 3
 
     @property
     def meta(self) -> VideoMeta:
@@ -62,14 +70,25 @@ class VideoReader:
 
         ok, frame = self._cap.read()
         if not ok or frame is None:
-            # Fallback: try reading next frame if seek failed
+            # Fallback: try reading the next frame in case the seek landed
+            # awkwardly (a genuine one-off hiccup).
             ok, frame = self._cap.read()
             if not ok or frame is None:
-                # Final fallback: return last good frame if available
-                if self._last_frame is not None:
-                    return self._last_frame.copy()
-                raise VideoDecodeError(f"Failed to decode frame at {t_ms}ms")
-        
+                if self._last_frame is None:
+                    raise VideoDecodeError(f"Failed to decode frame at {t_ms}ms")
+                self._consecutive_stale += 1
+                if self._consecutive_stale >= self._MAX_CONSECUTIVE_STALE:
+                    # Sustained failure: the file is truncated here. Signal the
+                    # caller to stop rather than silently padding the analysis
+                    # with duplicate stale frames.
+                    raise VideoDecodeError(
+                        f"Video appears truncated near {t_ms}ms "
+                        f"(decoding failed for {self._consecutive_stale} "
+                        "consecutive frames)"
+                    )
+                return self._last_frame.copy()
+
+        self._consecutive_stale = 0
         self._last_frame = frame
         return frame
 

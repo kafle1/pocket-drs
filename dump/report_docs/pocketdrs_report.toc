@@ -19,23 +19,28 @@
 \contentsline {subsection}{\numberline {8.2}System Design}{11}{subsection.8.2}%
 \contentsline {subsubsection}{\numberline {8.2.1}Architectural Design}{11}{subsubsection.8.2.1}%
 \contentsline {subsubsection}{\numberline {8.2.2}Database Schema Design}{12}{subsubsection.8.2.2}%
-\contentsline {subsubsection}{\numberline {8.2.3}Interface Design}{12}{subsubsection.8.2.3}%
-\contentsline {subsubsection}{\numberline {8.2.4}Component and Deployment Diagrams}{13}{subsubsection.8.2.4}%
-\contentsline {subsection}{\numberline {8.3}Algorithm Details}{13}{subsection.8.3}%
-\contentsline {subsubsection}{\numberline {8.3.1}Algorithm 1: Extrinsic Camera Calibration (solvePnP)}{13}{subsubsection.8.3.1}%
-\contentsline {subsubsection}{\numberline {8.3.2}Algorithm 2: Combined Motion and Colour Ball Detection}{14}{subsubsection.8.3.2}%
-\contentsline {subsubsection}{\numberline {8.3.3}Algorithm 3: RANSAC Trajectory Association}{14}{subsubsection.8.3.3}%
-\contentsline {subsubsection}{\numberline {8.3.4}Algorithm 4: Physics-Constrained 3D Reconstruction}{15}{subsubsection.8.3.4}%
-\contentsline {subsubsection}{\numberline {8.3.5}Algorithm 5: ICC Rule 36 LBW Decision}{16}{subsubsection.8.3.5}%
-\contentsline {section}{\numberline {9}Implementation and Testing}{17}{section.9}%
-\contentsline {subsection}{\numberline {9.1}Implementation}{17}{subsection.9.1}%
-\contentsline {subsubsection}{\numberline {9.1.1}Tools and Technologies Used}{17}{subsubsection.9.1.1}%
-\contentsline {subsubsection}{\numberline {9.1.2}Implementation Details of Modules}{17}{subsubsection.9.1.2}%
-\contentsline {subsection}{\numberline {9.2}Testing}{19}{subsection.9.2}%
-\contentsline {subsubsection}{\numberline {9.2.1}Unit Test Cases}{19}{subsubsection.9.2.1}%
-\contentsline {subsubsection}{\numberline {9.2.2}System Test Cases}{20}{subsubsection.9.2.2}%
-\contentsline {subsubsection}{\numberline {9.2.3}Synthetic Validation}{21}{subsubsection.9.2.3}%
-\contentsline {section}{\numberline {10}Conclusion and Future Recommendations}{22}{section.10}%
-\contentsline {subsection}{\numberline {10.1}Conclusion}{22}{subsection.10.1}%
-\contentsline {subsection}{\numberline {10.2}Lesson Learnt}{22}{subsection.10.2}%
-\contentsline {subsection}{\numberline {10.3}Future Recommendations}{23}{subsection.10.3}%
+\contentsline {subsubsection}{\numberline {8.2.3}Interface Design}{13}{subsubsection.8.2.3}%
+\contentsline {subsubsection}{\numberline {8.2.4}Component and Deployment Diagrams}{14}{subsubsection.8.2.4}%
+\contentsline {subsection}{\numberline {8.3}Algorithm Details}{14}{subsection.8.3}%
+\contentsline {subsubsection}{\numberline {8.3.1}Algorithm 1: Extrinsic Camera Calibration (solvePnP)}{14}{subsubsection.8.3.1}%
+\contentsline {subsubsection}{\numberline {8.3.2}Algorithm 2: Combined Motion and Colour Ball Detection}{15}{subsubsection.8.3.2}%
+\contentsline {subsubsection}{\numberline {8.3.3}Algorithm 3: RANSAC Trajectory Association}{16}{subsubsection.8.3.3}%
+\contentsline {subsubsection}{\numberline {8.3.4}Algorithm 4: Physics-Constrained 3D Reconstruction}{16}{subsubsection.8.3.4}%
+\contentsline {subsubsection}{\numberline {8.3.5}Algorithm 5: ICC Rule 36 LBW Decision}{17}{subsubsection.8.3.5}%
+\contentsline {section}{\numberline {9}Implementation and Testing}{19}{section.9}%
+\contentsline {subsection}{\numberline {9.1}Implementation}{19}{subsection.9.1}%
+\contentsline {subsubsection}{\numberline {9.1.1}Tools and Technologies Used}{19}{subsubsection.9.1.1}%
+\contentsline {subsubsection}{\numberline {9.1.2}Implementation Details of Modules}{19}{subsubsection.9.1.2}%
+\contentsline {subsection}{\numberline {9.2}Testing}{21}{subsection.9.2}%
+\contentsline {subsubsection}{\numberline {9.2.1}Unit Test Cases}{21}{subsubsection.9.2.1}%
+\contentsline {subsubsection}{\numberline {9.2.2}System Test Cases}{22}{subsubsection.9.2.2}%
+\contentsline {subsubsection}{\numberline {9.2.3}Synthetic Validation}{23}{subsubsection.9.2.3}%
+\contentsline {paragraph}{Per-stage results.}{23}{subsubsection.9.2.3}%
+\contentsline {paragraph}{Sample rendered decisions.}{24}{subsubsection.9.2.3}%
+\contentsline {paragraph}{Where accuracy degrades.}{24}{figure.caption.5}%
+\contentsline {subsubsection}{\numberline {9.2.4}Real-World Validation}{25}{subsubsection.9.2.4}%
+\contentsline {paragraph}{Diagnostic visualisations of the real run.}{26}{figure.caption.6}%
+\contentsline {section}{\numberline {10}Conclusion and Future Recommendations}{28}{section.10}%
+\contentsline {subsection}{\numberline {10.1}Conclusion}{28}{subsection.10.1}%
+\contentsline {subsection}{\numberline {10.2}Lesson Learnt}{28}{subsection.10.2}%
+\contentsline {subsection}{\numberline {10.3}Future Recommendations}{29}{subsection.10.3}%

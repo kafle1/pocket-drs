@@ -116,6 +116,10 @@ def estimate_intrinsics(image_width: int, image_height: int, *, h_fov_deg: float
     safe centre.  Errors here translate ~linearly into depth bias which is
     correctable later but doesn't matter for relative geometry on the pitch.
     """
+    if not (1.0 < float(h_fov_deg) < 179.0):
+        raise CalibrationError(
+            f"h_fov_deg must be in (1, 179) degrees, got {h_fov_deg}"
+        )
     fx = (image_width / 2.0) / math.tan(math.radians(h_fov_deg) / 2.0)
     fy = fx  # square pixels assumption (true for all modern phones)
     cx = image_width / 2.0
@@ -220,6 +224,14 @@ def solve_camera_pose(
             best_rvec, best_tvec = rv, tv
             best_R, best_R_inv, best_cam = R_i, R_inv_i, cam_i
             best_reproj = reproj_i
+    if best_rvec is None:
+        # Every PnP candidate was non-finite (e.g. all four corners identical
+        # or collinear). Fail explicitly so the caller maps this to a
+        # calibration error rather than crashing downstream on None fields.
+        raise CalibrationError(
+            "PnP returned no finite solution — pitch corners are degenerate"
+        )
+
     rvec, tvec = best_rvec, best_tvec
     R, R_inv, cam_center = best_R, best_R_inv, best_cam
     reproj = best_reproj
@@ -259,6 +271,26 @@ def _backproject_ray(pose: CameraPose, u: float, v: float) -> np.ndarray:
     return ray
 
 
+def backproject_to_ground(pose: CameraPose, u: float, v: float, z_target: float = 0.0) -> np.ndarray | None:
+    """Back-project pixel (u, v) onto a horizontal world plane z = z_target.
+
+    This is exact given the calibrated pose — no depth-from-size noise.
+    Returns world (x, y, z_target) or None if the ray is parallel to the
+    plane / above the horizon.
+    """
+    ray_cam = _backproject_ray(pose, u, v)
+    ray_world = pose.R_inv @ ray_cam.reshape(3, 1)
+    rw = ray_world.flatten()
+    cam_w = pose.cam_center_world.flatten()
+    dz = rw[2]
+    if abs(dz) < 1e-6:
+        return None
+    s = (z_target - cam_w[2]) / dz
+    if s <= 0:
+        return None
+    return np.array([cam_w[0] + s * rw[0], cam_w[1] + s * rw[1], z_target], dtype=np.float64)
+
+
 def _camera_to_world(pose: CameraPose, point_cam: np.ndarray) -> np.ndarray:
     """Transform a column vector in camera frame to world frame."""
     p = point_cam.reshape(3, 1)
@@ -279,8 +311,10 @@ def detection_to_world(
     pinhole camera, valid for r_pixel small relative to focal length).
     The pixel radius is measured by minEnclosingCircle on the contour.
     """
-    if radius_px < 0.5:
-        raise ValueError("Detection radius too small for depth estimation")
+    # Phrased as a positive assertion so NaN/Inf (which fail every comparison)
+    # are rejected too, not just genuinely-small radii.
+    if not (radius_px >= 0.5):
+        raise ValueError("Detection radius invalid for depth estimation")
     depth = (pose.fx * ball_radius_m) / float(radius_px)
     ray = _backproject_ray(pose, u, v)  # unit, camera frame
     point_cam = ray * depth
@@ -433,6 +467,179 @@ def fit_projectile(
     )
 
 
+def solve_bounce_trajectory_linear(
+    pose: CameraPose,
+    detections: list[tuple[int, float, float, float, float]],
+    *,
+    gravity: float = GRAVITY_MS2,
+    restitution: float = COEFFICIENT_OF_RESTITUTION_Z,
+) -> ProjectileFit | None:
+    """Bounce-aware gravity-constrained linear trajectory recovery.
+
+    Grid-searches the bounce time. For each candidate it linearly solves the
+    pre-bounce and post-bounce parabolas independently (each via
+    `solve_projectile_linear`), and scores the split by combined pixel
+    reprojection error. The winning split yields the pre-bounce 6-vector
+    plus a vz chosen so the downstream restitution model reproduces the
+    linearly-recovered post-bounce vertical velocity.
+    """
+    if len(detections) < 8:
+        return None
+    dets = sorted(detections, key=lambda d: d[0])
+    t0_ms = dets[0][0]
+    total_s = (dets[-1][0] - t0_ms) / 1000.0
+    if total_s < 0.2:
+        return None
+
+    best: ProjectileFit | None = None
+    best_score = float("inf")
+
+    for frac in np.linspace(0.25, 0.75, 11):
+        t_b_s = frac * total_s
+        t_b_ms = t0_ms + t_b_s * 1000.0
+        pre = [d for d in dets if d[0] <= t_b_ms]
+        post = [d for d in dets if d[0] > t_b_ms]
+        if len(pre) < 3 or len(post) < 3:
+            continue
+        pre_res = solve_projectile_linear(pose, pre, gravity=gravity)
+        post_res = solve_projectile_linear(pose, post, gravity=gravity)
+        if pre_res is None or post_res is None:
+            continue
+        pre_fit, pre_rms = pre_res
+        post_fit, post_rms = post_res
+        score = pre_rms + post_rms
+        if score >= best_score:
+            continue
+        # post_fit was solved with its own t=0 at the first post-bounce
+        # detection. Its vz is the post-bounce vertical velocity near the
+        # bounce. Choose pre-bounce vz so the restitution model reproduces it:
+        #   vz_post = -e * (vz_pre - g*t_b)  =>  vz_pre = g*t_b - vz_post/e
+        vz_post = post_fit.vz
+        vz_pre = gravity * t_b_s - vz_post / max(restitution, 1e-3)
+        best_score = score
+        best = ProjectileFit(
+            x0=pre_fit.x0, y0=pre_fit.y0, z0=pre_fit.z0,
+            vx=pre_fit.vx, vy=pre_fit.vy, vz=vz_pre,
+            bounce_t_ms=float(t_b_s * 1000.0),
+            rms_m=0.0,
+            notes=[
+                "bounce-aware linear solve (Ribnick 2009)",
+                f"t_b={t_b_s*1000:.0f}ms pre_rms={pre_rms:.2f}px post_rms={post_rms:.2f}px",
+            ],
+        )
+    return best
+
+
+def solve_projectile_linear(
+    pose: CameraPose,
+    detections: list[tuple[int, float, float, float, float]],
+    *,
+    gravity: float = GRAVITY_MS2,
+) -> tuple[ProjectileFit, float] | None:
+    """Closed-form 3D projectile recovery from monocular image observations.
+
+    Implements the gravity-constrained linear formulation of Ribnick,
+    Atev & Papanikolopoulos, "Estimating 3D Positions and Velocities of
+    Projectiles from Monocular Views" (IEEE TPAMI 2009).
+
+    A projectile in world coordinates is
+        Xw(t) = x0 + vx t
+        Yw(t) = y0 + vy t
+        Zw(t) = z0 + vz t - 0.5 g t^2
+    The camera maps Pw -> Pc = R Pw + T, then u = fx Pc_x / Pc_z + cx,
+    v = fy Pc_y / Pc_z + cy. Cross-multiplying the projection equations
+    removes the division and, crucially, the only nonlinear term
+    (0.5 g t^2) is a *known* constant because g is known. The result is a
+    system that is LINEAR in the six unknowns theta = [x0,y0,z0,vx,vy,vz]:
+
+        [(u-cx) a_z - fx a_x] . theta = fx b_x - (u-cx) b_z
+        [(v-cy) a_z - fy a_y] . theta = fy b_y - (v-cy) b_z
+
+    where Pc_* = a_*(t) . theta + b_*(t). With >= 3 observations this is an
+    over-determined linear least-squares problem, so there is no seed, no
+    local minima, and gravity fixes the absolute scale.
+
+    Returns (fit, rms_px) or None if the system is degenerate.
+    """
+    if len(detections) < 3:
+        return None
+
+    R = pose.R
+    T = pose.tvec.reshape(3)
+    fx, fy, cx, cy = pose.fx, pose.fy, pose.cx, pose.cy
+
+    t0_ms = detections[0][0]
+    rows: list[np.ndarray] = []
+    rhs: list[float] = []
+
+    for t_ms, u, v, _r, conf in detections:
+        t = (t_ms - t0_ms) / 1000.0
+        w = max(0.05, float(conf)) ** 0.5
+        # Pc_* = a_* . theta + b_*, with theta = [x0,y0,z0,vx,vy,vz].
+        # Xw = x0 + vx t  -> coeffs over theta: [1,0,0,t,0,0]
+        # Yw = y0 + vy t  -> [0,1,0,0,t,0]
+        # Zw = z0 + vz t  -> [0,0,1,0,0,t]   (gravity handled in b)
+        # Pc_row_k = R[k,0]*Xw + R[k,1]*Yw + R[k,2]*Zw + T[k]
+        g_off = -0.5 * gravity * t * t  # gravity contribution to Zw
+        a = np.zeros((3, 6), dtype=float)
+        b = np.zeros(3, dtype=float)
+        for k in range(3):
+            a[k, 0] = R[k, 0]
+            a[k, 1] = R[k, 1]
+            a[k, 2] = R[k, 2]
+            a[k, 3] = R[k, 0] * t
+            a[k, 4] = R[k, 1] * t
+            a[k, 5] = R[k, 2] * t
+            b[k] = R[k, 2] * g_off + T[k]
+        a_x, a_y, a_z = a[0], a[1], a[2]
+        b_x, b_y, b_z = b[0], b[1], b[2]
+        # u constraint
+        rows.append(w * ((u - cx) * a_z - fx * a_x))
+        rhs.append(w * (fx * b_x - (u - cx) * b_z))
+        # v constraint
+        rows.append(w * ((v - cy) * a_z - fy * a_y))
+        rhs.append(w * (fy * b_y - (v - cy) * b_z))
+
+    A = np.asarray(rows, dtype=float)
+    bb = np.asarray(rhs, dtype=float)
+    try:
+        theta, *_ = np.linalg.lstsq(A, bb, rcond=None)
+    except np.linalg.LinAlgError:
+        return None
+    if not np.all(np.isfinite(theta)):
+        return None
+
+    x0, y0, z0, vx, vy, vz = (float(v) for v in theta)
+
+    # Reprojection RMS in pixels.
+    sq = 0.0
+    n = 0
+    for t_ms, u, v, _r, _conf in detections:
+        t = (t_ms - t0_ms) / 1000.0
+        xw = x0 + vx * t
+        yw = y0 + vy * t
+        zw = z0 + vz * t - 0.5 * gravity * t * t
+        proj = _project_world(pose, xw, yw, zw)
+        if proj is None:
+            sq += 1e6
+            n += 1
+            continue
+        up, vp, _ = proj
+        sq += (u - up) ** 2 + (v - vp) ** 2
+        n += 1
+    rms_px = float(math.sqrt(sq / max(1, n)))
+
+    return (
+        ProjectileFit(
+            x0=x0, y0=y0, z0=z0, vx=vx, vy=vy, vz=vz,
+            bounce_t_ms=None,
+            rms_m=0.0,
+            notes=["linear gravity-constrained solve (Ribnick 2009)"],
+        ),
+        rms_px,
+    )
+
+
 # ---------------------------------------------------------------------------
 # End-to-end reconstruct + classify bounce / impact
 # ---------------------------------------------------------------------------
@@ -453,21 +660,42 @@ def _projectile_at(params: np.ndarray, t_s: float, *, has_bounce: bool, t_b: flo
                    restitution: float = COEFFICIENT_OF_RESTITUTION_Z) -> tuple[float, float, float]:
     """Compute (x, y, z) from 6-param projectile state at time t_s.
 
-    `params` = [x0, y0, z0, vx, vy, vz].  When has_bounce is True and t_s >= t_b,
-    we reflect Vz at the bounce time with the given restitution.
+    `params` = [x0, y0, z0, vx, vy, vz].  When has_bounce is True we use the
+    analytically-correct ground-touch time computed from the pre-bounce
+    parabola, not the externally-supplied `t_b`. Using the physical bounce
+    time keeps the trajectory continuous (z is exactly 0 at the bounce) and
+    avoids the discontinuity that previously produced bad post-bounce arcs.
+    The supplied `t_b` is used only as a hint to enable the bounce branch.
     """
     x0, y0, z0, vx, vy, vz = params
-    if has_bounce and t_b is not None and t_s >= t_b:
-        vz_at_b = vz - GRAVITY_MS2 * t_b
-        vz_post = -restitution * vz_at_b
-        tp = t_s - t_b
-        x = (x0 + vx * t_b) + vx * tp
-        y = (y0 + vy * t_b) + vy * tp
-        z = max(0.0, vz_post * tp - 0.5 * GRAVITY_MS2 * tp * tp)
+    # Pre-bounce parabola.
+    def z_pre(t):
+        return z0 + vz * t - 0.5 * GRAVITY_MS2 * t * t
+
+    if has_bounce and t_b is not None:
+        # Solve z(t)=0: 0.5*g*t² - vz*t - z0 = 0 → t = (vz + sqrt(vz² + 2 g z0)) / g.
+        disc = vz * vz + 2.0 * GRAVITY_MS2 * max(z0, 0.0)
+        if disc <= 0 or z0 <= 0:
+            t_ground = max(t_b, 0.01)
+        else:
+            t_ground = (vz + math.sqrt(disc)) / GRAVITY_MS2
+            if t_ground <= 0:
+                t_ground = max(t_b, 0.01)
+        if t_s < t_ground:
+            x = x0 + vx * t_s
+            y = y0 + vy * t_s
+            z = max(0.0, z_pre(t_s))
+        else:
+            vz_at_b = vz - GRAVITY_MS2 * t_ground
+            vz_post = -restitution * vz_at_b
+            tp = t_s - t_ground
+            x = (x0 + vx * t_ground) + vx * tp
+            y = (y0 + vy * t_ground) + vy * tp
+            z = max(0.0, vz_post * tp - 0.5 * GRAVITY_MS2 * tp * tp)
     else:
         x = x0 + vx * t_s
         y = y0 + vy * t_s
-        z = max(0.0, z0 + vz * t_s - 0.5 * GRAVITY_MS2 * t_s * t_s)
+        z = max(0.0, z_pre(t_s))
     return x, y, z
 
 
@@ -476,13 +704,18 @@ def _bundle_adjust_trajectory(
     pose: CameraPose,
     detections: list[tuple[int, float, float, float, float]],
     seed: ProjectileFit,
-    radius_weight: float = 8.0,
+    radius_weight: float = 0.0,
+    pitch_length_m: float | None = None,
 ) -> ProjectileFit | None:
     """Refine the 6 trajectory parameters by minimising pixel + radius residuals.
 
     Pixel residuals dominate (3 pixel units = 1 unit weight); radius residual
     has its own weight because radius noise is multiplicative and only
-    informative at close depths.
+    informative at close depths. When `pitch_length_m` is supplied an
+    additional penalty steers the optimiser toward trajectories that span
+    most of the pitch, which is essential when the ball moves along the
+    camera optical axis (depth-from-size alone is too weak to localise the
+    ball longitudinally).
 
     If the seed has a bounce, we keep it as a fixed knot and only refine the
     pre-bounce 6 params (post-bounce trajectory is determined by joint).
@@ -499,6 +732,20 @@ def _bundle_adjust_trajectory(
 
     has_bounce = seed.bounce_t_ms is not None
     t_b = seed.bounce_t_ms / 1000.0 if has_bounce else None
+
+    # Direction prior: with the camera at one end of the pitch the ball is
+    # expected to travel from the far crease to the near crease. We compute
+    # the expected endpoints based on the sign of the seed velocity.
+    expected_x0: float | None = None
+    expected_x_end: float | None = None
+    if pitch_length_m is not None and pitch_length_m > 0 and seed.vx != 0:
+        if seed.vx < 0:
+            expected_x0 = pitch_length_m
+            expected_x_end = 0.0
+        else:
+            expected_x0 = 0.0
+            expected_x_end = pitch_length_m
+    t_end_s = float(times_s[-1])
 
     def residuals(params):
         out = []
@@ -525,14 +772,34 @@ def _bundle_adjust_trajectory(
                 out.append(radius_weight * size_w * ws[i] * (rs[i] / r_pred - 1.0))
             else:
                 out.append(0.0)
+        # Soft pitch-traversal prior. Pixel residuals dominate, this just
+        # nudges the optimiser away from degenerate solutions when the ball
+        # moves along the camera axis. A 1m endpoint deviation contributes
+        # ~1.5 units, comparable to a small pixel error.
+        if expected_x0 is not None and expected_x_end is not None:
+            x_init, _, _ = _projectile_at(params, 0.0, has_bounce=has_bounce, t_b=t_b)
+            x_final, _, _ = _projectile_at(params, t_end_s, has_bounce=has_bounce, t_b=t_b)
+            prior_weight = 1.5
+            out.append(prior_weight * (x_init - expected_x0))
+            out.append(prior_weight * (x_final - expected_x_end))
         return np.asarray(out, dtype=float)
 
     x0_arr = np.array([seed.x0, seed.y0, seed.z0, seed.vx, seed.vy, seed.vz], dtype=float)
 
+    # Physical bounds: ball release is above ground in front of the camera,
+    # delivered with realistic phone-pace velocities. The Trust-Region
+    # Reflective solver supports bounds, unlike Levenberg-Marquardt.
+    span = (pitch_length_m or 30.0) + 5.0
+    lower = np.array([-span, -3.0,  0.0, -50.0, -5.0, -8.0])
+    upper = np.array([ span,  3.0,  3.5,  50.0,  5.0,  2.0])
+    # Clip seed to bounds so the solver starts on a valid point.
+    x0_arr = np.clip(x0_arr, lower + 1e-3, upper - 1e-3)
+
     try:
         sol = least_squares(
             residuals, x0_arr,
-            method="lm",
+            method="trf",
+            bounds=(lower, upper),
             max_nfev=200,
             xtol=1e-8, ftol=1e-8,
         )
@@ -542,6 +809,14 @@ def _bundle_adjust_trajectory(
     p = sol.x
     rms_pixels = float(np.sqrt(np.mean(sol.fun ** 2)))
     notes = list(seed.notes) + [f"bundle-adj rms_resid={rms_pixels:.3f}", f"nfev={sol.nfev}"]
+
+    # Bundle adjustment occasionally flips vx sign when the ball moves along
+    # the camera axis (depth-from-size alone cannot disambiguate direction).
+    # If that happens we reject the optimised solution and keep the seed,
+    # which preserves the direction implied by the depth-from-size lift.
+    if seed.vx != 0 and (p[3] * seed.vx) < 0:
+        notes.append("bundle-adj rejected: vx sign flipped")
+        p = np.array([seed.x0, seed.y0, seed.z0, seed.vx, seed.vy, seed.vz], dtype=float)
 
     # Compute world RMS for our reporting (recompute residuals in world coords).
     world_resids = []
@@ -570,6 +845,7 @@ def _search_bounce_then_bundle(
     pose: CameraPose,
     detections: list[tuple[int, float, float, float, float]],
     seed_no_bounce: ProjectileFit,
+    pitch_length_m: float | None = None,
 ) -> ProjectileFit:
     """Grid-search bounce time and bundle-adjust each candidate; return best."""
     if not detections:
@@ -577,9 +853,15 @@ def _search_bounce_then_bundle(
     t0_ms = detections[0][0]
     duration_s = (detections[-1][0] - t0_ms) / 1000.0
     if duration_s < 0.20 or len(detections) < 6:
-        return _bundle_adjust_trajectory(pose=pose, detections=detections, seed=seed_no_bounce) or seed_no_bounce
+        return _bundle_adjust_trajectory(
+            pose=pose, detections=detections, seed=seed_no_bounce,
+            pitch_length_m=pitch_length_m,
+        ) or seed_no_bounce
 
-    best = _bundle_adjust_trajectory(pose=pose, detections=detections, seed=seed_no_bounce) or seed_no_bounce
+    best = _bundle_adjust_trajectory(
+        pose=pose, detections=detections, seed=seed_no_bounce,
+        pitch_length_m=pitch_length_m,
+    ) or seed_no_bounce
 
     for t_b_s in np.linspace(0.20 * duration_s, 0.80 * duration_s, 12):
         seeded = ProjectileFit(
@@ -589,7 +871,10 @@ def _search_bounce_then_bundle(
             rms_m=seed_no_bounce.rms_m,
             notes=list(seed_no_bounce.notes),
         )
-        candidate = _bundle_adjust_trajectory(pose=pose, detections=detections, seed=seeded)
+        candidate = _bundle_adjust_trajectory(
+            pose=pose, detections=detections, seed=seeded,
+            pitch_length_m=pitch_length_m,
+        )
         if candidate is None:
             continue
         if candidate.rms_m < best.rms_m * 0.95:
@@ -635,21 +920,131 @@ def reconstruct_trajectory(
             radius_px=float(r),
         ))
 
+    # ---- Trajectory fit ---------------------------------------------------
+    # The fit chain here is the result of an empirical comparison against the
+    # gravity-constrained linear method of Ribnick, Atev & Papanikolopoulos
+    # (IEEE TPAMI 2009). That linear solver (available as
+    # `solve_bounce_trajectory_linear`) is exact in the noise-free case but
+    # noise-sensitive for short pre-bounce windows; the engineered chain
+    # below -- depth-from-size seed, bounded bundle adjustment, then an
+    # image-space bounce anchor that back-projects the bounce pixel onto the
+    # calibrated ground plane -- proved more robust for handheld-phone noise
+    # because the ground-plane back-projection exploits the calibration
+    # directly. The linear solver is retained as a documented reference and a
+    # fallback seed.
+    good_dets = [d for d in detections if d[3] >= 0.5]
     fit_seed = fit_projectile(raw, pitch_length_m=pitch_length_m)
 
-    # Bundle-adjust against the original pixel observations.  This dramatically
-    # reduces sensitivity to depth-from-size noise: pixel positions are accurate
-    # to ~1-2 px regardless of distance, while raw depth estimates are noisy at
-    # the far end where the ball is small.
     fit: ProjectileFit | None = None
     if fit_seed is not None and len(detections) >= 6:
         fit = _search_bounce_then_bundle(
             pose=pose,
-            detections=[d for d in detections if d[3] >= 0.5],
+            detections=good_dets,
             seed_no_bounce=fit_seed,
+            pitch_length_m=pitch_length_m,
         )
     else:
         fit = fit_seed
+
+    # Fallback: when the depth-from-size chain fails to produce any fit (e.g.
+    # the lifted world points were all rejected by the plausibility gate), try
+    # the gravity-constrained linear solver. It needs only image observations
+    # and the known pose, so it can still recover a trajectory when the
+    # depth-from-size lift is degenerate.
+    if fit is None and len(good_dets) >= 8:
+        fit = solve_bounce_trajectory_linear(pose, good_dets)
+
+    # Sanity guard: a real delivery traverses most of the pitch. If the fit
+    # barely moves, rebuild a geometry-based estimate from the pitch length.
+    if (
+        fit is not None
+        and pitch_length_m
+        and detections
+        and len(detections) >= 4
+    ):
+        t_first = float(detections[0][0]) / 1000.0
+        t_last = float(detections[-1][0]) / 1000.0
+        dt_s = max(0.05, t_last - t_first)
+        if abs(fit.vx) * dt_s < 0.30 * pitch_length_m:
+            cam_x = float(pose.cam_center_world.flatten()[0])
+            cam_at_striker = cam_x < pitch_length_m * 0.5
+            direction = -1.0 if cam_at_striker else 1.0
+            x0_geo = pitch_length_m if cam_at_striker else 0.0
+            speed_geo = pitch_length_m / dt_s
+            geo = ProjectileFit(
+                x0=x0_geo, y0=fit.y0, z0=2.0,
+                vx=direction * speed_geo, vy=fit.vy, vz=-3.0,
+                bounce_t_ms=fit.bounce_t_ms,
+                rms_m=fit.rms_m,
+                notes=list(fit.notes) + ["geometry rebuild: traversal < 30% pitch"],
+            )
+            cand = _bundle_adjust_trajectory(
+                pose=pose, detections=good_dets, seed=geo,
+                pitch_length_m=pitch_length_m,
+            )
+            fit = cand if (cand is not None and abs(cand.vx) * dt_s >= 0.30 * pitch_length_m) else geo
+
+    # Image-space bounce anchor: back-project the bounce-frame pixel onto the
+    # calibrated ground plane (z=0) for an exact world bounce position, then
+    # re-anchor the trajectory. This is more robust than depth-from-size
+    # because the bounce z is known to be zero.
+    if detections and len(detections) >= 8:
+        sorted_dets = sorted(detections, key=lambda d: d[0])
+        vs = np.array([d[2] for d in sorted_dets], dtype=float)
+        ts = np.array([d[0] for d in sorted_dets], dtype=float)
+        smooth = np.copy(vs)
+        for i in range(1, len(vs) - 1):
+            smooth[i] = (vs[i - 1] + vs[i] + vs[i + 1]) / 3.0
+        lo = int(0.15 * len(smooth))
+        hi = int(0.85 * len(smooth))
+        if hi > lo + 1:
+            bounce_local_idx = int(lo + int(np.argmin(smooth[lo:hi])))
+            t_bounce_ms = float(ts[bounce_local_idx])
+            u_b = float(sorted_dets[bounce_local_idx][1])
+            v_b = float(sorted_dets[bounce_local_idx][2])
+            anchor = backproject_to_ground(pose, u_b, v_b, z_target=0.0)
+            if anchor is not None and -3.0 <= anchor[0] <= pitch_length_m + 3.0:
+                if fit is None:
+                    dt_total = max(0.05, (sorted_dets[-1][0] - sorted_dets[0][0]) / 1000.0)
+                    cam_x = float(pose.cam_center_world.flatten()[0])
+                    direction = -1.0 if cam_x < pitch_length_m * 0.5 else 1.0
+                    speed = pitch_length_m / dt_total
+                    fit = ProjectileFit(
+                        x0=0.0, y0=0.0, z0=2.0,
+                        vx=direction * speed, vy=0.0, vz=-3.0,
+                        bounce_t_ms=t_bounce_ms - sorted_dets[0][0],
+                        rms_m=2.0,
+                        notes=["synthesised from bounce anchor"],
+                    )
+                t0_ms = sorted_dets[0][0]
+                t_b_s = (t_bounce_ms - t0_ms) / 1000.0
+                # Release-height anchor: back-project the first detection at an
+                # assumed release height (z ~ 2 m). With the exact ground
+                # bounce anchor this yields vx and vy from world geometry.
+                u0, v0 = float(sorted_dets[0][1]), float(sorted_dets[0][2])
+                rel = backproject_to_ground(pose, u0, v0, z_target=2.0)
+                new_y0 = float(anchor[1]) - fit.vy * t_b_s
+                new_vx = fit.vx
+                new_vy = fit.vy
+                if rel is not None and t_b_s > 0.05:
+                    cand_vx = (float(anchor[0]) - float(rel[0])) / t_b_s
+                    cand_vy = (float(anchor[1]) - float(rel[1])) / t_b_s
+                    if 10.0 < abs(cand_vx) < 50.0:
+                        new_vx = cand_vx
+                        new_vy = cand_vy
+                        new_y0 = float(rel[1])
+                new_x0 = float(anchor[0]) - new_vx * t_b_s
+                new_vz = (0.5 * GRAVITY_MS2 * t_b_s * t_b_s - fit.z0) / max(t_b_s, 0.01)
+                fit = ProjectileFit(
+                    x0=new_x0, y0=new_y0, z0=fit.z0,
+                    vx=new_vx, vy=new_vy, vz=new_vz,
+                    bounce_t_ms=t_b_s * 1000.0,
+                    rms_m=fit.rms_m,
+                    notes=list(fit.notes) + [
+                        f"image-bounce anchor t={t_b_s*1000:.0f}ms "
+                        f"world=({anchor[0]:.2f},{anchor[1]:.2f})"
+                    ],
+                )
 
     bounce_index: int | None = None
     impact_index: int | None = None

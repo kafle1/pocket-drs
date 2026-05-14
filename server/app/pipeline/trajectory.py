@@ -19,6 +19,7 @@ that is high when the model fit is tight.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -63,6 +64,54 @@ def _frames_in_order(
     return sorted(detections_by_frame, key=lambda x: x[0])
 
 
+def _suppress_static_clutter(
+    frames: list[tuple[int, list[dict]]],
+    *,
+    image_diagonal_px: float,
+    occupancy_frac: float = 0.30,
+) -> list[tuple[int, list[dict]]]:
+    """Drop detections that recur at the same image location across the clip.
+
+    A genuine cricket ball passes through any given pixel neighbourhood in at
+    most one or two frames. A static red/round object (sponsor logo, helmet,
+    distant kit, bat handle) sits in the same place for the whole sequence
+    and is the dominant false-positive in handheld footage. Standard
+    background-modelling practice: treat anything persistent as background.
+
+    For each detection we count how many *other* frames contain a detection
+    within a small radius. If that occupancy exceeds `occupancy_frac` of all
+    frames, the detection is static clutter and is removed.
+    """
+    n_frames = len(frames)
+    if n_frames < 6:
+        return frames
+    radius = max(12.0, 0.012 * image_diagonal_px)  # ~26 px on 1080p
+    r2 = radius * radius
+
+    # Per-frame representative points (use every detection).
+    pts_per_frame: list[list[tuple[float, float]]] = [
+        [(float(d["x"]), float(d["y"])) for d in dets] for _, dets in frames
+    ]
+
+    cleaned: list[tuple[int, list[dict]]] = []
+    for fi, (t_ms, dets) in enumerate(frames):
+        kept: list[dict] = []
+        for d in dets:
+            dx0, dy0 = float(d["x"]), float(d["y"])
+            occ = 0
+            for fj in range(n_frames):
+                if fj == fi:
+                    continue
+                for (px, py) in pts_per_frame[fj]:
+                    if (px - dx0) ** 2 + (py - dy0) ** 2 <= r2:
+                        occ += 1
+                        break
+            if occ <= occupancy_frac * n_frames:
+                kept.append(d)
+        cleaned.append((t_ms, kept))
+    return cleaned
+
+
 def find_ball_trajectory(
     detections_by_frame: list[tuple[int, list[dict]]],
     *,
@@ -95,6 +144,11 @@ def find_ball_trajectory(
     if search_radius_px is None:
         search_radius_px = max(15.0, 0.03 * image_diagonal_px)
 
+    # Suppress static clutter (sponsor logos, helmets, bat handles) before
+    # association — these are the dominant false positive in handheld footage
+    # and the RANSAC will happily fit a "trajectory" through a static cluster.
+    raw_total = sum(len(d) for _, d in frames)
+    frames = _suppress_static_clutter(frames, image_diagonal_px=image_diagonal_px)
     total_candidates = sum(len(d) for _, d in frames)
     if total_candidates < min_inliers:
         return None
@@ -235,5 +289,17 @@ def find_ball_trajectory(
             else:
                 if (fit.inliers, -fit.rms_px) > (best_fit.inliers, -best_fit.rms_px):
                     best_fit = fit
+
+    # Final-track validation: a genuine ball traverses a meaningful fraction
+    # of the image. A track whose points span almost no distance is a static
+    # cluster that survived per-seed gating — reject it so the pipeline
+    # reports "no trajectory" rather than fabricating a decision from clutter.
+    if best_fit is not None and len(best_fit.points) >= 2:
+        xs_t = [p.x_px for p in best_fit.points]
+        ys_t = [p.y_px for p in best_fit.points]
+        span = math.hypot(max(xs_t) - min(xs_t), max(ys_t) - min(ys_t))
+        min_span = max(40.0, 0.06 * image_diagonal_px)  # ~130 px on 1080p
+        if span < min_span:
+            return None
 
     return best_fit

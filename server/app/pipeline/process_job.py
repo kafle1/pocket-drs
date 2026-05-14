@@ -72,7 +72,7 @@ _log = logging.getLogger("pocket_drs.pipeline")
 # Cricket constants.
 WICKET_HALF_WIDTH_M = 0.2286 / 2.0      # one stump line is ±wicket_half_width from centre
 WICKET_GUARD_M = WICKET_HALF_WIDTH_M + BALL_RADIUS_M
-UMPIRES_CALL_BAND_M = 0.025             # ±25 mm on the edge → umpire's call
+UMPIRES_CALL_BAND_M = 0.050             # ±50 mm on the edge → umpire's call
 
 
 ProgressFn = Callable[[int, str], None]
@@ -154,6 +154,18 @@ def _decide_lbw(
             checks["impact_in_line"] = False
             reason_parts.append(f"Impact outside off ({iy*100:+.1f}cm)")
 
+    # Monocular depth-from-size on phone footage is precise to roughly
+    # ±5 cm in Y at the stump plane and ±15 cm in Z. We widen the umpire's-
+    # call margin in the vertical dimension to reflect that the system is
+    # less confident about ball height than ball line, even though the same
+    # physical "more than half the ball" rule applies in both.
+    # Cricket DRS umpire's-call bands. Monocular Z noise is typically
+    # ~2x the Y noise (ball moves along the camera axis so the radial
+    # component is harder to resolve than the lateral one), so the Z band
+    # is widened to one ball-diameter while Y stays at one ball-radius.
+    MARGIN_Y_UMP = BALL_RADIUS_M           # 3.6 cm
+    MARGIN_Z_UMP = 2.0 * BALL_RADIUS_M     # 7.2 cm
+
     decision = "not_out"
     margin_text = ""
     if pred_y_at_stumps is not None and pred_z_at_stumps is not None:
@@ -161,30 +173,40 @@ def _decide_lbw(
         hits_vertical = 0.0 <= pred_z_at_stumps <= DEFAULT_STUMP_HEIGHT_M + BALL_RADIUS_M
         if hits_horizontal and hits_vertical:
             checks["wickets_hitting"] = True
-            # Margin from stump edges for umpire's call.
             margin_y = WICKET_GUARD_M - abs(pred_y_at_stumps)
             margin_z_top = (DEFAULT_STUMP_HEIGHT_M + BALL_RADIUS_M) - pred_z_at_stumps
             margin_z_bot = pred_z_at_stumps
+            # Per-axis umpire's-call bands; the tightest axis decides.
+            in_y_band = margin_y <= MARGIN_Y_UMP
+            in_z_band = (margin_z_top <= MARGIN_Z_UMP) or (margin_z_bot <= MARGIN_Z_UMP)
             margin = min(margin_y, margin_z_top, margin_z_bot)
-            margin_text = f" (margin {margin*100:.1f}cm)"
+            if in_y_band or in_z_band:
+                margin_text = f" (margin {margin*100:.1f}cm umpires_band)"
+            else:
+                margin_text = f" (margin {margin*100:.1f}cm)"
         else:
-            # Umpire's-call band on the *outside* of the stumps.
-            outside_y = abs(pred_y_at_stumps) - WICKET_GUARD_M
-            outside_z = max(0.0, pred_z_at_stumps - (DEFAULT_STUMP_HEIGHT_M + BALL_RADIUS_M))
-            outside_z2 = max(0.0, -pred_z_at_stumps)
-            min_outside = min([m for m in (outside_y, outside_z, outside_z2) if m >= 0])
-            if min_outside <= UMPIRES_CALL_BAND_M:
+            # Umpire's-call band on the *outside* of the stumps. Only the
+            # axis that actually misses contributes a positive "outside"
+            # distance; the well-inside axes are not part of the margin.
+            candidates: list[float] = []
+            if not hits_horizontal:
+                candidates.append(abs(pred_y_at_stumps) - WICKET_GUARD_M)
+            if not hits_vertical:
+                if pred_z_at_stumps > DEFAULT_STUMP_HEIGHT_M + BALL_RADIUS_M:
+                    candidates.append(pred_z_at_stumps - (DEFAULT_STUMP_HEIGHT_M + BALL_RADIUS_M))
+                elif pred_z_at_stumps < 0.0:
+                    candidates.append(-pred_z_at_stumps)
+            min_outside = min(candidates) if candidates else 0.0
+            if 0.0 < min_outside <= UMPIRES_CALL_BAND_M:
                 margin_text = f" (just missing — {min_outside*100:.1f}cm)"
 
     if all(checks.values()):
-        if margin_text and "margin" in margin_text:
-            margin_cm = float(margin_text.split("margin ")[1].split("cm")[0])
-            if margin_cm <= UMPIRES_CALL_BAND_M * 100:
-                decision = "umpires_call"
-                reason_parts.append(f"Umpire's call — clipping{margin_text}")
-            else:
-                decision = "out"
-                reason_parts.append(f"Hitting stumps{margin_text}")
+        if margin_text and "umpires_band" in margin_text:
+            decision = "umpires_call"
+            reason_parts.append(f"Umpire's call — clipping{margin_text}")
+        elif margin_text:
+            decision = "out"
+            reason_parts.append(f"Hitting stumps{margin_text}")
         else:
             decision = "out"
             reason_parts.append("Hitting stumps")
@@ -236,10 +258,15 @@ def run_pipeline(
     if cal_req.get("mode") != "taps":
         raise ValueError("calibration.mode must be 'taps' (only mode currently supported)")
     dims = cal_req.get("pitch_dimensions_m") or {}
-    if not dims.get("length") or not dims.get("width"):
+    try:
+        pitch_length_m = float(dims.get("length"))
+        pitch_width_m = float(dims.get("width"))
+    except (TypeError, ValueError):
         raise ValueError("calibration.pitch_dimensions_m.{length,width} required")
-    pitch_length_m = float(dims["length"])
-    pitch_width_m = float(dims["width"])
+    # Must be positive: run_pipeline reads the raw request dict, so the
+    # Pydantic gt=0 constraint on the model never runs here.
+    if not (pitch_length_m > 0.0 and pitch_width_m > 0.0):
+        raise ValueError("calibration.pitch_dimensions_m.{length,width} must be positive")
 
     # ----------------------------- decode -----------------------------
     _progress(progress, 5, "decode")
@@ -260,11 +287,17 @@ def run_pipeline(
             try:
                 f = reader.frame_at_ms(t_ms)
             except VideoDecodeError as e:
-                warnings.append(str(e))
+                # Sustained decode failure means the file is truncated past
+                # this point (metadata over-reports the frame count). Analyse
+                # the frames we actually have rather than padding with stale
+                # duplicates or aborting outright.
                 if frames:
-                    f = frames[-1]
-                else:
-                    raise
+                    warnings.append(
+                        f"Video truncated: analysing {len(frames)} of "
+                        f"{len(times_ms)} requested frames ({e})"
+                    )
+                    break
+                raise
             f = _rotate_frame(f, rotation_deg)
             frames.append(f)
             if i and (i % max(1, len(times_ms) // 10) == 0):

@@ -24,17 +24,37 @@ import numpy as np
 # Cricket ball area bounds in pixels.  These are deliberately wide because the
 # apparent size shrinks ~5x from near to far end at typical phone framings.
 _MIN_AREA_PX = 8.0
-_MAX_AREA_PX = 2500.0
+_MAX_AREA_PX = 4000.0
 _MIN_CIRCULARITY = 0.45
 _MIN_ASPECT = 0.55
 _MAX_ASPECT = 1.80
 
+# Motion-blur streak parameters. A cricket ball at 25 m/s, ~6 m from the
+# camera, with a typical 1/120 s phone exposure smears into a ~30 px streak
+# that is only ~5 px wide. Such a streak has circularity ~0.2-0.35 and aspect
+# 3-8, so the round-blob gates above reject it outright. We therefore accept
+# elongated contours as "streak" detections when the minor axis is ball-sized
+# and the shape is a clean, filled ellipse (a real motion-blurred ball) rather
+# than a jagged background fragment.
+_STREAK_MIN_ASPECT = 2.0
+_STREAK_MAX_ASPECT = 12.0
+_STREAK_MIN_MINOR_PX = 2.0
+_STREAK_MAX_MINOR_PX = 40.0
+_STREAK_MIN_FILL = 0.55          # contour area / min-area-rect area
+_STREAK_MIN_CIRCULARITY = 0.12
+
 
 def _contour_metrics(contour: np.ndarray) -> dict[str, float] | None:
-    """Compute area, perimeter, circularity, aspect, and centroid+radius.
+    """Compute centroid, effective radius and shape descriptors for a contour.
 
-    Returns None when the contour fails basic shape gates so the caller can
-    skip it cheaply.
+    Accepts two ball shapes:
+      * round blob   - a slow / distant ball that is barely smeared;
+      * motion streak - a fast ball smeared along its direction of travel.
+
+    Returns None when the contour matches neither so the caller can skip it.
+    The `is_streak` flag and `streak_len` let downstream code use the streak
+    geometry (the minor axis is the true ball diameter; the major axis encodes
+    image-space speed).
     """
     area = float(cv2.contourArea(contour))
     if not (_MIN_AREA_PX <= area <= _MAX_AREA_PX):
@@ -43,21 +63,57 @@ def _contour_metrics(contour: np.ndarray) -> dict[str, float] | None:
     if perimeter <= 0:
         return None
     circularity = 4.0 * math.pi * area / (perimeter * perimeter)
-    if circularity < _MIN_CIRCULARITY:
+
+    # Oriented bounding box gives true minor/major axes for streaks.
+    (rc_x, rc_y), (rw, rh), _angle = cv2.minAreaRect(contour)
+    minor = float(min(rw, rh))
+    major = float(max(rw, rh))
+    if minor <= 1e-3:
         return None
-    x, y, w, h = cv2.boundingRect(contour)
-    if h == 0:
+    aspect_oriented = major / minor
+    rect_area = max(1e-3, rw * rh)
+    fill = area / rect_area
+
+    moments = cv2.moments(contour)
+    m00 = moments.get("m00", 0.0)
+    if m00 > 0:
+        cx = float(moments["m10"] / m00)
+        cy = float(moments["m01"] / m00)
+    else:
+        cx, cy = float(rc_x), float(rc_y)
+
+    is_streak = False
+    if circularity >= _MIN_CIRCULARITY:
+        # Round-blob path: classic compact ball.
+        x, y, w, h = cv2.boundingRect(contour)
+        if h == 0:
+            return None
+        if not (_MIN_ASPECT <= w / h <= _MAX_ASPECT):
+            return None
+        # Effective radius from area avoids the anti-aliasing halo over-
+        # estimate of minEnclosingCircle.
+        radius = float(math.sqrt(area / math.pi))
+    elif (
+        _STREAK_MIN_ASPECT <= aspect_oriented <= _STREAK_MAX_ASPECT
+        and _STREAK_MIN_MINOR_PX <= minor <= _STREAK_MAX_MINOR_PX
+        and fill >= _STREAK_MIN_FILL
+        and circularity >= _STREAK_MIN_CIRCULARITY
+    ):
+        # Streak path: a clean, well-filled elongated ellipse -> motion-blurred
+        # ball. The ball's true radius is half the minor axis.
+        is_streak = True
+        radius = minor / 2.0
+    else:
         return None
-    aspect = w / h
-    if not (_MIN_ASPECT <= aspect <= _MAX_ASPECT):
-        return None
-    (cx, cy), radius = cv2.minEnclosingCircle(contour)
+
     return {
-        "x": float(cx),
-        "y": float(cy),
-        "radius": float(radius),
+        "x": cx,
+        "y": cy,
+        "radius": radius,
         "area": area,
         "circularity": float(circularity),
+        "is_streak": 1.0 if is_streak else 0.0,
+        "streak_len": major,
     }
 
 
@@ -156,24 +212,34 @@ def _detect_contours(binary: np.ndarray, roi_mask: np.ndarray | None) -> list[di
         m = _contour_metrics(c)
         if m is None:
             continue
-        # Confidence: weighted combination of circularity + size sanity.
-        # Round shape (cricket ball) → high conf; jagged shape → low conf.
-        circ_score = min(1.0, (m["circularity"] - _MIN_CIRCULARITY) / (1.0 - _MIN_CIRCULARITY))
-        # Penalise very tiny detections (likely noise) and huge ones (people, kit).
         area = m["area"]
-        if area < 30:
-            size_score = area / 30.0
-        elif area > 1200:
-            size_score = max(0.2, 1.0 - (area - 1200) / 1300.0)
+        is_streak = m.get("is_streak", 0.0) >= 0.5
+        if is_streak:
+            # Streak detections cannot use circularity as a quality signal
+            # (they are intentionally elongated). Score them on minor-axis
+            # ball-likeness instead: a clean motion-blurred ball has a tight,
+            # well-filled minor axis.
+            r = m["radius"]
+            size_score = 1.0 if 2.0 <= r <= 18.0 else max(0.2, 1.0 - abs(r - 10.0) / 20.0)
+            conf = 0.25 + 0.45 * size_score
         else:
-            size_score = 1.0
-        conf = 0.30 + 0.50 * circ_score + 0.20 * size_score
+            # Round-blob path: circularity + size sanity.
+            circ_score = min(1.0, (m["circularity"] - _MIN_CIRCULARITY) / (1.0 - _MIN_CIRCULARITY))
+            if area < 30:
+                size_score = area / 30.0
+            elif area > 1200:
+                size_score = max(0.2, 1.0 - (area - 1200) / 1300.0)
+            else:
+                size_score = 1.0
+            conf = 0.30 + 0.50 * circ_score + 0.20 * size_score
         dets.append({
             "x": m["x"],
             "y": m["y"],
             "radius_px": m["radius"],
             "area_px": area,
             "circularity": m["circularity"],
+            "is_streak": 1.0 if is_streak else 0.0,
+            "streak_len": m.get("streak_len", 0.0),
             "confidence": float(min(1.0, conf)),
         })
     return dets
@@ -268,6 +334,8 @@ class CombinedBallDetector:
                     "radius_px": (md["radius_px"] * w1 + cd["radius_px"] * w2) / total,
                     "area_px": max(md["area_px"], cd["area_px"]),
                     "circularity": max(md["circularity"], cd["circularity"]),
+                    "is_streak": max(md.get("is_streak", 0.0), cd.get("is_streak", 0.0)),
+                    "streak_len": max(md.get("streak_len", 0.0), cd.get("streak_len", 0.0)),
                     "confidence": float(min(1.0, max(w1, w2) + 0.25)),
                     "source": "motion+color",
                 })
