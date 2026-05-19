@@ -2,8 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
 import '../utils/native_video_resources.dart';
 import '../utils/video_controller_factory.dart';
+import 'drs_button.dart';
 
 class VideoFrameSelector extends StatefulWidget {
   const VideoFrameSelector({
@@ -22,7 +26,6 @@ class VideoFrameSelector extends StatefulWidget {
 class _VideoFrameSelectorState extends State<VideoFrameSelector> {
   VideoPlayerController? _controller;
   bool _ready = false;
-
   bool _selecting = false;
 
   Timer? _seekDebounce;
@@ -45,7 +48,7 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
       _controller = controller;
       controller.addListener(_onUpdate);
       if (mounted) setState(() => _ready = true);
-    } catch (e) {
+    } catch (_) {
       final controller = _controller;
       try {
         await controller?.dispose();
@@ -53,7 +56,7 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
       _controller = null;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load video'), behavior: SnackBarBehavior.floating),
+          const SnackBar(content: Text('Failed to load video')),
         );
       }
     }
@@ -107,18 +110,10 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
     setState(() => _selecting = true);
     try {
       await controller.pause();
-
-      // Critical: release playback decoder BEFORE triggering frame extraction.
-      // Android's MediaCodec/ImageReader pools can be exhausted if video playback
-      // and thumbnail extraction overlap.
       controller.removeListener(_onUpdate);
       await controller.dispose();
-      if (_controller == controller) {
-        _controller = null;
-      }
-
+      if (_controller == controller) _controller = null;
       await coolDownNativeVideoResources(delay: const Duration(milliseconds: 550));
-
       widget.onFrameSelected(controller.value.position);
     } finally {
       if (mounted) setState(() => _selecting = false);
@@ -140,22 +135,22 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
     if (controller == null) return const Center(child: CircularProgressIndicator());
 
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final pos = controller.value.position;
     final dur = controller.value.duration;
     final playing = controller.value.isPlaying;
 
     final maxMs = dur.inMilliseconds <= 0 ? 1.0 : dur.inMilliseconds.toDouble();
     final sliderValueMs = (_scrubbing ? (_scrubValueMs ?? pos.inMilliseconds.toDouble()) : pos.inMilliseconds.toDouble())
-      .clamp(0.0, maxMs)
-      .toDouble();
+        .clamp(0.0, maxMs)
+        .toDouble();
     final shownPos = Duration(milliseconds: sliderValueMs.toInt());
 
     return Column(
       children: [
-        // Video
         Expanded(
           child: Container(
-            color: const Color(0xFF0A0A0A),
+            color: AppColors.inkBlack,
             child: Center(
               child: AspectRatio(
                 aspectRatio: controller.value.aspectRatio,
@@ -164,35 +159,34 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
             ),
           ),
         ),
-        // Controls
         Container(
-          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3))),
+            color: scheme.surface,
+            border: Border(top: BorderSide(color: scheme.outline, width: 1)),
           ),
           child: SafeArea(
             top: false,
-            child: Column(
-              children: [
-                // Timeline
-                Row(
-                  children: [
-                    Text(_fmt(shownPos), style: theme.textTheme.labelSmall),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          trackHeight: 4,
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                        ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xl,
+                AppSpacing.lg,
+                AppSpacing.xl,
+                AppSpacing.lg,
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        _fmt(shownPos),
+                        style: AppTypography.mono(theme.textTheme.labelMedium),
+                      ),
+                      Expanded(
                         child: Slider(
                           value: sliderValueMs,
                           max: maxMs,
                           onChangeStart: (_) {
-                            if (controller.value.isPlaying) {
-                              controller.pause();
-                            }
+                            if (controller.value.isPlaying) controller.pause();
                             setState(() {
                               _scrubbing = true;
                               _scrubValueMs = sliderValueMs;
@@ -212,38 +206,45 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                           },
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(_fmt(dur), style: theme.textTheme.labelSmall),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                // Playback
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _ControlButton(icon: Icons.skip_previous, onTap: _stepBack, label: '-0.1s'),
-                    const SizedBox(width: 16),
-                    FloatingActionButton.small(
-                      onPressed: _selecting ? null : () => playing ? controller.pause() : controller.play(),
-                      child: Icon(playing ? Icons.pause : Icons.play_arrow),
-                    ),
-                    const SizedBox(width: 16),
-                    _ControlButton(icon: Icons.skip_next, onTap: _stepForward, label: '+0.1s'),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                // Select
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: _selecting ? null : _select,
-                    icon: const Icon(Icons.check_circle_outline),
-                    label: const Text('Use This Frame'),
-                    style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                      Text(
+                        _fmt(dur),
+                        style: AppTypography.mono(theme.textTheme.labelMedium)?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: AppSpacing.sm),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _MiniButton(
+                        icon: Icons.skip_previous,
+                        label: '-0.1s',
+                        onTap: _stepBack,
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      _MiniButton(
+                        icon: playing ? Icons.pause : Icons.play_arrow,
+                        large: true,
+                        onTap: _selecting ? null : () => playing ? controller.pause() : controller.play(),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      _MiniButton(
+                        icon: Icons.skip_next,
+                        label: '+0.1s',
+                        onTap: _stepForward,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  DrsButton(
+                    label: 'USE THIS FRAME',
+                    icon: Icons.check_circle_outline,
+                    onPressed: _selecting ? null : _select,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -252,29 +253,53 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
   }
 }
 
-class _ControlButton extends StatelessWidget {
-  const _ControlButton({required this.icon, required this.onTap, required this.label});
+class _MiniButton extends StatelessWidget {
+  const _MiniButton({required this.icon, this.onTap, this.label, this.large = false});
   final IconData icon;
-  final VoidCallback onTap;
-  final String label;
+  final VoidCallback? onTap;
+  final String? label;
+  final bool large;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final size = large ? 48.0 : 40.0;
+    final disabled = onTap == null;
     return Material(
-      color: theme.colorScheme.surfaceContainer,
-      borderRadius: BorderRadius.circular(8),
+      color: large && !disabled ? scheme.onSurface : Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        side: BorderSide(color: scheme.outline, width: 1),
+      ),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            children: [
-              Icon(icon, size: 18),
-              const SizedBox(width: 6),
-              Text(label, style: theme.textTheme.labelMedium),
-            ],
+        child: SizedBox(
+          width: label != null ? null : size,
+          height: size,
+          child: Padding(
+            padding: label != null ? const EdgeInsets.symmetric(horizontal: 12) : EdgeInsets.zero,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: large ? 22 : 18,
+                  color: large && !disabled ? scheme.surface : scheme.onSurface,
+                ),
+                if (label != null) ...[
+                  const SizedBox(width: AppSpacing.xs + 2),
+                  Text(
+                    label!.toUpperCase(),
+                    style: TextStyle(
+                      color: disabled ? scheme.onSurfaceVariant : scheme.onSurface,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
       ),

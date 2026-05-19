@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'screens/analyses_screen.dart';
 import 'screens/pitches_screen.dart';
 import 'screens/settings_screen.dart';
+import 'theme/app_spacing.dart';
 import 'utils/app_settings.dart';
 
 class HomeShell extends StatefulWidget {
@@ -27,9 +28,9 @@ class _HomeShellState extends State<HomeShell> {
     if (!reachable && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Server unreachable'),
+          content: const Text('SERVER UNREACHABLE'),
           action: SnackBarAction(
-            label: 'Set Server URL',
+            label: 'CONFIGURE',
             onPressed: () => setState(() => _index = 2),
           ),
           duration: const Duration(seconds: 6),
@@ -44,46 +45,102 @@ class _HomeShellState extends State<HomeShell> {
     SettingsScreen(),
   ];
 
+  void _select(int i) => setState(() => _index = i);
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       body: IndexedStack(index: _index, children: _pages),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-              width: 1,
-            ),
-          ),
+          border: Border(top: BorderSide(color: scheme.outline, width: 1)),
+          color: scheme.surface,
         ),
         child: SafeArea(
           top: false,
-          child: NavigationBar(
-            selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.sports_cricket_outlined),
-                selectedIcon: Icon(Icons.sports_cricket),
-                label: 'Pitches',
+          child: Row(
+            children: [
+              _NavTab(
+                label: 'PITCHES',
+                icon: Icons.grid_view_outlined,
+                selected: _index == 0,
+                onTap: () => _select(0),
               ),
-              NavigationDestination(
-                icon: Icon(Icons.timeline_outlined),
-                selectedIcon: Icon(Icons.timeline),
-                label: 'Analyses',
+              _NavTab(
+                label: 'ANALYSES',
+                icon: Icons.bar_chart_outlined,
+                selected: _index == 1,
+                onTap: () => _select(1),
               ),
-              NavigationDestination(
-                icon: Icon(Icons.settings_outlined),
-                selectedIcon: Icon(Icons.settings),
-                label: 'Settings',
+              _NavTab(
+                label: 'SETTINGS',
+                icon: Icons.tune_outlined,
+                selected: _index == 2,
+                onTap: () => _select(2),
               ),
             ],
           ),
         ),
       ),
-      backgroundColor: theme.scaffoldBackgroundColor,
+    );
+  }
+}
+
+class _NavTab extends StatelessWidget {
+  const _NavTab({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fg = selected ? scheme.onSurface : scheme.onSurfaceVariant;
+
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          height: 64,
+          child: Stack(
+            children: [
+              Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(icon, size: 20, color: fg),
+                    const SizedBox(height: AppSpacing.xs + 2),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: fg,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (selected)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(height: 2, color: scheme.onSurface),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:webview_flutter/webview_flutter.dart';
+import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../utils/app_logger.dart';
 import '../analysis/pitch_pose.dart';
@@ -248,30 +249,62 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
         WebViewWidget(controller: _controller),
         if (_loadError != null)
           Container(
-            color: theme.colorScheme.surface,
-            padding: const EdgeInsets.all(AppSpacing.lg),
+            color: AppColors.inkBlack,
+            padding: const EdgeInsets.all(AppSpacing.xl),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
+                constraints: const BoxConstraints(maxWidth: 400),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Icon(Icons.threed_rotation_outlined, size: 44, color: theme.colorScheme.onSurfaceVariant),
-                    const SizedBox(height: AppSpacing.md),
-                    Text('3D view failed to load', style: theme.textTheme.titleMedium, textAlign: TextAlign.center),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.sm,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.signalRed,
+                      ),
+                      child: const Text(
+                        'PITCH 3D / ERROR',
+                        style: TextStyle(
+                          color: AppColors.inkBlack,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.6,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      'Failed to load 3D view',
+                      style: theme.textTheme.titleLarge?.copyWith(color: AppColors.bone),
+                      textAlign: TextAlign.center,
+                    ),
                     const SizedBox(height: AppSpacing.sm),
                     Text(
                       _loadError!,
-                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      style: theme.textTheme.bodySmall?.copyWith(color: AppColors.ash),
                       textAlign: TextAlign.center,
                       maxLines: 4,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: AppSpacing.lg),
-                    FilledButton.icon(
+                    const SizedBox(height: AppSpacing.xl),
+                    OutlinedButton.icon(
                       onPressed: _reload,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Reload 3D'),
+                      icon: const Icon(Icons.refresh, size: 16, color: AppColors.bone),
+                      label: const Text(
+                        'RELOAD',
+                        style: TextStyle(
+                          color: AppColors.bone,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.4,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppColors.bone),
+                      ),
                     ),
                   ],
                 ),
@@ -280,16 +313,23 @@ class _Pitch3DViewerState extends State<Pitch3DViewer> {
           )
         else if (!_pageLoaded)
           Container(
-            color: Theme.of(context).colorScheme.surfaceContainerLowest,
+            color: AppColors.inkBlack,
             child: Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  CircularProgressIndicator(color: Theme.of(context).colorScheme.primary),
-                  const SizedBox(height: AppSpacing.md),
+                  const SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation(AppColors.signalRed),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
                   Text(
-                    'Loading 3D View...',
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                    'BOOTING PITCH 3D',
+                    style: theme.textTheme.labelMedium?.copyWith(color: AppColors.ash),
                   ),
                 ],
               ),

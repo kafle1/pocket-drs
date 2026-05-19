@@ -3,10 +3,14 @@ import 'package:flutter/material.dart';
 import '../analysis/pitch_pose.dart';
 import '../api/analysis_result.dart';
 import '../models/analysis_record.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
 import '../utils/pitch_store.dart';
+import '../widgets/decision_badge.dart';
 import '../widgets/pitch_3d_viewer.dart';
 
-/// Read-only view of a saved analysis: 3D trajectory + decision + key metrics.
+/// Read-only saved analysis: 3D trajectory + decision + key metrics.
 class AnalysisDetailScreen extends StatefulWidget {
   const AnalysisDetailScreen({super.key, required this.record});
 
@@ -69,36 +73,107 @@ class _AnalysisDetailScreenState extends State<AnalysisDetailScreen> {
     };
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_pitchName ?? 'Analysis'),
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: allPoints.isEmpty
-                ? _NoTrajectory(reason: r.lbw?.reason ?? r.warnings.firstOrNull)
-                : Pitch3DViewer(
-                    trajectoryPoints: allPoints,
-                    bounceIndex: bounceIdx,
-                    impactIndex: impactIdx,
-                    decision: decision,
-                    showAnimation: true,
-                    pose: _pose,
-                  ),
-          ),
-          _MetricsPanel(result: r),
-        ],
+      backgroundColor: AppColors.inkBlack,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _TopBar(name: _pitchName ?? 'Analysis'),
+            Expanded(
+              child: allPoints.isEmpty
+                  ? _NoTrajectory(reason: r.lbw?.reason ?? r.warnings.firstOrNull)
+                  : Pitch3DViewer(
+                      trajectoryPoints: allPoints,
+                      bounceIndex: bounceIdx,
+                      impactIndex: impactIdx,
+                      decision: decision,
+                      showAnimation: true,
+                      pose: _pose,
+                    ),
+            ),
+            _MetricsPanel(result: r),
+          ],
+        ),
       ),
     );
   }
 
   static int _indexNearestT(List<WorldPointM> pts, int tMs) {
-    var best = -1; var bestDelta = 1 << 30;
+    var best = -1;
+    var bestDelta = 1 << 30;
     for (var i = 0; i < pts.length; i++) {
       final d = (pts[i].tMs - tMs).abs();
-      if (d < bestDelta) { bestDelta = d; best = i; }
+      if (d < bestDelta) {
+        bestDelta = d;
+        best = i;
+      }
     }
     return best;
+  }
+}
+
+class _TopBar extends StatelessWidget {
+  const _TopBar({required this.name});
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.hairlineDark, width: 1)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.sm,
+          AppSpacing.xs,
+          AppSpacing.lg,
+          AppSpacing.sm,
+        ),
+        child: Row(
+          children: [
+            IconButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.arrow_back, color: AppColors.bone, size: 20),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'REPLAY',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: AppColors.ash,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  name.toUpperCase(),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: AppColors.bone,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+              ],
+            ),
+            const Spacer(),
+            Container(
+              width: 6,
+              height: 6,
+              decoration: const BoxDecoration(
+                color: AppColors.signalRed,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Text(
+              'PITCH-3D',
+              style: theme.textTheme.labelSmall?.copyWith(color: AppColors.bone),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -107,21 +182,36 @@ class _NoTrajectory extends StatelessWidget {
   final String? reason;
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.search_off, size: 48, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(height: 12),
-            Text('No trajectory recovered', style: theme.textTheme.titleMedium),
-            if (reason != null) ...[
-              const SizedBox(height: 6),
-              Text(reason!, style: theme.textTheme.bodySmall, textAlign: TextAlign.center),
+    return Container(
+      color: AppColors.inkBlack,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xxl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Icon(Icons.search_off, size: 32, color: AppColors.ash),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'NO TRAJECTORY RECOVERED',
+                style: TextStyle(
+                  color: AppColors.bone,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.6,
+                ),
+              ),
+              if (reason != null) ...[
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  reason!,
+                  style: const TextStyle(color: AppColors.ash, fontSize: 13, height: 1.5),
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -140,127 +230,141 @@ class _MetricsPanel extends StatelessWidget {
     final ev = result.events;
     final cal = result.calibrationQuality;
 
-    final decisionLabel = switch (lbw?.decision) {
-      LbwDecisionKey.out => 'OUT',
-      LbwDecisionKey.notOut => 'NOT OUT',
-      LbwDecisionKey.umpiresCall => "UMPIRE'S CALL",
-      _ => '—',
-    };
-    final (badgeBg, badgeFg) = switch (lbw?.decision) {
-      LbwDecisionKey.out => (theme.colorScheme.errorContainer, theme.colorScheme.onErrorContainer),
-      LbwDecisionKey.notOut => (theme.colorScheme.tertiaryContainer, theme.colorScheme.onTertiaryContainer),
-      LbwDecisionKey.umpiresCall => (theme.colorScheme.secondaryContainer, theme.colorScheme.onSecondaryContainer),
-      _ => (theme.colorScheme.surfaceContainerHighest, theme.colorScheme.onSurfaceVariant),
-    };
+    final metrics = <(String, String, String?)>[
+      if (lbw?.yAtStumpsM != null)
+        ('STUMPS Y', (lbw!.yAtStumpsM! * 100).toStringAsFixed(1), 'CM'),
+      if (lbw?.zAtStumpsM != null)
+        ('STUMPS Z', (lbw!.zAtStumpsM! * 100).toStringAsFixed(0), 'CM'),
+      if (ev?.bounce != null)
+        ('BOUNCE X', ev!.bounce!.xM.toStringAsFixed(2), 'M'),
+      if (fit != null)
+        ('SPEED', (fit.vx.abs() * 3.6).toStringAsFixed(0), 'KM/H'),
+      if (fit != null)
+        ('FIT RMS', (fit.rmsM * 100).toStringAsFixed(0), 'CM'),
+      if (cal.reprojErrorPx != null)
+        ('CAL ERR', cal.reprojErrorPx!.toStringAsFixed(1), 'PX'),
+      if (lbw != null)
+        ('CONF', (lbw.confidence * 100).round().toString(), '%'),
+    ];
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3))),
+      decoration: const BoxDecoration(
+        color: AppColors.carbon,
+        border: Border(top: BorderSide(color: AppColors.hairlineDark, width: 1)),
       ),
       child: SafeArea(
         top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(color: badgeBg, borderRadius: BorderRadius.circular(10)),
-                  child: Text(
-                    decisionLabel,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: badgeFg, fontWeight: FontWeight.w800, letterSpacing: 0.6,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                if (lbw != null)
-                  Expanded(
-                    child: Text(
-                      lbw.reason,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                      maxLines: 2, overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 10, runSpacing: 10,
-              children: [
-                if (lbw?.yAtStumpsM != null)
-                  _Metric(label: 'Stumps Y', value: '${(lbw!.yAtStumpsM! * 100).toStringAsFixed(1)} cm'),
-                if (lbw?.zAtStumpsM != null)
-                  _Metric(label: 'Stumps Z', value: '${(lbw!.zAtStumpsM! * 100).toStringAsFixed(0)} cm'),
-                if (ev?.bounce != null)
-                  _Metric(label: 'Bounce X', value: '${ev!.bounce!.xM.toStringAsFixed(2)} m'),
-                if (fit != null)
-                  _Metric(label: 'Speed', value: '${(fit.vx.abs() * 3.6).toStringAsFixed(0)} km/h'),
-                if (fit != null)
-                  _Metric(label: 'Fit RMS', value: '${(fit.rmsM * 100).toStringAsFixed(0)} cm'),
-                if (cal.reprojErrorPx != null)
-                  _Metric(label: 'Cal err', value: '${cal.reprojErrorPx!.toStringAsFixed(1)} px'),
-                if (lbw != null)
-                  _Metric(label: 'Confidence', value: '${(lbw.confidence * 100).round()} %'),
-              ],
-            ),
-            if (result.warnings.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              ...result.warnings.map(
-                (w) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.info_outline, size: 16, color: theme.colorScheme.onSurfaceVariant),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          w,
-                          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            AppSpacing.lg,
+            AppSpacing.xl,
+            AppSpacing.lg,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  DecisionBadge(decision: lbw?.decision, size: DecisionBadgeSize.large),
+                  const SizedBox(width: AppSpacing.lg),
+                  if (lbw != null)
+                    Expanded(
+                      child: Text(
+                        lbw.reason,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: AppColors.ash,
                         ),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ],
+                    ),
+                ],
+              ),
+              if (metrics.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.lg),
+                Container(height: 1, color: AppColors.hairlineDark),
+                const SizedBox(height: AppSpacing.lg),
+                Wrap(
+                  spacing: AppSpacing.xl,
+                  runSpacing: AppSpacing.md,
+                  children: [
+                    for (final (label, val, unit) in metrics)
+                      _MetricBlock(label: label, value: val, unit: unit),
+                  ],
+                ),
+              ],
+              if (result.warnings.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.lg),
+                Container(height: 1, color: AppColors.hairlineDark),
+                const SizedBox(height: AppSpacing.md),
+                ...result.warnings.map(
+                  (w) => Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.xs),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.info_outline, size: 12, color: AppColors.ash),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Text(
+                            w,
+                            style: theme.textTheme.bodySmall?.copyWith(color: AppColors.ash),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _Metric extends StatelessWidget {
-  const _Metric({required this.label, required this.value});
+class _MetricBlock extends StatelessWidget {
+  const _MetricBlock({required this.label, required this.value, this.unit});
   final String label;
   final String value;
+  final String? unit;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-          const SizedBox(width: 8),
-          Text(value, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(color: AppColors.ash),
+        ),
+        const SizedBox(height: 2),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(
+              value,
+              style: AppTypography.mono(theme.textTheme.titleLarge)?.copyWith(
+                color: AppColors.bone,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            if (unit != null) ...[
+              const SizedBox(width: 3),
+              Text(
+                unit!,
+                style: theme.textTheme.labelSmall?.copyWith(color: AppColors.ash),
+              ),
+            ],
+          ],
+        ),
+      ],
     );
   }
 }

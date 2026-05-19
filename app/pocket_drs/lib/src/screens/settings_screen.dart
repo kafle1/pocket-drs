@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
-import '../theme/theme_controller.dart';
 import '../services/auth_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
+import '../theme/theme_controller.dart';
 import '../utils/app_settings.dart';
+import '../widgets/drs_button.dart';
+import '../widgets/drs_scaffold.dart';
+import '../widgets/section_label.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -48,7 +54,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     setState(() => _serverUrl = v);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Server URL set to $v')),
+      const SnackBar(content: Text('Server URL updated')),
     );
   }
 
@@ -56,116 +62,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Sign Out'),
-        content: const Text('Are you sure you want to sign out?'),
+        title: const Text('Sign out?'),
+        content: const Text('You will return to the sign-in screen.'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Sign Out'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('CANCEL')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('SIGN OUT')),
         ],
       ),
     );
-
-    if (confirmed == true) {
-      await _auth.signOut();
-    }
+    if (confirmed == true) await _auth.signOut();
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
+      appBar: const DrsHeader(eyebrow: 'CONFIGURE', title: 'Settings'),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : CustomScrollView(
-              slivers: [
-                SliverAppBar(
-                  expandedHeight: 100,
-                  floating: false,
-                  pinned: true,
-                  flexibleSpace: FlexibleSpaceBar(
-                    title: Text(
-                      'Settings',
-                      style: theme.textTheme.headlineMedium?.copyWith(
-                        color: theme.colorScheme.onSurface,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
-                  ),
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xl,
+                AppSpacing.lg,
+                AppSpacing.xl,
+                AppSpacing.xxl,
+              ),
+              children: [
+                _AccountBlock(
+                  userName: _auth.userName ?? 'Unknown',
+                  userEmail: _auth.userEmail ?? '',
+                  photoUrl: _auth.userPhotoUrl,
+                  onSignOut: _signOut,
                 ),
-                SliverPadding(
-                  padding: const EdgeInsets.all(20),
-                  sliver: SliverList(
-                    delegate: SliverChildListDelegate([
-                      _SectionTitle(title: 'Account'),
-                      const SizedBox(height: 12),
-                      _AccountCard(
-                        userName: _auth.userName ?? 'Unknown',
-                        userEmail: _auth.userEmail ?? '',
-                        photoUrl: _auth.userPhotoUrl,
-                        onSignOut: _signOut,
-                      ),
-                      const SizedBox(height: 24),
-                      _SectionTitle(title: 'Appearance'),
-                      const SizedBox(height: 12),
-                      _ThemeCard(
-                        themeMode: _themeMode,
-                        onChanged: (mode) {
-                          setState(() {
-                            _themeMode = mode;
-                          });
-                          ThemeController.instance.setThemeMode(mode);
-                        },
-                      ),
-                      const SizedBox(height: 24),
-                      _SectionTitle(title: 'Server'),
-                      const SizedBox(height: 12),
-                      _ServerCard(
-                        controller: _serverCtrl,
-                        currentUrl: _serverUrl,
-                        onSave: _saveServerUrl,
-                      ),
-                      const SizedBox(height: 24),
-                      _SectionTitle(title: 'About'),
-                      const SizedBox(height: 12),
-                      _AboutCard(),
-                      const SizedBox(height: 32),
-                    ]),
-                  ),
+                const SizedBox(height: AppSpacing.xxl),
+                const SectionLabel(label: 'APPEARANCE'),
+                _ThemeBlock(
+                  themeMode: _themeMode,
+                  onChanged: (mode) {
+                    setState(() => _themeMode = mode);
+                    ThemeController.instance.setThemeMode(mode);
+                  },
                 ),
+                const SizedBox(height: AppSpacing.xxl),
+                const SectionLabel(label: 'BACKEND'),
+                _ServerBlock(
+                  controller: _serverCtrl,
+                  onSave: _saveServerUrl,
+                ),
+                const SizedBox(height: AppSpacing.xxl),
+                const SectionLabel(label: 'ABOUT'),
+                _AboutBlock(),
               ],
             ),
     );
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.title});
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Text(
-      title.toUpperCase(),
-      style: theme.textTheme.labelLarge?.copyWith(
-        color: theme.colorScheme.primary,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 1.2,
-      ),
-    );
-  }
-}
-
-class _AccountCard extends StatelessWidget {
-  const _AccountCard({
+class _AccountBlock extends StatelessWidget {
+  const _AccountBlock({
     required this.userName,
     required this.userEmail,
     this.photoUrl,
@@ -180,255 +133,223 @@ class _AccountCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 30,
-                  backgroundImage: photoUrl != null ? NetworkImage(photoUrl!) : null,
-                  child: photoUrl == null ? const Icon(Icons.person, size: 30) : null,
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        userName,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        userEmail,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: onSignOut,
-                icon: const Icon(Icons.logout),
-                label: const Text('Sign Out'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-
-class _ThemeCard extends StatelessWidget {
-  const _ThemeCard({required this.themeMode, required this.onChanged});
-  final ThemeMode themeMode;
-  final ValueChanged<ThemeMode> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    Icons.palette_outlined,
-                    color: theme.colorScheme.primary,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Text(
-                  'Theme Mode',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            SegmentedButton<ThemeMode>(
-              showSelectedIcon: false,
-              style: ButtonStyle(
-                shape: WidgetStateProperty.all(
-                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                textStyle: WidgetStateProperty.all(
-                  theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
-                ),
-              ),
-              segments: const [
-                ButtonSegment(
-                  value: ThemeMode.light,
-                  label: Text('Light'),
-                  icon: Icon(Icons.light_mode_outlined),
-                ),
-                ButtonSegment(
-                  value: ThemeMode.dark,
-                  label: Text('Dark'),
-                  icon: Icon(Icons.dark_mode_outlined),
-                ),
-                ButtonSegment(
-                  value: ThemeMode.system,
-                  label: Text('Auto'),
-                  icon: Icon(Icons.brightness_auto_outlined),
-                ),
-              ],
-              selected: <ThemeMode>{themeMode},
-              onSelectionChanged: (v) {
-                if (v.isNotEmpty) onChanged(v.first);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ServerCard extends StatelessWidget {
-  const _ServerCard({required this.controller, required this.currentUrl, required this.onSave});
-  final TextEditingController controller;
-  final String currentUrl;
-  final Future<void> Function(String) onSave;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 48, height: 48,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(Icons.dns_outlined, color: theme.colorScheme.primary, size: 24),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Backend URL', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Where the analysis pipeline runs.',
-                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              autocorrect: false,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                labelText: 'Server URL',
-                hintText: 'http://192.168.1.10:8000',
-                prefixIcon: Icon(Icons.link),
-              ),
-              onSubmitted: onSave,
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.icon(
-                onPressed: () => onSave(controller.text),
-                icon: const Icon(Icons.save),
-                label: const Text('Save'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AboutCard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Row(
+    final scheme = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionLabel(label: 'ACCOUNT'),
+        Row(
           children: [
             Container(
-              width: 48,
-              height: 48,
+              width: 56,
+              height: 56,
               decoration: BoxDecoration(
-                color: theme.colorScheme.primary,
-                borderRadius: BorderRadius.circular(12),
+                color: scheme.surfaceContainer,
+                border: Border.all(color: scheme.outline, width: 1),
+                image: photoUrl != null
+                    ? DecorationImage(image: NetworkImage(photoUrl!), fit: BoxFit.cover)
+                    : null,
               ),
-              child: Icon(
-                Icons.sports_cricket,
-                color: theme.colorScheme.onPrimary,
-                size: 24,
-              ),
+              child: photoUrl == null
+                  ? Icon(Icons.person, color: scheme.onSurfaceVariant)
+                  : null,
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: AppSpacing.lg),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(userName, style: theme.textTheme.titleLarge),
+                  const SizedBox(height: AppSpacing.xs),
                   Text(
-                    'Pocket DRS',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Version 1.0.0 (Beta)',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
+                    userEmail,
+                    style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
             ),
           ],
         ),
+        const SizedBox(height: AppSpacing.lg),
+        DrsButton(
+          label: 'SIGN OUT',
+          style: DrsButtonStyle.secondary,
+          icon: Icons.logout,
+          onPressed: onSignOut,
+        ),
+      ],
+    );
+  }
+}
+
+class _ThemeBlock extends StatelessWidget {
+  const _ThemeBlock({required this.themeMode, required this.onChanged});
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        for (final entry in const [
+          (ThemeMode.dark, 'DARK', Icons.dark_mode_outlined),
+          (ThemeMode.light, 'LIGHT', Icons.light_mode_outlined),
+          (ThemeMode.system, 'AUTO', Icons.brightness_auto_outlined),
+        ])
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(right: entry.$1 == ThemeMode.system ? 0 : AppSpacing.sm),
+              child: _ThemeOption(
+                mode: entry.$1,
+                label: entry.$2,
+                icon: entry.$3,
+                selected: themeMode == entry.$1,
+                onTap: () => onChanged(entry.$1),
+                scheme: scheme,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ThemeOption extends StatelessWidget {
+  const _ThemeOption({
+    required this.mode,
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+    required this.scheme,
+  });
+
+  final ThemeMode mode;
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  final ColorScheme scheme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? scheme.onSurface : Colors.transparent,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: scheme.outline, width: 1),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
       ),
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
+          child: Column(
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: selected ? scheme.surface : scheme.onSurface,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? scheme.surface : scheme.onSurface,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ServerBlock extends StatelessWidget {
+  const _ServerBlock({required this.controller, required this.onSave});
+  final TextEditingController controller;
+  final Future<void> Function(String) onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Where the analysis pipeline runs.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        TextField(
+          controller: controller,
+          autocorrect: false,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(
+            labelText: 'SERVER URL',
+            hintText: 'http://192.168.1.10:8000',
+            prefixIcon: Icon(Icons.link, size: 18),
+          ),
+          onSubmitted: onSave,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        DrsButton(
+          label: 'SAVE',
+          icon: Icons.check,
+          onPressed: () => onSave(controller.text),
+        ),
+      ],
+    );
+  }
+}
+
+class _AboutBlock extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.onSurface,
+            borderRadius: BorderRadius.circular(AppRadius.xs),
+          ),
+          child: Icon(Icons.sports_cricket, color: theme.colorScheme.surface, size: 24),
+        ),
+        const SizedBox(width: AppSpacing.lg),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Pocket DRS', style: theme.textTheme.titleLarge),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Single-view 3D trajectory & LBW decision review.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'VERSION 1.0.0 · BETA',
+                style: AppTypography.mono(theme.textTheme.labelSmall)?.copyWith(
+                  color: AppColors.signalRed,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

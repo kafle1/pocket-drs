@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
+import '../widgets/drs_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -14,7 +18,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _signIn() async {
     setState(() => _isLoading = true);
-    
     try {
       await _auth.signInWithGoogle();
     } catch (e) {
@@ -31,91 +34,142 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    
+    final scheme = theme.colorScheme;
+
     return Scaffold(
-      backgroundColor: colorScheme.surface,
       body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Spacer(),
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary,
-                    borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: AppSpacing.xl),
+              Row(
+                children: [
+                  Text(
+                    'POCKET DRS',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
-                  child: Icon(
-                    Icons.sports_cricket_rounded,
-                    size: 36,
-                    color: colorScheme.onPrimary,
+                  const SizedBox(width: AppSpacing.sm),
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: AppColors.signalRed,
+                      shape: BoxShape.circle,
+                    ),
                   ),
+                ],
+              ),
+              const Spacer(flex: 2),
+              Text(
+                'BALL',
+                style: AppTypography.mono(theme.textTheme.displayLarge)?.copyWith(
+                  height: 0.9,
                 ),
-                const SizedBox(height: 32),
-                Text(
-                  'Pocket DRS',
-                  style: theme.textTheme.displaySmall?.copyWith(
-                    color: colorScheme.onSurface,
-                  ),
+              ),
+              Text(
+                'TRACKING.',
+                style: AppTypography.mono(theme.textTheme.displayLarge)?.copyWith(
+                  color: AppColors.signalRed,
+                  height: 0.9,
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  'Professional LBW tracking & analysis right in your pocket.',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                    height: 1.5,
-                  ),
-                ),
-                const Spacer(),
-                if (_isLoading)
-                  Center(child: CircularProgressIndicator(color: colorScheme.primary))
-                else
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: _signIn,
-                      icon: Image.asset(
-                        'assets/google_logo.png',
-                        height: 24,
-                        width: 24,
-                        errorBuilder: (_, __, ___) => Icon(Icons.login, color: colorScheme.onSurface),
-                      ),
-                      label: Text(
-                        'Continue with Google',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: colorScheme.onSurface,
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        side: BorderSide(color: colorScheme.outlineVariant),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Row(
+                children: [
+                  Container(width: 24, height: 1, color: scheme.outline),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Text(
+                      'Single-view 3D trajectory reconstruction & LBW decision review.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
                       ),
                     ),
                   ),
-                const SizedBox(height: 24),
-                Center(
-                  child: Text(
-                    'Use your account to sync pitches securely.',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
+                ],
+              ),
+              const Spacer(flex: 3),
+              const _StatRow(),
+              const SizedBox(height: AppSpacing.xl),
+              Container(height: 1, color: scheme.outline),
+              const SizedBox(height: AppSpacing.xl),
+              DrsButton(
+                label: 'Continue with Google',
+                onPressed: _isLoading ? null : _signIn,
+                loading: _isLoading,
+                icon: Icons.login,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Your pitches stay synced across sessions.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+            ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _StatRow extends StatelessWidget {
+  const _StatRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      children: [
+        _MiniStat(label: 'PITCH-LEN', value: '20.12', unit: 'M'),
+        SizedBox(width: AppSpacing.xl),
+        _MiniStat(label: 'PITCH-W', value: '3.05', unit: 'M'),
+        SizedBox(width: AppSpacing.xl),
+        _MiniStat(label: 'STUMPS', value: '0.71', unit: 'M'),
+      ],
+    );
+  }
+}
+
+class _MiniStat extends StatelessWidget {
+  const _MiniStat({required this.label, required this.value, required this.unit});
+  final String label;
+  final String value;
+  final String unit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(value, style: AppTypography.mono(theme.textTheme.headlineMedium)),
+            const SizedBox(width: 2),
+            Text(
+              unit,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

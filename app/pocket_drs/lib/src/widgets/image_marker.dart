@@ -2,6 +2,10 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import 'drs_button.dart';
+
 class ImageMarker extends StatefulWidget {
   const ImageMarker({
     super.key,
@@ -25,23 +29,15 @@ class ImageMarker extends StatefulWidget {
   final List<String>? markerLabels;
 
   /// Optional initial markers (normalized [0..1]).
-  ///
-  /// When provided, the user can refine by undoing/retapping.
   final List<Offset>? initialMarkers;
 
-  /// Optional guide polylines to draw behind markers.
-  ///
-  /// Each guide is expressed in normalized coordinates [0..1] relative to the
-  /// source image.
+  /// Optional guide polylines (normalized).
   final List<List<Offset>>? guides;
 
-  /// If set, the guide at this index will be emphasized.
+  /// If set, guide at this index will be emphasised.
   final int? highlightGuideIndex;
 
-  /// Whether to show the built-in header (title/subtitle/progress).
-  ///
-  /// Some flows (e.g. multi-step screens) may provide their own top app bar and
-  /// prefer a more compact canvas.
+  /// Show built-in header. Hidden when the host screen provides its own.
   final bool showHeader;
 
   @override
@@ -104,14 +100,10 @@ class _ImageMarkerState extends State<ImageMarker> {
 
   void _onTapUp(TapUpDetails d, Size viewport) {
     if (_markers.length >= widget.maxMarkers || _imageSize == null) return;
-
-    // Convert viewport coords -> scene coords (image pixel space).
     final scene = _transform.toScene(d.localPosition);
     final iw = _imageSize!.width;
     final ih = _imageSize!.height;
-
     if (scene.dx < 0 || scene.dy < 0 || scene.dx > iw || scene.dy > ih) return;
-
     final nx = (scene.dx / iw).clamp(0.0, 1.0);
     final ny = (scene.dy / ih).clamp(0.0, 1.0);
     setState(() => _markers.add(Offset(nx, ny)));
@@ -125,10 +117,6 @@ class _ImageMarkerState extends State<ImageMarker> {
     if (_markers.isNotEmpty) setState(() => _markers.clear());
   }
 
-  void _resetView(Size viewport) {
-    _fitToView(viewport);
-  }
-
   @override
   void dispose() {
     _transform.dispose();
@@ -138,6 +126,7 @@ class _ImageMarkerState extends State<ImageMarker> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final done = _markers.length == widget.maxMarkers;
     final labels = widget.markerLabels ?? List.generate(widget.maxMarkers, (i) => '${i + 1}');
     final nextLabel = _markers.length < labels.length ? labels[_markers.length] : '';
@@ -145,16 +134,16 @@ class _ImageMarkerState extends State<ImageMarker> {
     return Column(
       children: [
         if (widget.showHeader)
-          // Compact header
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.xl,
+              AppSpacing.md,
+              AppSpacing.xl,
+              AppSpacing.md,
+            ),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  theme.colorScheme.surface,
-                  theme.colorScheme.surface.withValues(alpha: 0.95),
-                ],
-              ),
+              color: scheme.surface,
+              border: Border(bottom: BorderSide(color: scheme.outline, width: 1)),
             ),
             child: Row(
               children: [
@@ -163,31 +152,23 @@ class _ImageMarkerState extends State<ImageMarker> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        widget.title,
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        widget.subtitle,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                        widget.title.toUpperCase(),
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: AppSpacing.xs),
                       Text(
-                        done ? 'All points marked' : 'Next: $nextLabel · Pinch to zoom for precision',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
+                        done ? 'All marks placed' : 'Next · $nextLabel',
+                        style: theme.textTheme.titleMedium,
                       ),
                     ],
                   ),
                 ),
-                _ProgressRing(current: _markers.length, total: widget.maxMarkers),
+                _Counter(current: _markers.length, total: widget.maxMarkers),
               ],
             ),
           ),
-        // Image canvas
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
@@ -202,12 +183,11 @@ class _ImageMarkerState extends State<ImageMarker> {
                         _fitToView(viewport);
                       });
                     }
-
                     final imgSize = _imageSize;
                     if (imgSize == null) return const SizedBox();
 
                     return Container(
-                      color: theme.colorScheme.surfaceContainerLowest,
+                      color: AppColors.inkBlack,
                       child: GestureDetector(
                         onTapUp: (d) => _onTapUp(d, viewport),
                         behavior: HitTestBehavior.opaque,
@@ -223,16 +203,13 @@ class _ImageMarkerState extends State<ImageMarker> {
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                Image.file(
-                                  File(widget.imagePath),
-                                  fit: BoxFit.fill,
-                                ),
+                                Image.file(File(widget.imagePath), fit: BoxFit.fill),
                                 CustomPaint(
                                   painter: _MarkerPainter(
                                     markers: _markers,
                                     guides: widget.guides,
                                     highlightGuideIndex: widget.highlightGuideIndex,
-                                    color: theme.colorScheme.primary,
+                                    accent: AppColors.signalRed,
                                     labels: labels,
                                   ),
                                 ),
@@ -245,49 +222,48 @@ class _ImageMarkerState extends State<ImageMarker> {
                   },
                 ),
         ),
-        // Action bar
         Container(
-          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3))),
+            color: scheme.surface,
+            border: Border(top: BorderSide(color: scheme.outline, width: 1)),
           ),
           child: SafeArea(
             top: false,
-            child: LayoutBuilder(
-              builder: (context, box) {
-                return Row(
-                  children: [
-                    _ActionButton(
-                      icon: Icons.center_focus_strong_rounded,
-                      label: 'Fit',
-                      onTap: (_imageSize == null || _lastViewport == null)
-                          ? null
-                          : () => _resetView(_lastViewport!),
-                    ),
-                    const SizedBox(width: 8),
-                    _ActionButton(
-                      icon: Icons.undo_rounded,
-                      label: 'Undo',
-                      onTap: _markers.isEmpty ? null : _undo,
-                    ),
-                    const SizedBox(width: 8),
-                    _ActionButton(
-                      icon: Icons.refresh_rounded,
-                      label: 'Reset',
-                      onTap: _markers.isEmpty ? null : _reset,
-                    ),
-                    const Spacer(),
-                    FilledButton(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xl,
+                AppSpacing.md,
+                AppSpacing.xl,
+                AppSpacing.md,
+              ),
+              child: Row(
+                children: [
+                  _MicroButton(
+                    icon: Icons.center_focus_strong_outlined,
+                    onTap: (_imageSize == null || _lastViewport == null)
+                        ? null
+                        : () => _fitToView(_lastViewport!),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  _MicroButton(
+                    icon: Icons.undo,
+                    onTap: _markers.isEmpty ? null : _undo,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  _MicroButton(
+                    icon: Icons.refresh,
+                    onTap: _markers.isEmpty ? null : _reset,
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: DrsButton(
+                      label: 'CONTINUE',
+                      icon: Icons.arrow_forward,
                       onPressed: done ? () => widget.onComplete(_markers) : null,
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      ),
-                      child: const Text('Continue'),
                     ),
-                  ],
-                );
-              },
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -296,30 +272,38 @@ class _ImageMarkerState extends State<ImageMarker> {
   }
 }
 
-class _ProgressRing extends StatelessWidget {
-  const _ProgressRing({required this.current, required this.total});
+class _Counter extends StatelessWidget {
+  const _Counter({required this.current, required this.total});
   final int current;
   final int total;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final progress = current / total;
-    return SizedBox(
-      width: 48,
-      height: 48,
-      child: Stack(
-        alignment: Alignment.center,
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        border: Border.all(color: theme.colorScheme.outline, width: 1),
+      ),
+      child: Row(
         children: [
-          CircularProgressIndicator(
-            value: progress,
-            strokeWidth: 3,
-            backgroundColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-            color: theme.colorScheme.primary,
+          Text(
+            current.toString().padLeft(2, '0'),
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: theme.colorScheme.onSurface,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
           Text(
-            '$current/$total',
-            style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+            ' / ${total.toString().padLeft(2, '0')}',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -327,34 +311,30 @@ class _ProgressRing extends StatelessWidget {
   }
 }
 
-class _ActionButton extends StatelessWidget {
-  const _ActionButton({required this.icon, required this.label, this.onTap});
+class _MicroButton extends StatelessWidget {
+  const _MicroButton({required this.icon, this.onTap});
   final IconData icon;
-  final String label;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final enabled = onTap != null;
+    final scheme = Theme.of(context).colorScheme;
+    final disabled = onTap == null;
     return Material(
       color: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        side: BorderSide(color: scheme.outline, width: 1),
+      ),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            children: [
-              Icon(icon, size: 18, color: enabled ? theme.colorScheme.onSurface : theme.colorScheme.outline),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: enabled ? theme.colorScheme.onSurface : theme.colorScheme.outline,
-                ),
-              ),
-            ],
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Icon(
+            icon,
+            size: 18,
+            color: disabled ? scheme.outline : scheme.onSurface,
           ),
         ),
       ),
@@ -365,21 +345,19 @@ class _ActionButton extends StatelessWidget {
 class _MarkerPainter extends CustomPainter {
   _MarkerPainter({
     required this.markers,
-    required this.color,
+    required this.accent,
     required this.labels,
     this.guides,
     this.highlightGuideIndex,
   });
   final List<Offset> markers;
-  final Color color;
+  final Color accent;
   final List<String> labels;
-
   final List<List<Offset>>? guides;
   final int? highlightGuideIndex;
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Guides first.
     final gs = guides;
     if (gs != null && gs.isNotEmpty) {
       for (var i = 0; i < gs.length; i++) {
@@ -388,11 +366,10 @@ class _MarkerPainter extends CustomPainter {
         final isHighlighted = highlightGuideIndex != null && i == highlightGuideIndex;
         final guidePaint = Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = isHighlighted ? 3.0 : 2.0
-          ..color = (isHighlighted ? const Color(0xFF38BDF8) : const Color(0xFFFFFFFF)).withValues(
-            alpha: isHighlighted ? 0.95 : 0.55,
+          ..strokeWidth = isHighlighted ? 2.5 : 1.5
+          ..color = (isHighlighted ? AppColors.pitchGreen : AppColors.bone).withValues(
+            alpha: isHighlighted ? 0.9 : 0.4,
           );
-
         final path = Path();
         final p0 = Offset(g[0].dx * size.width, g[0].dy * size.height);
         path.moveTo(p0.dx, p0.dy);
@@ -408,21 +385,19 @@ class _MarkerPainter extends CustomPainter {
 
     final points = markers.map((m) => Offset(m.dx * size.width, m.dy * size.height)).toList();
 
-    // Draw filled polygon
     if (points.length >= 3) {
       final path = Path()..moveTo(points[0].dx, points[0].dy);
       for (var i = 1; i < points.length; i++) {
         path.lineTo(points[i].dx, points[i].dy);
       }
       if (points.length == 4) path.close();
-      canvas.drawPath(path, Paint()..color = color.withValues(alpha: 0.15));
+      canvas.drawPath(path, Paint()..color = accent.withValues(alpha: 0.10));
     }
 
-    // Draw lines
     if (points.length > 1) {
       final linePaint = Paint()
-        ..color = color
-        ..strokeWidth = 2
+        ..color = accent
+        ..strokeWidth = 1.6
         ..style = PaintingStyle.stroke;
       final path = Path()..moveTo(points[0].dx, points[0].dy);
       for (var i = 1; i < points.length; i++) {
@@ -432,23 +407,56 @@ class _MarkerPainter extends CustomPainter {
       canvas.drawPath(path, linePaint);
     }
 
-    // Draw markers
     for (var i = 0; i < points.length; i++) {
       final p = points[i];
-      // Outer ring
-      canvas.drawCircle(p, 14, Paint()..color = color.withValues(alpha: 0.3));
-      // Inner filled
-      canvas.drawCircle(p, 10, Paint()..color = color);
-      // Label
+      // Crosshair
+      const crossLen = 14.0;
+      final crossPaint = Paint()
+        ..color = accent
+        ..strokeWidth = 1.4
+        ..style = PaintingStyle.stroke;
+      canvas.drawLine(Offset(p.dx - crossLen, p.dy), Offset(p.dx + crossLen, p.dy), crossPaint);
+      canvas.drawLine(Offset(p.dx, p.dy - crossLen), Offset(p.dx, p.dy + crossLen), crossPaint);
+      // Inner dot
+      canvas.drawCircle(p, 5, Paint()..color = accent);
+      canvas.drawCircle(
+        p,
+        5,
+        Paint()
+          ..color = AppColors.bone
+          ..strokeWidth = 1
+          ..style = PaintingStyle.stroke,
+      );
+      // Label tag
       final label = i < labels.length ? labels[i] : '${i + 1}';
       final tp = TextPainter(
         text: TextSpan(
-          text: label,
-          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+          text: label.toUpperCase(),
+          style: const TextStyle(
+            color: AppColors.bone,
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.2,
+          ),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
-      tp.paint(canvas, p - Offset(tp.width / 2, tp.height / 2));
+      final tagPad = const EdgeInsets.symmetric(horizontal: 5, vertical: 3);
+      final tagRect = Rect.fromLTWH(
+        p.dx + 10,
+        p.dy - tp.height / 2 - tagPad.vertical / 2,
+        tp.width + tagPad.horizontal,
+        tp.height + tagPad.vertical,
+      );
+      canvas.drawRect(tagRect, Paint()..color = AppColors.inkBlack.withValues(alpha: 0.85));
+      canvas.drawRect(
+        tagRect,
+        Paint()
+          ..color = accent
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1,
+      );
+      tp.paint(canvas, Offset(tagRect.left + tagPad.left, tagRect.top + tagPad.top));
     }
   }
 
@@ -457,6 +465,6 @@ class _MarkerPainter extends CustomPainter {
     return markers.length != old.markers.length ||
         guides != old.guides ||
         highlightGuideIndex != old.highlightGuideIndex ||
-        color != old.color;
+        accent != old.accent;
   }
 }

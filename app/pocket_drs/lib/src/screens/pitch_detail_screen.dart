@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../analysis/pitch_pose.dart';
 import '../models/pitch.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
 import '../utils/pitch_store.dart';
+import '../widgets/drs_button.dart';
+import '../widgets/drs_scaffold.dart';
 import '../widgets/pitch_3d_viewer.dart';
+import '../widgets/section_label.dart';
+import '../widgets/status_chip.dart';
 import 'analyses_screen.dart';
 import 'delivery_processing_screen.dart';
 import 'pitch_calibration_screen.dart';
@@ -40,9 +46,19 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
     setState(() => _loading = true);
     try {
       final pitch = await _store.loadById(widget.pitchId);
-      if (mounted) setState(() { _pitch = pitch; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _pitch = pitch;
+          _loading = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -56,10 +72,10 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
     try {
       await _store.update(pitch.copyWith(name: name, updatedAt: DateTime.now()));
       _load();
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please sign in again'), behavior: SnackBarBehavior.floating),
+        const SnackBar(content: Text('Please sign in again')),
       );
     }
   }
@@ -70,14 +86,17 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Pitch?'),
-        content: Text('Are you sure you want to delete "${pitch.name}"? This action cannot be undone.'),
+        title: const Text('Delete pitch?'),
+        content: Text('"${pitch.name}" will be removed permanently.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL')),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
-            child: const Text('Delete'),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            child: const Text('DELETE'),
           ),
         ],
       ),
@@ -86,10 +105,10 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
       try {
         await _store.delete(pitch.id);
         if (mounted) Navigator.pop(context);
-      } catch (e) {
+      } catch (_) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please sign in again'), behavior: SnackBarBehavior.floating),
+          const SnackBar(content: Text('Please sign in again')),
         );
       }
     }
@@ -99,7 +118,9 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
     final pitch = _pitch;
     if (pitch == null) return;
     final done = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => PitchCalibrationScreen(pitchId: pitch.id, pitchName: pitch.name)),
+      MaterialPageRoute(
+        builder: (_) => PitchCalibrationScreen(pitchId: pitch.id, pitchName: pitch.name),
+      ),
     );
     if (done == true && mounted) _load();
   }
@@ -108,12 +129,14 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
     final pitch = _pitch;
     if (pitch == null || !pitch.isCalibrated) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please calibrate the pitch first'), behavior: SnackBarBehavior.floating),
+        const SnackBar(content: Text('Calibrate the pitch first')),
       );
       return;
     }
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => DeliveryProcessingScreen(pitchId: pitch.id, pitchName: pitch.name)),
+      MaterialPageRoute(
+        builder: (_) => DeliveryProcessingScreen(pitchId: pitch.id, pitchName: pitch.name),
+      ),
     );
   }
 
@@ -126,166 +149,151 @@ class _PitchDetailScreenState extends State<PitchDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final pitch = _pitch;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final calibrated = pitch?.isCalibrated ?? false;
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return Scaffold(
+      appBar: DrsSubHeader(
+        eyebrow: 'PITCH',
+        title: pitch?.name ?? 'Loading',
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined, size: 20),
+            onPressed: _edit,
+            tooltip: 'Edit',
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, size: 20),
+            onPressed: _delete,
+            tooltip: 'Delete',
+          ),
+        ],
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? _ErrorView(error: _error!, onRetry: _load)
               : pitch == null
                   ? const Center(child: Text('Pitch not found'))
-                  : CustomScrollView(
-                      slivers: [
-                        SliverAppBar(
-                          expandedHeight: 160,
-                          floating: false,
-                          pinned: true,
-                          flexibleSpace: FlexibleSpaceBar(
-                            title: Text(
-                              pitch.name,
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            titlePadding: const EdgeInsets.only(left: 56, bottom: 16),
+                  : ListView(
+                      padding: EdgeInsets.zero,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.xl,
+                            AppSpacing.lg,
+                            AppSpacing.xl,
+                            AppSpacing.lg,
                           ),
-                          actions: [
-                            IconButton(
-                              icon: const Icon(Icons.edit_outlined),
-                              onPressed: _edit,
-                              tooltip: 'Edit',
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline),
-                              onPressed: _delete,
-                              tooltip: 'Delete',
-                            ),
-                            const SizedBox(width: 8),
-                          ],
-                        ),
-                        SliverPadding(
-                          padding: const EdgeInsets.all(20),
-                          sliver: SliverList(
-                            delegate: SliverChildListDelegate([
-                              _StatusBanner(calibrated: calibrated),
-                              const SizedBox(height: 20),
-                              if (calibrated) ...[
-                                _ViewerCard(
-                                  onView3D: _view3DFullscreen,
-                                  pose: _pitchPose,
-                                ),
-                                const SizedBox(height: 20),
-                              ],
+                          child: Row(
+                            children: [
+                              StatusChip(
+                                label: calibrated ? 'CALIBRATED' : 'NEEDS CALIBRATION',
+                                color: calibrated
+                                    ? AppColors.decisionNotOut(isDark)
+                                    : AppColors.decisionOut(isDark),
+                              ),
+                              const SizedBox(width: AppSpacing.sm),
                               Text(
-                                'Actions',
-                                style: theme.textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.w700,
+                                _relative(pitch.updatedAt).toUpperCase(),
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: scheme.onSurfaceVariant,
                                 ),
                               ),
-                              const SizedBox(height: 12),
-                              if (calibrated) ...[
-                                _ActionCard(
-                                  icon: Icons.analytics_outlined,
-                                  title: 'Analyze Delivery',
-                                  subtitle: 'Upload or record a ball video',
-                                  enabled: true,
-                                  onTap: _analyze,
-                                  color: theme.colorScheme.primary,
-                                ),
-                                const SizedBox(height: 12),
-                                _ActionCard(
-                                  icon: Icons.timeline_outlined,
-                                  title: 'Past Analyses',
-                                  subtitle: 'Review every previous delivery on this pitch',
-                                  enabled: true,
-                                  onTap: () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => AnalysesScreen(pitchId: pitch.id),
-                                    ),
-                                  ),
-                                  color: theme.colorScheme.tertiary,
-                                ),
-                                const SizedBox(height: 12),
-                              ],
-                              _ActionCard(
-                                icon: Icons.tune_outlined,
-                                title: calibrated ? 'Re-calibrate' : 'Calibrate Pitch',
-                                subtitle: 'Mark stumps and pitch corners for 3D tracking',
-                                enabled: true,
-                                onTap: _calibrate,
-                                color: theme.colorScheme.secondary,
-                              ),
-                            ]),
+                            ],
                           ),
                         ),
+                        if (calibrated) ...[
+                          _ViewerCard(
+                            onView3D: _view3DFullscreen,
+                            pose: _pitchPose,
+                          ),
+                          const SizedBox(height: AppSpacing.xxl),
+                        ] else ...[
+                          Container(
+                            height: 1,
+                            color: scheme.outline,
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppSpacing.xl,
+                              AppSpacing.xl,
+                              AppSpacing.xl,
+                              AppSpacing.xxl,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '01.',
+                                  style: AppTypography.mono(theme.textTheme.displayMedium)?.copyWith(
+                                    color: AppColors.signalRed,
+                                  ),
+                                ),
+                                const SizedBox(height: AppSpacing.md),
+                                Text('Calibrate this pitch.', style: theme.textTheme.headlineSmall),
+                                const SizedBox(height: AppSpacing.sm),
+                                Text(
+                                  'Mark four pitch corners and both sets of stumps so the server can recover 3D ball trajectories.',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+                          child: const SectionLabel(label: 'ACTIONS'),
+                        ),
+                        if (calibrated) ...[
+                          _ActionRow(
+                            number: '01',
+                            title: 'Analyse delivery',
+                            subtitle: 'Upload or record a ball video',
+                            onTap: _analyze,
+                            accent: true,
+                          ),
+                          _ActionRow(
+                            number: '02',
+                            title: 'Past analyses',
+                            subtitle: 'Trajectories and decisions on this pitch',
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => AnalysesScreen(pitchId: pitch.id),
+                              ),
+                            ),
+                          ),
+                          _ActionRow(
+                            number: '03',
+                            title: 'Re-calibrate',
+                            subtitle: 'Remap pitch corners and stumps',
+                            onTap: _calibrate,
+                          ),
+                        ] else
+                          _ActionRow(
+                            number: '01',
+                            title: 'Calibrate pitch',
+                            subtitle: 'Mark corners and stumps for 3D tracking',
+                            onTap: _calibrate,
+                            accent: true,
+                          ),
+                        const SizedBox(height: AppSpacing.xxl),
                       ],
                     ),
     );
   }
-}
 
-class _StatusBanner extends StatelessWidget {
-  const _StatusBanner({required this.calibrated});
-  final bool calibrated;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: calibrated
-              ? [theme.colorScheme.tertiary, theme.colorScheme.tertiary.withValues(alpha: 0.7)]
-              : [theme.colorScheme.error, theme.colorScheme.error.withValues(alpha: 0.7)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              calibrated ? Icons.check_circle : Icons.warning_amber_rounded,
-              color: Colors.white,
-              size: 28,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  calibrated ? 'Ready to Analyze' : 'Needs Calibration',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  calibrated
-                      ? 'Pitch is calibrated and ready for ball tracking'
-                      : 'Calibrate to enable ball tracking analysis',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.9),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+  static String _relative(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+    if (d.inHours < 24) return '${d.inHours}h ago';
+    if (d.inDays < 7) return '${d.inDays}d ago';
+    return '${t.day}/${t.month}/${t.year}';
   }
 }
 
@@ -297,48 +305,66 @@ class _ViewerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return GestureDetector(
       onTap: onView3D,
       child: Container(
-        height: 280,
+        height: 320,
+        margin: EdgeInsets.zero,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: theme.colorScheme.surfaceContainerHighest,
-          border: Border.all(
-            color: theme.colorScheme.outline.withValues(alpha: 0.3),
+          color: scheme.surfaceContainer,
+          border: Border(
+            top: BorderSide(color: scheme.outline, width: 1),
+            bottom: BorderSide(color: scheme.outline, width: 1),
           ),
         ),
-        clipBehavior: Clip.antiAlias,
         child: Stack(
           children: [
-            Pitch3DViewer(
-              pose: pose,
+            Positioned.fill(child: Pitch3DViewer(pose: pose)),
+            Positioned(
+              left: AppSpacing.lg,
+              top: AppSpacing.lg,
+              child: Row(
+                children: [
+                  Text(
+                    'PITCH-3D',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: AppColors.bone,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Container(
+                    width: 4,
+                    height: 4,
+                    decoration: const BoxDecoration(
+                      color: AppColors.signalRed,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
+              ),
             ),
             Positioned(
-              left: 16,
-              right: 16,
-              bottom: 16,
+              right: AppSpacing.lg,
+              bottom: AppSpacing.lg,
               child: Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.7),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                  color: AppColors.inkBlack.withValues(alpha: 0.7),
+                  border: Border.all(color: AppColors.bone.withValues(alpha: 0.2), width: 1),
                 ),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.view_in_ar, color: theme.colorScheme.primary, size: 24),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Tap to view 3D pitch',
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
+                    const Icon(Icons.open_in_full, size: 12, color: AppColors.bone),
+                    const SizedBox(width: AppSpacing.sm),
+                    Text(
+                      'FULLSCREEN',
+                      style: theme.textTheme.labelSmall?.copyWith(color: AppColors.bone),
                     ),
-                    Icon(Icons.fullscreen, color: Colors.white.withValues(alpha: 0.8)),
                   ],
                 ),
               ),
@@ -350,75 +376,66 @@ class _ViewerCard extends StatelessWidget {
   }
 }
 
-class _ActionCard extends StatelessWidget {
-  const _ActionCard({
-    required this.icon,
+class _ActionRow extends StatelessWidget {
+  const _ActionRow({
+    required this.number,
     required this.title,
     required this.subtitle,
-    required this.enabled,
-    required this.color,
-    this.onTap,
+    required this.onTap,
+    this.accent = false,
   });
-  
-  final IconData icon;
+
+  final String number;
   final String title;
   final String subtitle;
-  final bool enabled;
-  final Color color;
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
+  final bool accent;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
+    final scheme = theme.colorScheme;
+    return Material(
+      color: scheme.surface,
       child: InkWell(
-        onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
+        onTap: onTap,
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: scheme.outline, width: 1)),
+          ),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.xl,
+            vertical: AppSpacing.lg,
+          ),
           child: Row(
             children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: enabled ? color.withValues(alpha: 0.15) : theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  icon,
-                  color: enabled ? color : theme.colorScheme.onSurfaceVariant,
-                  size: 28,
+              SizedBox(
+                width: 48,
+                child: Text(
+                  number,
+                  style: AppTypography.mono(theme.textTheme.headlineMedium)?.copyWith(
+                    color: accent ? AppColors.signalRed : scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: enabled ? null : theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
+                    Text(title, style: theme.textTheme.titleLarge),
+                    const SizedBox(height: AppSpacing.xs),
                     Text(
                       subtitle,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
                       ),
                     ),
                   ],
                 ),
               ),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: enabled ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.outline,
-                size: 28,
-              ),
+              const SizedBox(width: AppSpacing.md),
+              Icon(Icons.arrow_forward, size: 18, color: scheme.onSurfaceVariant),
             ],
           ),
         ),
@@ -435,32 +452,18 @@ class _ErrorView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
-            const SizedBox(height: 16),
-            Text(
-              'Error',
-              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              error,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-            ),
-          ],
-        ),
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const StatusChip(label: 'ERROR', color: AppColors.signalRed),
+          const SizedBox(height: AppSpacing.lg),
+          Text(error, style: theme.textTheme.headlineSmall),
+          const SizedBox(height: AppSpacing.xxl),
+          DrsButton(label: 'RETRY', icon: Icons.refresh, onPressed: onRetry),
+        ],
       ),
     );
   }
@@ -468,25 +471,68 @@ class _ErrorView extends StatelessWidget {
 
 class _Fullscreen3DViewer extends StatelessWidget {
   const _Fullscreen3DViewer({this.pose});
-
   final PitchPose? pose;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        systemOverlayStyle: SystemUiOverlayStyle.light,
-        title: const Text('3D Pitch View', style: TextStyle(color: Colors.white)),
-      ),
-      extendBodyBehindAppBar: true,
-      body: Pitch3DViewer(
-        pose: pose,
+      backgroundColor: AppColors.inkBlack,
+      body: Stack(
+        children: [
+          Positioned.fill(child: Pitch3DViewer(pose: pose)),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.sm,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.inkBlack.withValues(alpha: 0.7),
+                      border: Border.all(color: AppColors.bone.withValues(alpha: 0.2)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: AppColors.signalRed,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Text(
+                          'PITCH-3D / FULLSCREEN',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: AppColors.bone,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  Material(
+                    color: AppColors.inkBlack.withValues(alpha: 0.7),
+                    shape: const RoundedRectangleBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(AppRadius.sm)),
+                      side: BorderSide(color: Color(0x33FFFFFF), width: 1),
+                    ),
+                    child: IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close, color: AppColors.bone, size: 18),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
-

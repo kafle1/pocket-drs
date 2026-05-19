@@ -7,11 +7,16 @@ import 'package:video_player/video_player.dart';
 import '../api/analysis_result.dart';
 import '../api/pocket_drs_api.dart';
 import '../analysis/pitch_pose.dart';
-import '../utils/app_settings.dart';
-import '../utils/pitch_store.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
 import '../utils/app_logger.dart';
+import '../utils/app_settings.dart';
 import '../utils/native_video_resources.dart';
+import '../utils/pitch_store.dart';
 import '../utils/video_controller_factory.dart';
+import '../widgets/decision_badge.dart';
+import '../widgets/drs_button.dart';
 import '../widgets/pitch_3d_viewer.dart';
 
 enum _Step { upload, trim, process, results }
@@ -58,14 +63,11 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
     super.dispose();
   }
 
-  void _log(String message) {
-    AppLogger.instance.log(message);
-  }
+  void _log(String message) => AppLogger.instance.log(message);
 
   Future<void> _releaseController() async {
     final controller = _controller;
     if (controller == null) return;
-
     _controller = null;
     await controller.pause();
     await controller.dispose();
@@ -76,7 +78,6 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
     VideoPlayerController? controller;
     try {
       await _releaseController();
-
       final video = await _picker.pickVideo(source: source);
       if (video == null || !mounted) return;
       controller = createVideoPlayerController(video.path);
@@ -84,11 +85,8 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
         await coolDownNativeVideoResources(delay: const Duration(milliseconds: 350));
         await controller!.initialize();
       });
-      // Keep paused by default to reduce GPU/Surface spam.
       await controller.setVolume(0.0);
       if (!mounted) {
-        // Screen was disposed during initialization — release the native
-        // decoder we just created instead of leaking it.
         await controller.dispose();
         return;
       }
@@ -99,9 +97,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
         _end = null;
         _step = _Step.trim;
       });
-    } catch (e) {
-      // initialize() / setVolume() can throw; make sure the partially-created
-      // controller is disposed so the native video decoder is not leaked.
+    } catch (_) {
       if (controller != null && !identical(controller, _controller)) {
         await controller.dispose();
       }
@@ -127,10 +123,8 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
   Future<void> _process() async {
     if (_video == null || _start == null || _end == null) return;
 
-    // Capture any BuildContext-derived values BEFORE awaits to avoid lint issues.
     final platformName = Theme.of(context).platform.name;
 
-    // Validate pitch calibration before processing.
     try {
       final pitchBefore = await _pitchStore.loadById(widget.pitchId);
       if (!mounted) return;
@@ -144,20 +138,13 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
       return;
     }
 
-    // Free the playback surface to avoid buffer exhaustion before heavy work starts.
     await _releaseController();
-
     setState(() => _step = _Step.process);
 
-    String? serverUrl;
     try {
-      serverUrl = await AppSettings.getServerUrl();
+      final serverUrl = await AppSettings.getServerUrl();
       _log('[DELIVERY] Using server URL: $serverUrl');
-      
-      // Create API client with auth token provider. getIdToken() can throw
-      // (revoked session, token-refresh network failure); swallow it and
-      // return null so the API layer surfaces a clean "sign in again" error
-      // rather than a raw FirebaseAuthException.
+
       final api = PocketDrsApi(
         baseUrl: serverUrl,
         getAuthToken: () async {
@@ -179,11 +166,8 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
       }
 
       final pitchPose = PitchPoseEstimator.fromCalibration(pitchCal);
-
       final bytes = await _video!.readAsBytes();
 
-      // Send normalized pitch corners when available so the server can adapt
-      // to the delivery video resolution.
       List<Map<String, Object?>> cornersNorm;
       if (pitchCal.imagePointsNorm != null && pitchCal.imagePointsNorm!.length == 4) {
         cornersNorm = pitchCal.imagePointsNorm!
@@ -200,10 +184,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
       }
 
       final requestJson = <String, Object?>{
-        'client': <String, Object?>{
-          'platform': platformName,
-          'app_version': 'dev',
-        },
+        'client': <String, Object?>{'platform': platformName, 'app_version': 'dev'},
         'segment': <String, Object?>{
           'start_ms': _start!.inMilliseconds,
           'end_ms': _end!.inMilliseconds,
@@ -214,19 +195,15 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
           'pitch_corners_norm': cornersNorm,
           if (pitchCal.stumpPointsNorm != null && pitchCal.stumpPointsNorm!.length == 4)
             'stump_bases_norm': <Map<String, Object?>>[
-              <String, Object?>{'x': pitchCal.stumpPointsNorm![0].dx, 'y': pitchCal.stumpPointsNorm![0].dy},
-              <String, Object?>{'x': pitchCal.stumpPointsNorm![2].dx, 'y': pitchCal.stumpPointsNorm![2].dy},
+              {'x': pitchCal.stumpPointsNorm![0].dx, 'y': pitchCal.stumpPointsNorm![0].dy},
+              {'x': pitchCal.stumpPointsNorm![2].dx, 'y': pitchCal.stumpPointsNorm![2].dy},
             ],
           'pitch_dimensions_m': <String, Object?>{
             'length': calibration.pitchLengthM,
             'width': calibration.pitchWidthM,
           },
         },
-        'tracking': <String, Object?>{
-          'mode': 'auto',
-          'max_frames': 180,
-          'sample_fps': 60,
-        },
+        'tracking': <String, Object?>{'mode': 'auto', 'max_frames': 180, 'sample_fps': 60},
         'overrides': <String, Object?>{},
       };
 
@@ -260,9 +237,6 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
         try {
           status = await api.getJobStatus(jobId);
         } catch (e) {
-          // Genuine job failure (StateError) is terminal — propagate it.
-          // Network / API errors are transient up to a cap, after which we
-          // surface the real error instead of polling silently to timeout.
           if (e is StateError) rethrow;
           transientPollErrors++;
           if (transientPollErrors <= 3) {
@@ -284,7 +258,6 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
         }
 
         if (!mounted) return;
-
         setState(() {
           _progressPct = status.pct;
           _progressStage = status.stage ?? status.status;
@@ -299,13 +272,10 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
           throw StateError(status.errorMessage ?? 'Server analysis failed');
         }
 
-        // Progressive delay: faster checks at start, slower later.
         final delay = pollCount < 10 ? 500 : (pollCount < 30 ? 800 : 1200);
         await Future.delayed(Duration(milliseconds: delay));
       }
 
-      // The loop can also exit because the screen was disposed; bail before
-      // doing any further work or touching State.
       if (!mounted) return;
       if (pollCount >= maxPolls) {
         throw StateError('Analysis timed out after $pollCount attempts');
@@ -330,9 +300,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
       _log('[DELIVERY] Stack: $stack');
       if (mounted) {
         setState(() => _step = _Step.trim);
-        final msg = e is ApiException
-            ? e.message
-            : 'Analysis failed: $e';
+        final msg = e is ApiException ? e.message : 'Analysis failed: $e';
         _showError(msg);
       }
     }
@@ -347,7 +315,6 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
       );
     }
 
-    // Real (x,y,z) world points from the bundle-adjusted projectile fit.
     final points = <Map<String, double>>[
       for (final p in world.points) p.toViewerJson(),
     ];
@@ -364,8 +331,6 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
     if (bounceIdx < 0) bounceIdx = (points.length / 2).floor();
     if (impactIdx < 0) impactIdx = points.length - 1;
 
-    // Append predicted continuation from impact to stump plane (drawn in
-    // a different colour by the 3D viewer).
     for (final p in world.predictedToStumps) {
       points.add(p.toViewerJson());
     }
@@ -436,9 +401,7 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
 
   void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   void _showCalibrationError() {
@@ -446,18 +409,17 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Pitch Not Calibrated'),
+        title: const Text('Pitch not calibrated'),
         content: const Text(
-          'This pitch has not been calibrated yet. Please go back and calibrate '
-          'the pitch first by marking the pitch corners and stumps.',
+          'Calibrate this pitch first by marking the pitch corners and stumps.',
         ),
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.of(context).pop(); // Close dialog
-              Navigator.of(context).pop(); // Go back to pitch screen
+              Navigator.of(context).pop();
+              Navigator.of(context).pop();
             },
-            child: const Text('Go Back'),
+            child: const Text('BACK'),
           ),
         ],
       ),
@@ -473,21 +435,67 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final showAppBar = _step != _Step.results;
+
     return Scaffold(
-      backgroundColor: _step == _Step.results ? theme.colorScheme.surfaceContainerLowest : null,
+      backgroundColor: _step == _Step.results ? AppColors.inkBlack : scheme.surface,
       appBar: showAppBar
-          ? AppBar(
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: _goBack),
-              title: Text(widget.pitchName),
-              bottom: _step != _Step.process
-                  ? PreferredSize(
-                      preferredSize: const Size.fromHeight(40),
-                      child: _StepBar(current: _step.index),
-                    )
-                  : null,
+          ? PreferredSize(
+              preferredSize: const Size.fromHeight(96),
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.sm,
+                    AppSpacing.xs,
+                    AppSpacing.lg,
+                    AppSpacing.md,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: _goBack,
+                            icon: const Icon(Icons.arrow_back, size: 20),
+                          ),
+                          const SizedBox(width: AppSpacing.xs),
+                          Text(
+                            'STEP ${(_step.index + 1).toString().padLeft(2, '0')} / 04',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            widget.pitchName.toUpperCase(),
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Padding(
+                        padding: const EdgeInsets.only(left: AppSpacing.md),
+                        child: Text(
+                          switch (_step) {
+                            _Step.upload => 'Upload',
+                            _Step.trim => 'Trim',
+                            _Step.process => 'Processing',
+                            _Step.results => 'Results',
+                          },
+                          style: theme.textTheme.headlineSmall,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      _StepBar(current: _step.index, total: 4),
+                    ],
+                  ),
+                ),
+              ),
             )
           : null,
       body: _buildBody(),
@@ -495,11 +503,9 @@ class _DeliveryProcessingScreenState extends State<DeliveryProcessingScreen> {
   }
 
   Widget _buildBody() {
-    // If we lost the controller (disposed after processing error), send user back to upload safely.
     if (_step == _Step.trim && _controller == null) {
       return _UploadStep(onPick: _pickVideo);
     }
-
     switch (_step) {
       case _Step.upload:
         return _UploadStep(onPick: _pickVideo);
@@ -546,65 +552,25 @@ class _HawkEyePayload {
 }
 
 class _StepBar extends StatelessWidget {
-  const _StepBar({required this.current});
+  const _StepBar({required this.current, required this.total});
   final int current;
-  static const _labels = ['Upload', 'Trim', 'Process', 'Results'];
+  final int total;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 4,
       child: Row(
-        children: List.generate(_labels.length - 1, (i) {
-          final done = i < current;
-          final active = i == current;
+        children: List.generate(total, (i) {
+          final done = i <= current;
           return Expanded(
-            child: Row(
-              children: [
-                _Dot(done: done, active: active, index: i),
-                Expanded(
-                  child: Container(
-                    height: 2,
-                    color: done ? theme.colorScheme.primary : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-                  ),
-                ),
-              ],
+            child: Container(
+              margin: EdgeInsets.only(right: i == total - 1 ? 0 : 2),
+              color: done ? AppColors.signalRed : scheme.surfaceContainerHigh,
             ),
           );
-        })..add(Expanded(child: Row(children: [_Dot(done: false, active: current == 3, index: 3)]))),
-      ),
-    );
-  }
-}
-
-class _Dot extends StatelessWidget {
-  const _Dot({required this.done, required this.active, required this.index});
-  final bool done;
-  final bool active;
-  final int index;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      width: 24,
-      height: 24,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: done ? theme.colorScheme.primary : active ? theme.colorScheme.primaryContainer : Colors.transparent,
-        border: Border.all(
-          color: done || active ? theme.colorScheme.primary : theme.colorScheme.outlineVariant,
-          width: 2,
-        ),
-      ),
-      child: Center(
-        child: done
-            ? Icon(Icons.check, size: 12, color: theme.colorScheme.onPrimary)
-            : Text('${index + 1}', style: theme.textTheme.labelSmall?.copyWith(
-                color: active ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
-              )),
+        }),
       ),
     );
   }
@@ -617,51 +583,41 @@ class _UploadStep extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.video_file_outlined, size: 36, color: theme.colorScheme.primary),
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Spacer(),
+          Text(
+            '01.',
+            style: AppTypography.mono(theme.textTheme.displayMedium)?.copyWith(
+              color: AppColors.signalRed,
             ),
-            const SizedBox(height: 24),
-            Text('Delivery Video', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Text(
-              'Record or upload a video of\nthe delivery you want to analyze',
-              style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 40),
-            SizedBox(
-              width: 200,
-              child: FilledButton.icon(
-                onPressed: () => onPick(ImageSource.camera),
-                icon: const Icon(Icons.videocam),
-                label: const Text('Record Video'),
-                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: 200,
-              child: OutlinedButton.icon(
-                onPressed: () => onPick(ImageSource.gallery),
-                icon: const Icon(Icons.folder_open),
-                label: const Text('Choose File'),
-                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-              ),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text('Delivery video.', style: theme.textTheme.headlineMedium),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Record or choose a clip showing the delivery you want analysed.',
+            style: theme.textTheme.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const Spacer(),
+          DrsButton(
+            label: 'RECORD VIDEO',
+            icon: Icons.videocam_outlined,
+            onPressed: () => onPick(ImageSource.camera),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          DrsButton(
+            label: 'CHOOSE FILE',
+            icon: Icons.folder_open,
+            style: DrsButtonStyle.secondary,
+            onPressed: () => onPick(ImageSource.gallery),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+        ],
       ),
     );
   }
@@ -723,22 +679,24 @@ class _TrimStepState extends State<_TrimStep> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final ctl = widget.controller;
     final ready = widget.start != null && widget.end != null;
 
     final dur = ctl.value.duration;
     final pos = ctl.value.position;
     final maxMs = dur.inMilliseconds <= 0 ? 1.0 : dur.inMilliseconds.toDouble();
-    final sliderValueMs = (_scrubbing ? (_scrubValueMs ?? pos.inMilliseconds.toDouble()) : pos.inMilliseconds.toDouble())
-      .clamp(0.0, maxMs)
-      .toDouble();
+    final sliderValueMs =
+        (_scrubbing ? (_scrubValueMs ?? pos.inMilliseconds.toDouble()) : pos.inMilliseconds.toDouble())
+            .clamp(0.0, maxMs)
+            .toDouble();
     final shownPos = Duration(milliseconds: sliderValueMs.toInt());
 
     return Column(
       children: [
         Expanded(
           child: Container(
-            color: theme.colorScheme.surfaceContainerLowest,
+            color: AppColors.inkBlack,
             child: Center(
               child: AspectRatio(
                 aspectRatio: ctl.value.aspectRatio,
@@ -749,130 +707,147 @@ class _TrimStepState extends State<_TrimStep> {
         ),
         Container(
           decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3))),
+            color: scheme.surface,
+            border: Border(top: BorderSide(color: scheme.outline, width: 1)),
           ),
           child: SafeArea(
             top: false,
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xl,
+                AppSpacing.lg,
+                AppSpacing.xl,
+                AppSpacing.lg,
+              ),
               child: Column(
                 children: [
-                  // Timeline
                   Row(
                     children: [
-                      Text(widget.fmt(shownPos), style: theme.textTheme.labelSmall),
-                      const SizedBox(width: 8),
+                      Text(
+                        widget.fmt(shownPos),
+                        style: AppTypography.mono(theme.textTheme.labelMedium),
+                      ),
                       Expanded(
-                        child: SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            trackHeight: 4,
-                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                          ),
-                          child: Slider(
-                            value: sliderValueMs,
-                            max: maxMs,
-                            onChangeStart: (_) {
-                              if (ctl.value.isPlaying) {
-                                ctl.pause();
-                              }
-                              setState(() {
-                                _scrubbing = true;
-                                _scrubValueMs = sliderValueMs;
-                              });
-                            },
-                            onChanged: (v) {
-                              setState(() => _scrubValueMs = v);
-                              _scheduleSeekMs(v.toInt());
-                            },
-                            onChangeEnd: (v) {
-                              _seekDebounce?.cancel();
-                              ctl.seekTo(Duration(milliseconds: v.toInt()));
-                              setState(() {
-                                _scrubbing = false;
-                                _scrubValueMs = null;
-                              });
-                            },
-                          ),
+                        child: Slider(
+                          value: sliderValueMs,
+                          max: maxMs,
+                          onChangeStart: (_) {
+                            if (ctl.value.isPlaying) ctl.pause();
+                            setState(() {
+                              _scrubbing = true;
+                              _scrubValueMs = sliderValueMs;
+                            });
+                          },
+                          onChanged: (v) {
+                            setState(() => _scrubValueMs = v);
+                            _scheduleSeekMs(v.toInt());
+                          },
+                          onChangeEnd: (v) {
+                            _seekDebounce?.cancel();
+                            ctl.seekTo(Duration(milliseconds: v.toInt()));
+                            setState(() {
+                              _scrubbing = false;
+                              _scrubValueMs = null;
+                            });
+                          },
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Text(widget.fmt(dur), style: theme.textTheme.labelSmall),
+                      Text(
+                        widget.fmt(dur),
+                        style: AppTypography.mono(theme.textTheme.labelMedium)?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  // Playback controls
+                  const SizedBox(height: AppSpacing.sm),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.replay_5),
-                        onPressed: () => ctl.seekTo(ctl.value.position - const Duration(seconds: 5)),
+                      _MiniButton(
+                        icon: Icons.replay_5,
+                        onTap: () => ctl.seekTo(ctl.value.position - const Duration(seconds: 5)),
                       ),
-                      const SizedBox(width: 8),
-                      FloatingActionButton.small(
-                        onPressed: () => ctl.value.isPlaying ? ctl.pause() : ctl.play(),
-                        child: Icon(ctl.value.isPlaying ? Icons.pause : Icons.play_arrow),
+                      const SizedBox(width: AppSpacing.md),
+                      _MiniButton(
+                        icon: ctl.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                        large: true,
+                        onTap: () => ctl.value.isPlaying ? ctl.pause() : ctl.play(),
                       ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        icon: const Icon(Icons.forward_5),
-                        onPressed: () => ctl.seekTo(ctl.value.position + const Duration(seconds: 5)),
+                      const SizedBox(width: AppSpacing.md),
+                      _MiniButton(
+                        icon: Icons.forward_5,
+                        onTap: () => ctl.seekTo(ctl.value.position + const Duration(seconds: 5)),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  // Selection display
+                  const SizedBox(height: AppSpacing.lg),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.lg,
+                      vertical: AppSpacing.md,
+                    ),
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainer,
-                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: scheme.outline, width: 1),
                     ),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
-                          widget.start != null ? widget.fmt(widget.start!) : '--:--',
-                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('IN', style: theme.textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
+                              const SizedBox(height: 2),
+                              Text(
+                                widget.start != null ? widget.fmt(widget.start!) : '--:--',
+                                style: AppTypography.mono(theme.textTheme.titleLarge),
+                              ),
+                            ],
+                          ),
                         ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Icon(Icons.arrow_forward, size: 16, color: theme.colorScheme.onSurfaceVariant),
-                        ),
-                        Text(
-                          widget.end != null ? widget.fmt(widget.end!) : '--:--',
-                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                        Container(width: 1, height: 36, color: scheme.outline),
+                        const SizedBox(width: AppSpacing.lg),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('OUT', style: theme.textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
+                              const SizedBox(height: 2),
+                              Text(
+                                widget.end != null ? widget.fmt(widget.end!) : '--:--',
+                                style: AppTypography.mono(theme.textTheme.titleLarge),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  // Mark buttons
+                  const SizedBox(height: AppSpacing.md),
                   Row(
                     children: [
                       Expanded(
-                        child: OutlinedButton(
+                        child: DrsButton(
+                          label: 'MARK IN',
+                          style: DrsButtonStyle.secondary,
                           onPressed: widget.onSetStart,
-                          child: const Text('Mark Start'),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: AppSpacing.sm),
                       Expanded(
-                        child: OutlinedButton(
+                        child: DrsButton(
+                          label: 'MARK OUT',
+                          style: DrsButtonStyle.secondary,
                           onPressed: widget.start != null ? widget.onSetEnd : null,
-                          child: const Text('Mark End'),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: ready ? widget.onProcess : null,
-                      child: const Text('Analyze Delivery'),
-                    ),
+                  const SizedBox(height: AppSpacing.md),
+                  DrsButton(
+                    label: 'ANALYSE DELIVERY',
+                    icon: Icons.bolt,
+                    onPressed: ready ? widget.onProcess : null,
                   ),
                 ],
               ),
@@ -880,6 +855,38 @@ class _TrimStepState extends State<_TrimStep> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _MiniButton extends StatelessWidget {
+  const _MiniButton({required this.icon, required this.onTap, this.large = false});
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool large;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final size = large ? 48.0 : 40.0;
+    return Material(
+      color: large ? scheme.onSurface : Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        side: BorderSide(color: scheme.outline, width: 1),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: Icon(
+            icon,
+            size: large ? 24 : 18,
+            color: large ? scheme.surface : scheme.onSurface,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -895,56 +902,69 @@ class _ProcessingView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final p = (pct ?? 0).clamp(0, 100);
     final stageText = stage ?? 'working';
-    return Center(
-      child: Card(
-        elevation: 0,
-        color: theme.colorScheme.surfaceContainer,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 48),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              SizedBox(
-                width: 88,
-                height: 88,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    CircularProgressIndicator(
-                      strokeWidth: 4,
-                      value: p <= 0 ? null : p / 100.0,
-                      color: theme.colorScheme.primary,
-                      backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                    ),
-                    Center(
-                      child: Text(
-                        '$p%',
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 32),
-              Text('Analyzing delivery…', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
               Text(
-                error == null ? stageText : 'Error: $error',
-                style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              ),
-              if (jobId != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  'Job: $jobId',
-                  style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                p.toString().padLeft(2, '0'),
+                style: AppTypography.mono(theme.textTheme.displayLarge)?.copyWith(
+                  color: AppColors.signalRed,
+                  height: 0.9,
                 ),
-              ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: Text(
+                  '%',
+                  style: AppTypography.mono(theme.textTheme.displaySmall)?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
             ],
           ),
-        ),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            'PROCESSING — ${stageText.toUpperCase()}',
+            style: theme.textTheme.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          ClipRect(
+            child: SizedBox(
+              height: 4,
+              child: LinearProgressIndicator(
+                value: p <= 0 ? null : p / 100.0,
+                backgroundColor: scheme.surfaceContainerHigh,
+                color: AppColors.signalRed,
+              ),
+            ),
+          ),
+          if (jobId != null) ...[
+            const SizedBox(height: AppSpacing.xl),
+            Text(
+              'JOB ${jobId!.split('-').first.toUpperCase()}',
+              style: AppTypography.mono(theme.textTheme.labelSmall)?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+          if (error != null) ...[
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              error!,
+              style: theme.textTheme.bodyMedium?.copyWith(color: scheme.error),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -972,30 +992,59 @@ class _ResultsView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    final decisionLabel = switch (decision) {
-      'out' => 'OUT',
-      'not_out' => 'NOT OUT',
-      'umpires_call' => "UMPIRE'S CALL",
-      _ => '—',
-    };
-
-    final badgeBg = switch (decision) {
-      'out' => theme.colorScheme.errorContainer,
-      'not_out' => theme.colorScheme.tertiaryContainer,
-      'umpires_call' => theme.colorScheme.primaryContainer,
-      _ => theme.colorScheme.surfaceContainerHighest,
-    };
-
-    final badgeFg = switch (decision) {
-      'out' => theme.colorScheme.onErrorContainer,
-      'not_out' => theme.colorScheme.onTertiaryContainer,
-      'umpires_call' => theme.colorScheme.onPrimaryContainer,
-      _ => theme.colorScheme.onSurfaceVariant,
+    final decisionKey = switch (decision) {
+      'out' => LbwDecisionKey.out,
+      'not_out' => LbwDecisionKey.notOut,
+      'umpires_call' => LbwDecisionKey.umpiresCall,
+      _ => null,
     };
 
     return Column(
       children: [
+        Container(
+          decoration: const BoxDecoration(
+            color: AppColors.inkBlack,
+            border: Border(bottom: BorderSide(color: AppColors.hairlineDark, width: 1)),
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.md,
+                AppSpacing.lg,
+                AppSpacing.md,
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.arrow_back, color: AppColors.bone, size: 20),
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Text(
+                    'DELIVERY RESULT',
+                    style: theme.textTheme.labelSmall?.copyWith(color: AppColors.ash),
+                  ),
+                  const Spacer(),
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: AppColors.signalRed,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    'LIVE',
+                    style: theme.textTheme.labelSmall?.copyWith(color: AppColors.bone),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
         Expanded(
           child: Pitch3DViewer(
             trajectoryPoints: trajectory,
@@ -1007,52 +1056,62 @@ class _ResultsView extends StatelessWidget {
           ),
         ),
         Container(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          decoration: const BoxDecoration(
+            color: AppColors.carbon,
+            border: Border(top: BorderSide(color: AppColors.hairlineDark, width: 1)),
           ),
           child: SafeArea(
             top: false,
-            child: Column(
-              children: [
-                Text('Decision', style: theme.textTheme.titleSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
-                  decoration: BoxDecoration(
-                    color: badgeBg,
-                    borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xl,
+                AppSpacing.lg,
+                AppSpacing.xl,
+                AppSpacing.lg,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'DECISION',
+                        style: theme.textTheme.labelSmall?.copyWith(color: AppColors.ash),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      DecisionBadge(decision: decisionKey, size: DecisionBadgeSize.large),
+                    ],
                   ),
-                  child: Text(
-                    decisionLabel,
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: badgeFg,
-                    ),
-                  ),
-                ),
-                if (reason != null && reason!.trim().isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    reason!,
-                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(onPressed: onReset, child: const Text('New Analysis')),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Done')),
+                  if (reason != null && reason!.trim().isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      reason!,
+                      style: theme.textTheme.bodyMedium?.copyWith(color: AppColors.ash),
                     ),
                   ],
-                ),
-              ],
+                  const SizedBox(height: AppSpacing.lg),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DrsButton(
+                          label: 'NEW',
+                          style: DrsButtonStyle.secondary,
+                          icon: Icons.refresh,
+                          onPressed: onReset,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: DrsButton(
+                          label: 'DONE',
+                          icon: Icons.check,
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),

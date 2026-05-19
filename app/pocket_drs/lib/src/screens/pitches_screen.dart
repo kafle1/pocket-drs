@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../models/pitch.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
 import '../utils/pitch_store.dart';
+import '../widgets/drs_button.dart';
+import '../widgets/drs_scaffold.dart';
+import '../widgets/status_chip.dart';
 import 'pitch_calibration_screen.dart';
 import 'pitch_detail_screen.dart';
 import 'pitch_edit_screen.dart';
@@ -31,7 +37,6 @@ class _PitchesScreenState extends State<PitchesScreen> {
       _loading = true;
       _error = null;
     });
-
     try {
       final pitches = await _store.loadAll();
       if (!mounted) return;
@@ -39,7 +44,7 @@ class _PitchesScreenState extends State<PitchesScreen> {
         _pitches = pitches;
         _loading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _error = 'Failed to load pitches';
@@ -52,39 +57,35 @@ class _PitchesScreenState extends State<PitchesScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Pitch?'),
-        content: Text('Are you sure you want to delete "${pitch.name}"? This action cannot be undone.'),
+        title: const Text('Delete pitch?'),
+        content: Text('"${pitch.name}" and all of its calibration will be removed.'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL')),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
             ),
-            child: const Text('Delete'),
+            child: const Text('DELETE'),
           ),
         ],
       ),
     );
-
-    if (confirmed == true && mounted) {
-      try {
-        await _store.delete(pitch.id);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${pitch.name} deleted')),
-          );
-          _load();
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to delete: $e')),
-          );
-        }
+    if (confirmed != true || !mounted) return;
+    try {
+      await _store.delete(pitch.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Removed ${pitch.name}')),
+        );
+        _load();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete: $e')),
+        );
       }
     }
   }
@@ -93,16 +94,15 @@ class _PitchesScreenState extends State<PitchesScreen> {
     final name = await Navigator.of(context).push<String>(
       MaterialPageRoute(builder: (_) => const PitchEditScreen()),
     );
-
     if (name == null || name.trim().isEmpty || !mounted) return;
 
     Pitch pitch;
     try {
       pitch = await _store.create(name: name);
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please sign in again'), behavior: SnackBarBehavior.floating),
+        const SnackBar(content: Text('Please sign in again')),
       );
       return;
     }
@@ -116,164 +116,132 @@ class _PitchesScreenState extends State<PitchesScreen> {
         ),
       ),
     );
-
-    if (mounted) {
-      _load();
-    }
+    if (mounted) _load();
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
+    final calibrated = _pitches.where((p) => p.isCalibrated).length;
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 120,
-            floating: false,
-            pinned: true,
-            flexibleSpace: FlexibleSpaceBar(
-              title: Text(
-                'Pitches',
-                style: theme.textTheme.headlineMedium?.copyWith(
-                  color: theme.colorScheme.onSurface,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
-            ),
-            actions: [
-              IconButton(
-                tooltip: 'Refresh',
-                onPressed: _loading ? null : _load,
-                icon: const Icon(Icons.refresh_rounded),
-              ),
-              const SizedBox(width: 8),
-            ],
+      appBar: DrsHeader(
+        eyebrow: 'WORKSPACE',
+        title: 'Pitches',
+        actions: [
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.refresh, size: 20),
           ),
-          if (_loading)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_error != null)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
-                      const SizedBox(height: 16),
-                      Text(
-                        _error!,
-                        style: theme.textTheme.titleMedium,
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 24),
-                      FilledButton.icon(
-                        onPressed: _load,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            )
-          else if (_pitches.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 120,
-                        height: 120,
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primaryContainer,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.sports_cricket,
-                          size: 56,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        'No Pitches Yet',
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Create your first pitch to get started with ball tracking and analysis.',
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 32),
-                      FilledButton.icon(
-                        onPressed: _createPitchAndCalibrate,
-                        icon: const Icon(Icons.add_rounded),
-                        label: const Text('Create Pitch'),
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              sliver: SliverList.separated(
-                itemBuilder: (context, index) {
-                  final pitch = _pitches[index];
-                  return _PitchCard(
-                    pitch: pitch,
-                    onTap: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => PitchDetailScreen(pitchId: pitch.id)),
-                      );
-                      _load();
-                    },
-                    onDelete: () => _deletePitch(pitch),
-                  );
-                },
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemCount: _pitches.length,
-              ),
-            ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _createPitchAndCalibrate,
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('New Pitch'),
-      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? _ErrorState(message: _error!, onRetry: _load)
+              : _pitches.isEmpty
+                  ? _EmptyState(onCreate: _createPitchAndCalibrate)
+                  : _List(
+                      pitches: _pitches,
+                      calibratedCount: calibrated,
+                      onOpen: (pitch) async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => PitchDetailScreen(pitchId: pitch.id),
+                          ),
+                        );
+                        _load();
+                      },
+                      onDelete: _deletePitch,
+                      onCreate: _createPitchAndCalibrate,
+                    ),
     );
   }
 }
 
-class _PitchCard extends StatelessWidget {
-  const _PitchCard({
-    required this.pitch,
-    required this.onTap,
+class _List extends StatelessWidget {
+  const _List({
+    required this.pitches,
+    required this.calibratedCount,
+    required this.onOpen,
     required this.onDelete,
+    required this.onCreate,
   });
-  
+
+  final List<Pitch> pitches;
+  final int calibratedCount;
+  final void Function(Pitch) onOpen;
+  final void Function(Pitch) onDelete;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            AppSpacing.lg,
+            AppSpacing.xl,
+            AppSpacing.md,
+          ),
+          child: Row(
+            children: [
+              Text(
+                pitches.length.toString().padLeft(2, '0'),
+                style: AppTypography.mono(theme.textTheme.displayMedium),
+              ),
+              const SizedBox(width: AppSpacing.lg),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      pitches.length == 1 ? 'PITCH IN LIBRARY' : 'PITCHES IN LIBRARY',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      '$calibratedCount / ${pitches.length} CALIBRATED',
+                      style: theme.textTheme.labelMedium,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            0,
+            AppSpacing.xl,
+            AppSpacing.lg,
+          ),
+          child: DrsButton(
+            label: 'NEW PITCH',
+            icon: Icons.add,
+            onPressed: onCreate,
+          ),
+        ),
+        Container(height: 1, color: theme.colorScheme.outline),
+        for (final p in pitches)
+          _PitchRow(
+            pitch: p,
+            onTap: () => onOpen(p),
+            onDelete: () => onDelete(p),
+          ),
+      ],
+    );
+  }
+}
+
+class _PitchRow extends StatelessWidget {
+  const _PitchRow({required this.pitch, required this.onTap, required this.onDelete});
   final Pitch pitch;
   final VoidCallback onTap;
   final VoidCallback onDelete;
@@ -281,6 +249,8 @@ class _PitchCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     final isCalibrated = pitch.isCalibrated;
 
     return Dismissible(
@@ -292,102 +262,78 @@ class _PitchCard extends StatelessWidget {
       },
       background: Container(
         alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 24),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.error,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+        padding: const EdgeInsets.only(right: AppSpacing.xl),
+        color: AppColors.signalRed,
+        child: const Icon(Icons.delete_outline, color: AppColors.bone),
       ),
-      child: Card(
-        margin: EdgeInsets.zero,
-        clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: scheme.surface,
         child: InkWell(
           onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: scheme.outline, width: 1),
+              ),
+            ),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.xl,
+              vertical: AppSpacing.lg,
+            ),
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: isCalibrated
-                              ? [theme.colorScheme.primary, theme.colorScheme.secondary]
-                              : [theme.colorScheme.surfaceContainerHighest, theme.colorScheme.surfaceContainer],
-                        ),
-                        borderRadius: BorderRadius.circular(14),
+                Container(
+                  width: 4,
+                  height: 40,
+                  color: isCalibrated
+                      ? AppColors.decisionNotOut(isDark)
+                      : AppColors.decisionOut(isDark),
+                ),
+                const SizedBox(width: AppSpacing.lg),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        pitch.name,
+                        style: theme.textTheme.titleLarge,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      child: Icon(
-                        isCalibrated ? Icons.verified : Icons.flag_outlined,
-                        color: isCalibrated ? Colors.white : theme.colorScheme.onSurfaceVariant,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      const SizedBox(height: AppSpacing.xs),
+                      Row(
                         children: [
                           Text(
-                            pitch.name,
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w700,
+                            _relative(pitch.updatedAt).toUpperCase(),
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(width: AppSpacing.md),
+                          Container(
+                            width: 3,
+                            height: 3,
+                            decoration: BoxDecoration(
+                              color: scheme.onSurfaceVariant,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.md),
                           Text(
-                            'Updated ${_formatDate(pitch.updatedAt)}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
+                            isCalibrated ? 'READY' : 'CALIBRATE',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: isCalibrated
+                                  ? AppColors.decisionNotOut(isDark)
+                                  : AppColors.decisionOut(isDark),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: theme.colorScheme.onSurfaceVariant,
-                      size: 28,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: isCalibrated
-                        ? theme.colorScheme.tertiary.withValues(alpha: 0.15)
-                        : theme.colorScheme.error.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        isCalibrated ? Icons.check_circle : Icons.warning_amber_rounded,
-                        size: 16,
-                        color: isCalibrated ? theme.colorScheme.tertiary : theme.colorScheme.error,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        isCalibrated ? 'Calibrated & Ready' : 'Needs Calibration',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: isCalibrated ? theme.colorScheme.tertiary : theme.colorScheme.error,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
                     ],
                   ),
                 ),
+                const SizedBox(width: AppSpacing.md),
+                Icon(Icons.arrow_forward, size: 18, color: scheme.onSurfaceVariant),
               ],
             ),
           ),
@@ -396,20 +342,76 @@ class _PitchCard extends StatelessWidget {
     );
   }
 
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final diff = now.difference(date);
-    
-    if (diff.inDays == 0) {
-      if (diff.inHours == 0) {
-        if (diff.inMinutes == 0) return 'just now';
-        return '${diff.inMinutes}m ago';
-      }
-      return '${diff.inHours}h ago';
-    } else if (diff.inDays < 7) {
-      return '${diff.inDays}d ago';
-    } else {
-      return '${date.day}/${date.month}/${date.year}';
-    }
+  static String _relative(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) return '${d.inMinutes}m ago';
+    if (d.inHours < 24) return '${d.inHours}h ago';
+    if (d.inDays < 7) return '${d.inDays}d ago';
+    return '${t.day}/${t.month}/${t.year}';
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.onCreate});
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            '00',
+            style: AppTypography.mono(theme.textTheme.displayLarge)?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            'No pitches yet.',
+            style: theme.textTheme.headlineMedium,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Calibrate your first pitch to begin tracking deliveries and reviewing LBW decisions.',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xxl),
+          DrsButton(label: 'NEW PITCH', icon: Icons.add, onPressed: onCreate),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  const _ErrorState({required this.message, required this.onRetry});
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const StatusChip(label: 'ERROR', color: AppColors.signalRed),
+          const SizedBox(height: AppSpacing.lg),
+          Text(message, style: theme.textTheme.headlineMedium),
+          const SizedBox(height: AppSpacing.xxl),
+          DrsButton(label: 'RETRY', icon: Icons.refresh, onPressed: onRetry),
+        ],
+      ),
+    );
   }
 }

@@ -1,43 +1,50 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_spacing.dart';
 
+/// Small status pill. A leading dot in [color] and a wide-tracked CAPS label.
+/// Used for state ("CALIBRATED", "LIVE", "OFFLINE", etc).
 class StatusChip extends StatelessWidget {
   const StatusChip({
     super.key,
     required this.label,
     required this.color,
-    this.icon,
+    this.dense = false,
   });
 
   final String label;
   final Color color;
-  final IconData? icon;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
+      padding: EdgeInsets.symmetric(
+        horizontal: dense ? AppSpacing.sm : AppSpacing.md,
+        vertical: dense ? AppSpacing.xs : AppSpacing.sm - 2,
       ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
+        color: scheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppRadius.xs),
+        border: Border.all(color: scheme.outline, width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (icon != null) ...[
-            Icon(icon, size: 16, color: color),
-            const SizedBox(width: AppSpacing.xs),
-          ],
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: AppSpacing.sm),
           Text(
-            label,
+            label.toUpperCase(),
             style: TextStyle(
-              color: color,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
+              color: scheme.onSurface,
+              fontSize: dense ? 9.5 : 10.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.4,
             ),
           ),
         ],

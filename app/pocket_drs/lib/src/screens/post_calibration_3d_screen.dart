@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../analysis/pitch_calibration.dart';
 import '../analysis/pitch_pose.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_typography.dart';
+import '../widgets/drs_button.dart';
 import '../widgets/pitch_3d_viewer.dart';
 import 'delivery_processing_screen.dart';
 
-/// Shown right after calibration succeeds.  Confirms that the camera pose
-/// is locked in, surfaces a quality hint, and offers a one-tap path into
-/// delivery analysis without bouncing back to the pitch list.
+/// Shown right after calibration succeeds. Confirms camera pose, surfaces a
+/// telemetry summary, and offers a one-tap path into delivery analysis.
 class PostCalibration3DScreen extends StatelessWidget {
   const PostCalibration3DScreen({
     super.key,
@@ -26,22 +29,20 @@ class PostCalibration3DScreen extends StatelessWidget {
     final pose = PitchPoseEstimator.fromCalibration(calibration);
 
     return Scaffold(
+      backgroundColor: AppColors.inkBlack,
       body: Stack(
         children: [
-          Positioned.fill(
-            child: Pitch3DViewer(
-              showAnimation: false,
-              pose: pose,
-            ),
-          ),
-          Positioned.fill(
+          Positioned.fill(child: Pitch3DViewer(showAnimation: false, pose: pose)),
+          IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    Colors.black.withValues(alpha: 0.30),
-                    Colors.black.withValues(alpha: 0.10),
+                    AppColors.inkBlack.withValues(alpha: 0.55),
+                    AppColors.inkBlack.withValues(alpha: 0),
+                    AppColors.inkBlack.withValues(alpha: 0.70),
                   ],
+                  stops: const [0, 0.45, 1],
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                 ),
@@ -49,139 +50,126 @@ class PostCalibration3DScreen extends StatelessWidget {
             ),
           ),
           SafeArea(
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.md,
+                AppSpacing.lg,
+                AppSpacing.xl,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      const _StatusChip(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: AppSpacing.sm,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.inkBlack.withValues(alpha: 0.7),
+                          border: Border.all(
+                            color: AppColors.bone.withValues(alpha: 0.2),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                color: AppColors.pitchGreen,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Text(
+                              'CALIBRATION LOCKED',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: AppColors.bone,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                       const Spacer(),
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(true),
-                        icon: const Icon(Icons.close, color: Colors.white),
-                        style: IconButton.styleFrom(
-                          backgroundColor: Colors.white.withValues(alpha: 0.14),
+                      Material(
+                        color: AppColors.inkBlack.withValues(alpha: 0.7),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          side: BorderSide(
+                            color: AppColors.bone.withValues(alpha: 0.2),
+                            width: 1,
+                          ),
+                        ),
+                        child: IconButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          icon: const Icon(Icons.close, color: AppColors.bone, size: 18),
                         ),
                       ),
                     ],
                   ),
-                ),
-                const Spacer(),
-                Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.all(16),
-                  padding: const EdgeInsets.all(22),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surface,
-                    borderRadius: BorderRadius.circular(24),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.20),
-                        blurRadius: 22,
-                        offset: const Offset(0, 12),
-                      ),
-                    ],
+                  const Spacer(),
+                  Text(
+                    pitchName.toUpperCase(),
+                    style: theme.textTheme.labelMedium?.copyWith(color: AppColors.ash),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'Ready.',
+                    style: theme.textTheme.displaySmall?.copyWith(color: AppColors.bone),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'Pitch corners and stumps are locked. Run an analysis to see the 3D ball trajectory and the LBW decision.',
+                    style: theme.textTheme.bodyMedium?.copyWith(color: AppColors.ash),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  Container(height: 1, color: AppColors.bone.withValues(alpha: 0.15)),
+                  const SizedBox(height: AppSpacing.lg),
+                  const Row(
                     children: [
-                      Text(
-                        pitchName,
-                        style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Pitch corners and stumps are locked in. Run an analysis on a delivery video to see the 3D ball trajectory and the LBW decision.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                      _Stat(label: 'PITCH-LEN', value: '20.12', unit: 'M'),
+                      _Stat(label: 'PITCH-W', value: '3.05', unit: 'M'),
+                      _Stat(label: 'STUMPS', value: '0.71', unit: 'M'),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DrsButton(
+                          label: 'DONE',
+                          style: DrsButtonStyle.secondary,
+                          icon: Icons.check,
+                          onPressed: () => Navigator.of(context).pop(true),
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      const Row(
-                        children: [
-                          _Stat(label: 'Length', value: '20.12 m'),
-                          SizedBox(width: 12),
-                          _Stat(label: 'Width', value: '3.05 m'),
-                          SizedBox(width: 12),
-                          _Stat(label: 'Stumps', value: '0.71 m'),
-                        ],
-                      ),
-                      const SizedBox(height: 22),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => Navigator.of(context).pop(true),
-                              icon: const Icon(Icons.check),
-                              label: const Text('Done'),
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 16),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: DrsButton(
+                          label: 'ANALYSE',
+                          icon: Icons.bolt,
+                          onPressed: () async {
+                            Navigator.of(context).pop(true);
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => DeliveryProcessingScreen(
+                                  pitchId: pitchId,
+                                  pitchName: pitchName,
+                                ),
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: FilledButton.icon(
-                              onPressed: () async {
-                                // Pop this confirmation, then immediately push
-                                // straight into the delivery flow on top of the
-                                // pitch list so the user lands back at "Pitches"
-                                // when they're done analyzing.
-                                Navigator.of(context).pop(true);
-                                await Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => DeliveryProcessingScreen(
-                                      pitchId: pitchId,
-                                      pitchName: pitchName,
-                                    ),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.analytics_outlined),
-                              label: const Text('Analyze now'),
-                              style: FilledButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                              ),
-                            ),
-                          ),
-                        ],
+                            );
+                          },
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip();
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.check_circle, color: Color(0xFF4ADE80), size: 16),
-          const SizedBox(width: 8),
-          Text(
-            'CALIBRATION SUCCESS',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.8,
+                ],
+              ),
             ),
           ),
         ],
@@ -191,28 +179,41 @@ class _StatusChip extends StatelessWidget {
 }
 
 class _Stat extends StatelessWidget {
-  const _Stat({required this.label, required this.value});
+  const _Stat({required this.label, required this.value, required this.unit});
   final String label;
   final String value;
+  final String unit;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-            const SizedBox(height: 4),
-            Text(value, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-          ],
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(color: AppColors.ash),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                value,
+                style: AppTypography.mono(theme.textTheme.headlineMedium)?.copyWith(
+                  color: AppColors.bone,
+                ),
+              ),
+              const SizedBox(width: 3),
+              Text(
+                unit,
+                style: theme.textTheme.labelSmall?.copyWith(color: AppColors.ash),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
