@@ -158,81 +158,14 @@ class JobStatusResponse(BaseModel):
     error: ApiError | None = None
 
 
-class TrackPoint(BaseModel):
-    t_ms: int
-    x_px: float
-    y_px: float
-    confidence: float
-
-
-class HomographyResponse(BaseModel):
-    matrix: list[list[float]]
-
-
-class CalibrationResponse(BaseModel):
-    mode: str
-    homography: HomographyResponse | None = None
-    quality: dict[str, Any] | None = None
-
-
-class PitchPlanePoint(BaseModel):
-    t_ms: int
-    x_m: float
-    y_m: float
-
-
-class EventEstimate(BaseModel):
-    index: int
-    confidence: float
-
-
-class EventsResponse(BaseModel):
-    bounce: EventEstimate
-    impact: EventEstimate
-
-
-class LbwChecks(BaseModel):
-    pitching_in_line: bool
-    impact_in_line: bool
-    wickets_hitting: bool
-
-
-class LbwResponse(BaseModel):
-    likely_out: bool
-    checks: LbwChecks
-    prediction: dict[str, float]
-    decision: Literal["out", "not_out", "umpires_call"]
-    reason: str
-
-
-class VideoMeta(BaseModel):
-    duration_ms: int
-    fps_est: float
-
-
-class ImageSize(BaseModel):
-    width: int
-    height: int
-
-
-class Diagnostics(BaseModel):
-    warnings: list[str] = []
-    log_id: str | None = None
-
-
-class JobResultPayload(BaseModel):
-    video: VideoMeta
-    diagnostics: Diagnostics
-    track: dict[str, list[TrackPoint]]
-    calibration: CalibrationResponse
-    pitch_plane: dict[str, list[PitchPlanePoint]] | None = None
-    events: EventsResponse | None = None
-    lbw: LbwResponse | None = None
-    image_size: ImageSize | None = None
-
-
 class JobResultResponse(BaseModel):
+    # The pipeline already constructs the result dict against a documented
+    # schema (see server/app/pipeline/process_job.py module docstring), the
+    # Flutter client parses it defensively, and Firestore stores it after
+    # sanitization. Re-declaring the same shape as Pydantic models here would
+    # duplicate the source of truth and silently 500 the result endpoint
+    # whenever the pipeline schema evolves. Pass the dict through.
     job_id: str
     status: JobStatus
-    result: JobResultPayload | None = None
+    result: dict[str, Any] | None = None
     error: ApiError | None = None

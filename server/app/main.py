@@ -107,7 +107,13 @@ def _sanitize_for_firestore(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(k): _sanitize_for_firestore(v) for k, v in value.items()}
     if isinstance(value, (list, tuple, set)):
-        return [_sanitize_for_firestore(x) for x in value]
+        items = [_sanitize_for_firestore(x) for x in value]
+        # Firestore rejects arrays whose elements are themselves arrays
+        # ("Nested arrays are not allowed"). Wrap such matrices as a
+        # row-indexed map so e.g. the 3x3 camera intrinsic K survives storage.
+        if any(isinstance(x, list) for x in items):
+            return {str(i): x for i, x in enumerate(items)}
+        return items
     # Fallback: stringify anything exotic so we don't lose the field entirely.
     return str(value)
 
