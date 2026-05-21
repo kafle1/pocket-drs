@@ -467,14 +467,7 @@ FR-12 & Decision History & Users view past analyses and decisions saved to Fires
 \hline
 \end{longtable}
 
-The functional requirements are illustrated by the use-case diagram in Figure~\ref{fig:usecase}. The Cricketer signs in, creates and calibrates a pitch, records or uploads and trims a delivery, runs the analysis, and views the 3D ball track, the LBW decision, and the analysis history. Firebase participates as a supporting actor in the sign-in, analysis-storage, and history use cases.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.7\textwidth]{figures/use_case_diagram.png}
-    \caption{Use-case diagram of the PocketDRS system.}
-    \label{fig:usecase}
-\end{figure}
+The table above specifies the functional requirements of the system. As the project follows the structured approach, the system's processes are modelled by the data flow diagrams that follow, rather than by a use-case (object-oriented) diagram.
 
 \subsubsection{Non-functional Requirements}
 
@@ -1184,31 +1177,31 @@ def _decide_lbw(*, bounce, impact, pred_y_at_stumps, pred_z_at_stumps,
 
 \clearpage
 
-\section*{Appendix E: Supervisor's Visit Log Sheet}
+\clearpage
+\addcontentsline{toc}{chapter}{Project Log Book}
 
-\renewcommand{\arraystretch}{2.2}
-\begin{tabularx}{\textwidth}{|c|p{2.6cm}|X|p{3cm}|}
-\hline
-\textbf{S.N.} & \textbf{Date} & \textbf{Topics / Progress Discussed} & \textbf{Supervisor's Signature} \\
-\hline
-1 & & & \\
-\hline
-2 & & & \\
-\hline
-3 & & & \\
-\hline
-4 & & & \\
-\hline
-5 & & & \\
-\hline
-6 & & & \\
-\hline
-\end{tabularx}
-\renewcommand{\arraystretch}{1}
+\newcommand{\logsheetpage}[1]{%
+\thispagestyle{plain}\begingroup\singlespacing\setlength{\parskip}{0pt}%
+\begin{center}\textbf{\fontsize{14}{17}\selectfont Project Log Book Entry Sheet}\end{center}
+\vspace{0.3cm}
+\noindent\begin{minipage}[t]{0.52\textwidth}Meeting No.: \dotfill\end{minipage}\hfill\begin{minipage}[t]{0.42\textwidth}Date: \dotfill\end{minipage}\par
+\vspace{12pt}\noindent\begin{minipage}[t]{0.52\textwidth}Start Time: \dotfill\end{minipage}\hfill\begin{minipage}[t]{0.42\textwidth}Finish Time: \dotfill\end{minipage}\par
+\vspace{16pt}\noindent\textbf{Discussion Topics:}\par
+\vspace{8pt}1.~\dotfill\par\vspace{10pt}2.~\dotfill\par\vspace{10pt}3.~\dotfill\par\vspace{10pt}4.~\dotfill\par
+\vspace{14pt}\noindent\textbf{Achievements:}\par
+\vspace{8pt}1.~\dotfill\par\vspace{10pt}2.~\dotfill\par\vspace{10pt}3.~\dotfill\par\vspace{10pt}4.~\dotfill\par
+\vspace{14pt}\noindent\textbf{Problems (if any):}\par
+\vspace{8pt}1.~\dotfill\par\vspace{10pt}2.~\dotfill\par\vspace{10pt}3.~\dotfill\par\vspace{10pt}4.~\dotfill\par
+\vspace{14pt}\noindent\textbf{Task for next meeting:}\par
+\vspace{8pt}1.~\dotfill\par\vspace{10pt}2.~\dotfill\par\vspace{10pt}3.~\dotfill\par\vspace{10pt}4.~\dotfill\par
+\vspace{16pt}\noindent\rule{\textwidth}{0.4pt}\par
+\vspace{8pt}\noindent\begin{minipage}[t]{0.55\textwidth}Student Name: #1\\[16pt]Signature: \dotfill\end{minipage}\hfill\begin{minipage}[t]{0.4\textwidth}\centering Mentor Signature\\[22pt]\dotfill\end{minipage}\par
+\endgroup\clearpage}
 
-\vspace{1.5cm}
-
-\noindent
-\textbf{Supervisor:} Mr. Saishab Bhattarai \hfill \textbf{Signature:} \underline{\hspace{4cm}}
+\logsheetpage{Niraj Kafle}
+\logsheetpage{Niraj Kafle}
+\logsheetpage{Niraj Kafle}
+\logsheetpage{Niraj Kafle}
+\logsheetpage{Niraj Kafle}
 
 \end{document}

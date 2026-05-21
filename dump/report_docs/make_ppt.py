@@ -181,7 +181,14 @@ bullet_slide("Objectives", [
     (1, "Present an interactive 3D visualisation of the decision."),
 ])
 
-image_slide("Functional Requirements: Use-Case Diagram", [FIG / "use_case_diagram.png"])
+bullet_slide("Functional Requirements", [
+    (0, "User authentication via Firebase (email/password or Google sign-in)."),
+    (0, "Record or select a delivery video, and trim to the delivery."),
+    (0, "Calibrate the pitch by tapping the four corners; validate quality."),
+    (0, "Submit the clip for server-side ball detection and 3D reconstruction."),
+    (0, "Return an LBW decision (OUT / NOT OUT / UMPIRE'S CALL) with rationale."),
+    (0, "Interactive 3D trajectory view and saved analysis history."),
+])
 
 bullet_slide("Non-functional Requirements", [
     (0, "Response time: process a 5-second clip within ~30 seconds."),
