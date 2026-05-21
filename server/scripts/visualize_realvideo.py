@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from realvideo_calibration import CORNER_LABELS, PITCH_CORNERS_PX
 
 
 VIDEO = Path("/Users/nirajkafle/Desktop/niraj/dev-projects/pocket-drs/test.mp4")
 RESULT = Path("/Users/nirajkafle/Desktop/niraj/dev-projects/pocket-drs/dump/validation/realvideo_result.json")
 OUT_DIR = Path("/Users/nirajkafle/Desktop/niraj/dev-projects/pocket-drs/dump/validation")
 
-CORNERS_PX = [(200.0, 470.0), (370.0, 470.0), (700.0, 1850.0), (10.0, 1850.0)]
-CORNER_LABELS = ["striker-L", "striker-R", "bowler-R", "bowler-L"]
+# Shared with the pipeline run so the overlay always reflects the real picks.
+CORNERS_PX = PITCH_CORNERS_PX
 
 
 def overlay_calibration(frame: np.ndarray) -> np.ndarray:
@@ -71,19 +76,29 @@ def sample_frames(times_ms: list[int]) -> list[tuple[int, np.ndarray]]:
 
 
 def main() -> int:
-    r = json.load(RESULT.open())
-    tracked = r["track"]["image_points"]
-
     cap = cv2.VideoCapture(str(VIDEO))
     ok, f0 = cap.read()
     cap.release()
     if not ok:
         return 1
 
-    # 1. Calibration overlay on frame 0.
+    # 1. Calibration overlay on frame 0 — always rendered from the shared
+    #    corner picks, independent of whether the pipeline produced a result.
     cv2.imwrite(str(OUT_DIR / "realvideo_calibration.png"), overlay_calibration(f0))
 
-    # 2. Tracking overlay on frame 0 (all 194 detections drawn).
+    # The tracking overlays need a pipeline result. For this clip the
+    # calibration is correctly rejected (short practice net, not a full pitch),
+    # so a result may not exist — render the calibration overlay only.
+    if not RESULT.exists():
+        print("No pipeline result (calibration rejected); wrote calibration overlay only.")
+        return 0
+    r = json.load(RESULT.open())
+    tracked = r.get("track", {}).get("image_points") or []
+    if not tracked:
+        print("No tracked detections in result; wrote calibration overlay only.")
+        return 0
+
+    # 2. Tracking overlay on frame 0 (all detections drawn).
     cv2.imwrite(str(OUT_DIR / "realvideo_tracking_cluster.png"), overlay_tracking(f0, tracked))
 
     # 3. Sample frames at sparse times with the corresponding detection.

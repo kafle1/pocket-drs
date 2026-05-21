@@ -1,0 +1,724 @@
+{
+  "videos": [
+    {
+      "file": "01_out_off_stump.mp4",
+      "description": "off_stump_line speed=18m/s",
+      "expected_decision": "out",
+      "pipeline_decision": "out",
+      "marginal": false,
+      "ball_color": "red",
+      "pitch_dimensions_m": {
+        "length": 20.12,
+        "width": 3.05
+      },
+      "h_fov_deg": 61.92751306414704,
+      "pitch_corners_px": [
+        {
+          "label": "striker-L",
+          "x": 169.8,
+          "y": 639.1
+        },
+        {
+          "label": "striker-R",
+          "x": 910.2,
+          "y": 639.1
+        },
+        {
+          "label": "bowler-R",
+          "x": 598.0,
+          "y": 1010.9
+        },
+        {
+          "label": "bowler-L",
+          "x": 482.0,
+          "y": 1010.9
+        }
+      ],
+      "request": {
+        "segment": {
+          "start_ms": 0,
+          "end_ms": 1283
+        },
+        "calibration": {
+          "mode": "taps",
+          "pitch_corners_px": [
+            {
+              "x": 169.77372875305548,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 910.2262712469445,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 598.0321146045085,
+              "y": 1010.8968985750212
+            },
+            {
+              "x": 481.9678853954915,
+              "y": 1010.8968985750212
+            }
+          ],
+          "pitch_dimensions_m": {
+            "length": 20.12,
+            "width": 3.05
+          },
+          "h_fov_deg": 61.92751306414704
+        },
+        "tracking": {
+          "sample_fps": 60,
+          "max_frames": 78,
+          "ball_color": "red"
+        }
+      }
+    },
+    {
+      "file": "02_out_middle_stump.mp4",
+      "description": "middle_stump speed=18m/s",
+      "expected_decision": "out",
+      "pipeline_decision": "out",
+      "marginal": false,
+      "ball_color": "red",
+      "pitch_dimensions_m": {
+        "length": 20.12,
+        "width": 3.05
+      },
+      "h_fov_deg": 61.92751306414704,
+      "pitch_corners_px": [
+        {
+          "label": "striker-L",
+          "x": 169.8,
+          "y": 639.1
+        },
+        {
+          "label": "striker-R",
+          "x": 910.2,
+          "y": 639.1
+        },
+        {
+          "label": "bowler-R",
+          "x": 598.0,
+          "y": 1010.9
+        },
+        {
+          "label": "bowler-L",
+          "x": 482.0,
+          "y": 1010.9
+        }
+      ],
+      "request": {
+        "segment": {
+          "start_ms": 0,
+          "end_ms": 1283
+        },
+        "calibration": {
+          "mode": "taps",
+          "pitch_corners_px": [
+            {
+              "x": 169.77372875305548,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 910.2262712469445,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 598.0321146045085,
+              "y": 1010.8968985750212
+            },
+            {
+              "x": 481.9678853954915,
+              "y": 1010.8968985750212
+            }
+          ],
+          "pitch_dimensions_m": {
+            "length": 20.12,
+            "width": 3.05
+          },
+          "h_fov_deg": 61.92751306414704
+        },
+        "tracking": {
+          "sample_fps": 60,
+          "max_frames": 78,
+          "ball_color": "red"
+        }
+      }
+    },
+    {
+      "file": "03_out_leg_stump.mp4",
+      "description": "leg_stump_line speed=18m/s",
+      "expected_decision": "out",
+      "pipeline_decision": "out",
+      "marginal": false,
+      "ball_color": "red",
+      "pitch_dimensions_m": {
+        "length": 20.12,
+        "width": 3.05
+      },
+      "h_fov_deg": 61.92751306414704,
+      "pitch_corners_px": [
+        {
+          "label": "striker-L",
+          "x": 169.8,
+          "y": 639.1
+        },
+        {
+          "label": "striker-R",
+          "x": 910.2,
+          "y": 639.1
+        },
+        {
+          "label": "bowler-R",
+          "x": 598.0,
+          "y": 1010.9
+        },
+        {
+          "label": "bowler-L",
+          "x": 482.0,
+          "y": 1010.9
+        }
+      ],
+      "request": {
+        "segment": {
+          "start_ms": 0,
+          "end_ms": 1283
+        },
+        "calibration": {
+          "mode": "taps",
+          "pitch_corners_px": [
+            {
+              "x": 169.77372875305548,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 910.2262712469445,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 598.0321146045085,
+              "y": 1010.8968985750212
+            },
+            {
+              "x": 481.9678853954915,
+              "y": 1010.8968985750212
+            }
+          ],
+          "pitch_dimensions_m": {
+            "length": 20.12,
+            "width": 3.05
+          },
+          "h_fov_deg": 61.92751306414704
+        },
+        "tracking": {
+          "sample_fps": 60,
+          "max_frames": 78,
+          "ball_color": "red"
+        }
+      }
+    },
+    {
+      "file": "04_out_fast_middle.mp4",
+      "description": "middle_clip speed=30m/s",
+      "expected_decision": "out",
+      "pipeline_decision": "out",
+      "marginal": false,
+      "ball_color": "red",
+      "pitch_dimensions_m": {
+        "length": 20.12,
+        "width": 3.05
+      },
+      "h_fov_deg": 61.92751306414704,
+      "pitch_corners_px": [
+        {
+          "label": "striker-L",
+          "x": 169.8,
+          "y": 639.1
+        },
+        {
+          "label": "striker-R",
+          "x": 910.2,
+          "y": 639.1
+        },
+        {
+          "label": "bowler-R",
+          "x": 598.0,
+          "y": 1010.9
+        },
+        {
+          "label": "bowler-L",
+          "x": 482.0,
+          "y": 1010.9
+        }
+      ],
+      "request": {
+        "segment": {
+          "start_ms": 0,
+          "end_ms": 1283
+        },
+        "calibration": {
+          "mode": "taps",
+          "pitch_corners_px": [
+            {
+              "x": 169.77372875305548,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 910.2262712469445,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 598.0321146045085,
+              "y": 1010.8968985750212
+            },
+            {
+              "x": 481.9678853954915,
+              "y": 1010.8968985750212
+            }
+          ],
+          "pitch_dimensions_m": {
+            "length": 20.12,
+            "width": 3.05
+          },
+          "h_fov_deg": 61.92751306414704
+        },
+        "tracking": {
+          "sample_fps": 60,
+          "max_frames": 78,
+          "ball_color": "red"
+        }
+      }
+    },
+    {
+      "file": "05_notout_wide_off.mp4",
+      "description": "wide_off speed=18m/s",
+      "expected_decision": "not_out",
+      "pipeline_decision": "not_out",
+      "marginal": false,
+      "ball_color": "red",
+      "pitch_dimensions_m": {
+        "length": 20.12,
+        "width": 3.05
+      },
+      "h_fov_deg": 61.92751306414704,
+      "pitch_corners_px": [
+        {
+          "label": "striker-L",
+          "x": 169.8,
+          "y": 639.1
+        },
+        {
+          "label": "striker-R",
+          "x": 910.2,
+          "y": 639.1
+        },
+        {
+          "label": "bowler-R",
+          "x": 598.0,
+          "y": 1010.9
+        },
+        {
+          "label": "bowler-L",
+          "x": 482.0,
+          "y": 1010.9
+        }
+      ],
+      "request": {
+        "segment": {
+          "start_ms": 0,
+          "end_ms": 1283
+        },
+        "calibration": {
+          "mode": "taps",
+          "pitch_corners_px": [
+            {
+              "x": 169.77372875305548,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 910.2262712469445,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 598.0321146045085,
+              "y": 1010.8968985750212
+            },
+            {
+              "x": 481.9678853954915,
+              "y": 1010.8968985750212
+            }
+          ],
+          "pitch_dimensions_m": {
+            "length": 20.12,
+            "width": 3.05
+          },
+          "h_fov_deg": 61.92751306414704
+        },
+        "tracking": {
+          "sample_fps": 60,
+          "max_frames": 78,
+          "ball_color": "red"
+        }
+      }
+    },
+    {
+      "file": "06_notout_down_leg.mp4",
+      "description": "going_down_leg speed=18m/s",
+      "expected_decision": "not_out",
+      "pipeline_decision": "not_out",
+      "marginal": false,
+      "ball_color": "red",
+      "pitch_dimensions_m": {
+        "length": 20.12,
+        "width": 3.05
+      },
+      "h_fov_deg": 61.92751306414704,
+      "pitch_corners_px": [
+        {
+          "label": "striker-L",
+          "x": 169.8,
+          "y": 639.1
+        },
+        {
+          "label": "striker-R",
+          "x": 910.2,
+          "y": 639.1
+        },
+        {
+          "label": "bowler-R",
+          "x": 598.0,
+          "y": 1010.9
+        },
+        {
+          "label": "bowler-L",
+          "x": 482.0,
+          "y": 1010.9
+        }
+      ],
+      "request": {
+        "segment": {
+          "start_ms": 0,
+          "end_ms": 1283
+        },
+        "calibration": {
+          "mode": "taps",
+          "pitch_corners_px": [
+            {
+              "x": 169.77372875305548,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 910.2262712469445,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 598.0321146045085,
+              "y": 1010.8968985750212
+            },
+            {
+              "x": 481.9678853954915,
+              "y": 1010.8968985750212
+            }
+          ],
+          "pitch_dimensions_m": {
+            "length": 20.12,
+            "width": 3.05
+          },
+          "h_fov_deg": 61.92751306414704
+        },
+        "tracking": {
+          "sample_fps": 60,
+          "max_frames": 78,
+          "ball_color": "red"
+        }
+      }
+    },
+    {
+      "file": "07_notout_outside_leg.mp4",
+      "description": "outside_leg speed=30m/s",
+      "expected_decision": "not_out",
+      "pipeline_decision": "not_out",
+      "marginal": false,
+      "ball_color": "red",
+      "pitch_dimensions_m": {
+        "length": 20.12,
+        "width": 3.05
+      },
+      "h_fov_deg": 61.92751306414704,
+      "pitch_corners_px": [
+        {
+          "label": "striker-L",
+          "x": 169.8,
+          "y": 639.1
+        },
+        {
+          "label": "striker-R",
+          "x": 910.2,
+          "y": 639.1
+        },
+        {
+          "label": "bowler-R",
+          "x": 598.0,
+          "y": 1010.9
+        },
+        {
+          "label": "bowler-L",
+          "x": 482.0,
+          "y": 1010.9
+        }
+      ],
+      "request": {
+        "segment": {
+          "start_ms": 0,
+          "end_ms": 1283
+        },
+        "calibration": {
+          "mode": "taps",
+          "pitch_corners_px": [
+            {
+              "x": 169.77372875305548,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 910.2262712469445,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 598.0321146045085,
+              "y": 1010.8968985750212
+            },
+            {
+              "x": 481.9678853954915,
+              "y": 1010.8968985750212
+            }
+          ],
+          "pitch_dimensions_m": {
+            "length": 20.12,
+            "width": 3.05
+          },
+          "h_fov_deg": 61.92751306414704
+        },
+        "tracking": {
+          "sample_fps": 60,
+          "max_frames": 78,
+          "ball_color": "red"
+        }
+      }
+    },
+    {
+      "file": "08_notout_well_wide_leg.mp4",
+      "description": "well_outside_leg speed=30m/s",
+      "expected_decision": "not_out",
+      "pipeline_decision": "not_out",
+      "marginal": false,
+      "ball_color": "red",
+      "pitch_dimensions_m": {
+        "length": 20.12,
+        "width": 3.05
+      },
+      "h_fov_deg": 61.92751306414704,
+      "pitch_corners_px": [
+        {
+          "label": "striker-L",
+          "x": 169.8,
+          "y": 639.1
+        },
+        {
+          "label": "striker-R",
+          "x": 910.2,
+          "y": 639.1
+        },
+        {
+          "label": "bowler-R",
+          "x": 598.0,
+          "y": 1010.9
+        },
+        {
+          "label": "bowler-L",
+          "x": 482.0,
+          "y": 1010.9
+        }
+      ],
+      "request": {
+        "segment": {
+          "start_ms": 0,
+          "end_ms": 1283
+        },
+        "calibration": {
+          "mode": "taps",
+          "pitch_corners_px": [
+            {
+              "x": 169.77372875305548,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 910.2262712469445,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 598.0321146045085,
+              "y": 1010.8968985750212
+            },
+            {
+              "x": 481.9678853954915,
+              "y": 1010.8968985750212
+            }
+          ],
+          "pitch_dimensions_m": {
+            "length": 20.12,
+            "width": 3.05
+          },
+          "h_fov_deg": 61.92751306414704
+        },
+        "tracking": {
+          "sample_fps": 60,
+          "max_frames": 78,
+          "ball_color": "red"
+        }
+      }
+    },
+    {
+      "file": "09_notout_off_drift.mp4",
+      "description": "off_drifting_in speed=18m/s",
+      "expected_decision": "not_out",
+      "pipeline_decision": "not_out",
+      "marginal": false,
+      "ball_color": "red",
+      "pitch_dimensions_m": {
+        "length": 20.12,
+        "width": 3.05
+      },
+      "h_fov_deg": 61.92751306414704,
+      "pitch_corners_px": [
+        {
+          "label": "striker-L",
+          "x": 169.8,
+          "y": 639.1
+        },
+        {
+          "label": "striker-R",
+          "x": 910.2,
+          "y": 639.1
+        },
+        {
+          "label": "bowler-R",
+          "x": 598.0,
+          "y": 1010.9
+        },
+        {
+          "label": "bowler-L",
+          "x": 482.0,
+          "y": 1010.9
+        }
+      ],
+      "request": {
+        "segment": {
+          "start_ms": 0,
+          "end_ms": 1283
+        },
+        "calibration": {
+          "mode": "taps",
+          "pitch_corners_px": [
+            {
+              "x": 169.77372875305548,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 910.2262712469445,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 598.0321146045085,
+              "y": 1010.8968985750212
+            },
+            {
+              "x": 481.9678853954915,
+              "y": 1010.8968985750212
+            }
+          ],
+          "pitch_dimensions_m": {
+            "length": 20.12,
+            "width": 3.05
+          },
+          "h_fov_deg": 61.92751306414704
+        },
+        "tracking": {
+          "sample_fps": 60,
+          "max_frames": 78,
+          "ball_color": "red"
+        }
+      }
+    },
+    {
+      "file": "10_umpirescall_leg.mp4",
+      "description": "leg_marginal speed=30m/s",
+      "expected_decision": "umpires_call",
+      "pipeline_decision": "umpires_call",
+      "marginal": true,
+      "ball_color": "red",
+      "pitch_dimensions_m": {
+        "length": 20.12,
+        "width": 3.05
+      },
+      "h_fov_deg": 61.92751306414704,
+      "pitch_corners_px": [
+        {
+          "label": "striker-L",
+          "x": 169.8,
+          "y": 639.1
+        },
+        {
+          "label": "striker-R",
+          "x": 910.2,
+          "y": 639.1
+        },
+        {
+          "label": "bowler-R",
+          "x": 598.0,
+          "y": 1010.9
+        },
+        {
+          "label": "bowler-L",
+          "x": 482.0,
+          "y": 1010.9
+        }
+      ],
+      "request": {
+        "segment": {
+          "start_ms": 0,
+          "end_ms": 1283
+        },
+        "calibration": {
+          "mode": "taps",
+          "pitch_corners_px": [
+            {
+              "x": 169.77372875305548,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 910.2262712469445,
+              "y": 639.1443850267378
+            },
+            {
+              "x": 598.0321146045085,
+              "y": 1010.8968985750212
+            },
+            {
+              "x": 481.9678853954915,
+              "y": 1010.8968985750212
+            }
+          ],
+          "pitch_dimensions_m": {
+            "length": 20.12,
+            "width": 3.05
+          },
+          "h_fov_deg": 61.92751306414704
+        },
+        "tracking": {
+          "sample_fps": 60,
+          "max_frames": 78,
+          "ball_color": "red"
+        }
+      }
+    }
+  ]
+}

@@ -62,7 +62,7 @@ from .reconstruction import (
     reconstruct_trajectory,
     solve_camera_pose,
 )
-from .tracking import CombinedBallDetector, build_pitch_roi_mask
+from .tracking import CombinedBallDetector, YoloBallDetector, build_pitch_roi_mask
 from .trajectory import find_ball_trajectory
 from .video import VideoDecodeError, VideoReader
 
@@ -73,6 +73,13 @@ _log = logging.getLogger("pocket_drs.pipeline")
 WICKET_HALF_WIDTH_M = 0.2286 / 2.0      # one stump line is ±wicket_half_width from centre
 WICKET_GUARD_M = WICKET_HALF_WIDTH_M + BALL_RADIUS_M
 UMPIRES_CALL_BAND_M = 0.050             # ±50 mm on the edge → umpire's call
+
+# Calibration is rejected above this reprojection error. The fractional bound
+# (~3% of frame width, ≈32 px on 1080p) keeps it resolution-independent; the
+# absolute floor guards very small frames. A correct full-pitch tap calibration
+# sits well under 10 px, so this only trips on broken/mismatched corners.
+CALIB_REJECT_REPROJ_PX = 25.0
+CALIB_REJECT_REPROJ_FRAC = 0.03
 
 
 ProgressFn = Callable[[int, str], None]
@@ -231,6 +238,19 @@ def _decide_lbw(
     }
 
 
+def _require_int(d: dict, key: str, label: str) -> int:
+    """Read a required integer field, raising a clean ValueError (mapped to
+    INVALID_REQUEST) for missing, null, or non-numeric values rather than
+    leaking a KeyError/TypeError as an INTERNAL_ERROR."""
+    value = d.get(key)
+    if value is None:
+        raise ValueError(f"{label} is required")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} must be an integer")
+
+
 def run_pipeline(
     *,
     video_path: Path,
@@ -241,16 +261,25 @@ def run_pipeline(
     warnings: list[str] = []
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    seg = request_json["segment"]
-    start_ms = int(seg["start_ms"])
-    end_ms = int(seg["end_ms"])
+    if not isinstance(request_json, dict):
+        raise ValueError("request body must be a JSON object")
+
+    seg = request_json.get("segment")
+    if not isinstance(seg, dict):
+        raise ValueError("segment is required")
+    start_ms = _require_int(seg, "start_ms", "segment.start_ms")
+    end_ms = _require_int(seg, "end_ms", "segment.end_ms")
     if end_ms <= start_ms:
-        raise ValueError("Invalid segment")
+        raise ValueError("Invalid segment: end_ms must be greater than start_ms")
 
     track_req = request_json.get("tracking") or {}
-    sample_fps = int(track_req.get("sample_fps", 30))
-    max_frames = int(track_req.get("max_frames", 180))
-    ball_color = str(track_req.get("ball_color", "red"))
+    sample_fps = _require_int(track_req, "sample_fps", "tracking.sample_fps") if track_req.get("sample_fps") is not None else 30
+    max_frames = _require_int(track_req, "max_frames", "tracking.max_frames") if track_req.get("max_frames") is not None else 180
+    if sample_fps < 1:
+        raise ValueError("tracking.sample_fps must be >= 1")
+    if max_frames < 1:
+        raise ValueError("tracking.max_frames must be >= 1")
+    ball_color = str(track_req.get("ball_color") or "red")
 
     rotation_deg = int(((request_json.get("video") or {}).get("rotation_deg")) or 0)
 
@@ -344,6 +373,19 @@ def run_pipeline(
     if not candidate_poses:
         raise CalibrationError("All PnP attempts failed — calibration is degenerate")
 
+    # A real camera always sits above the pitch plane. Planar PnP has a twofold
+    # mirror twin (one above, one below ground); solve_camera_pose already drops
+    # the below-ground twin *within* one corner ordering, but the two orderings
+    # are independent, so a below-ground twin from the reversed ordering can
+    # still undercut the reprojection tie-break and win. Enforce the
+    # above-ground constraint across all candidates here too.
+    above_ground = [
+        (lbl, p) for (lbl, p) in candidate_poses
+        if float(p.cam_center_world.flatten()[2]) > 0.0
+    ]
+    if above_ground:
+        candidate_poses = above_ground
+
     # A symmetric pitch (no stumps) lets multiple corner orderings reproject
     # equally well. Among orderings within 1 px of the best reproj, prefer the
     # one where the *first* corner pair (declared striker corners) is closer
@@ -369,6 +411,22 @@ def run_pipeline(
     if best_pose is None:
         raise CalibrationError("All PnP attempts failed — calibration is degenerate")
     pose = best_pose
+
+    # Hard reject a calibration whose corners cannot form a consistent
+    # perspective view of the declared pitch. Four corners always admit an
+    # exact 2D homography, but only a geometrically valid set yields a low PnP
+    # reprojection error; a large error means the recovered pose is meaningless
+    # (wrong corner taps, or footage that is not a full-length pitch). Proceeding
+    # would emit a confident-but-wrong 3D reconstruction, so we stop here. The
+    # bound scales with frame width to stay resolution-independent.
+    reject_px = max(CALIB_REJECT_REPROJ_PX, CALIB_REJECT_REPROJ_FRAC * width)
+    if pose.reproj_error_px > reject_px:
+        raise CalibrationError(
+            f"Calibration rejected: reprojection error {pose.reproj_error_px:.0f} px "
+            f"exceeds {reject_px:.0f} px. The four corners do not match a "
+            f"{pitch_length_m:.2f} m x {pitch_width_m:.2f} m pitch — re-mark the "
+            "corners precisely, or the clip is not a full-length pitch."
+        )
     if pose.reproj_error_px > 8.0:
         warnings.append(
             f"High PnP reprojection error ({pose.reproj_error_px:.1f} px) — "
@@ -382,12 +440,25 @@ def run_pipeline(
     _progress(progress, 40, "tracking")
 
     roi_mask = build_pitch_roi_mask(frames[0].shape, pitch_corners_px)
-    detector = CombinedBallDetector(ball_color=ball_color)
+    # Detector selection. The motion+colour detector is the default; a learned
+    # YOLO detector (when weights are supplied) is far more robust on cluttered
+    # real footage. The learned detector runs without the pitch ROI mask, since
+    # it already isolates the ball and the airborne arc leaves the pitch quad.
+    detector_kind = str(track_req.get("detector") or "combined").lower()
+    if detector_kind == "yolo":
+        weights = track_req.get("yolo_weights")
+        if not weights:
+            raise ValueError("tracking.detector='yolo' requires tracking.yolo_weights")
+        detector = YoloBallDetector(str(weights), conf=float(track_req.get("yolo_conf", 0.2)))
+        detect_mask = None
+    else:
+        detector = CombinedBallDetector(ball_color=ball_color)
+        detect_mask = roi_mask
     image_diag = math.hypot(width, height)
 
     detections_per_frame: list[tuple[int, list[dict]]] = []
     for i, frame in enumerate(frames):
-        dets = detector.detect(frame, roi_mask)
+        dets = detector.detect(frame, detect_mask)
         # Cap candidates per frame so RANSAC seed pairs stay bounded.
         detections_per_frame.append((times_ms[i], dets[:8]))
         if i and (i % max(1, len(frames) // 8) == 0):

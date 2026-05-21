@@ -350,3 +350,47 @@ class CombinedBallDetector:
 
         merged.sort(key=lambda d: d["confidence"], reverse=True)
         return merged
+
+
+class YoloBallDetector:
+    """Learned ball detector (Ultralytics YOLO) for cluttered real footage.
+
+    Motion+colour fails on real matches where moving people dominate the frame;
+    a trained cricket-ball model isolates the ball directly. Drop-in replacement
+    for ``CombinedBallDetector`` — same ``detect`` signature, same candidate
+    dicts — so the trajectory finder, reconstruction, and LBW stages are
+    unchanged. Optional: needs ``ultralytics`` plus a weights file, selected via
+    the request (``tracking.detector = "yolo"``); otherwise the colour/motion
+    detector is used.
+
+    The ROI mask is intentionally ignored: a delivery's airborne arc rises well
+    above the pitch quad, and the model already rejects non-ball pixels, so
+    masking would only clip the true flight.
+    """
+
+    def __init__(self, weights_path: str, *, conf: float = 0.2, imgsz: int = 1280):
+        from ultralytics import YOLO  # local import keeps ML deps optional
+
+        self._model = YOLO(weights_path)
+        self._conf = conf
+        self._imgsz = imgsz
+
+    def detect(self, frame: np.ndarray, roi_mask: np.ndarray | None = None) -> list[dict[str, Any]]:
+        res = self._model.predict(frame, imgsz=self._imgsz, conf=self._conf, verbose=False)[0]
+        dets: list[dict[str, Any]] = []
+        for box in res.boxes:
+            x1, y1, x2, y2 = (float(v) for v in box.xyxy[0])
+            w, h = x2 - x1, y2 - y1
+            dets.append({
+                "x": (x1 + x2) / 2.0,
+                "y": (y1 + y2) / 2.0,
+                "radius_px": max(2.0, (w + h) / 4.0),
+                "area_px": float(w * h),
+                "circularity": 1.0,
+                "is_streak": 0.0,
+                "streak_len": 0.0,
+                "confidence": float(box.conf[0]),
+                "source": "yolo",
+            })
+        dets.sort(key=lambda d: d["confidence"], reverse=True)
+        return dets
