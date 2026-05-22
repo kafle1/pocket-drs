@@ -34,21 +34,30 @@ export
 endif
 
 # Optional Flutter device id, e.g. "emulator-5554" or "chrome".
+# Leave empty to auto-detect the first connected phone over adb.
 FLUTTER_DEVICE ?=
+
+# adb binary + optional wireless address (host:port from "Wireless debugging").
+# If ADB_ADDR is set (here or in .env), "make dev" reconnects to it first so a
+# wirelessly-paired phone is picked up without a USB cable.
+ADB ?= adb
+ADB_ADDR ?=
 
 # Flutter Web settings (used when FLUTTER_DEVICE is a web device, e.g. chrome)
 FLUTTER_WEB_PORT ?= 5173
 FLUTTER_WEB_HOSTNAME ?= localhost
 
 .PHONY: help dev setup setup-app setup-server dev-app dev-server dev-app-only dev-server-only \
+	free-port dev-server-fresh phone-connect dev-app-phone \
 	server-test app-test clean
 
 help:
 	@printf "%s\n" "Targets:" \
-		"  make dev          Start backend + Flutter app" \
+		"  make dev          Free port, start backend, build+install+launch app on phone" \
 		"  make setup        Install dependencies (backend venv + flutter pub get)" \
 		"  make dev-server    Start backend only" \
 		"  make dev-app       Start Flutter app only" \
+		"  make free-port     Kill whatever listens on POCKET_DRS_PORT" \
 		"  make server-test   Run backend tests" \
 		"  make clean         Remove generated dev artifacts"
 
@@ -98,6 +107,53 @@ dev-app-only:
 		$(if $(filter chrome edge web-server,$(FLUTTER_DEVICE)),--web-port $(FLUTTER_WEB_PORT) --web-hostname $(FLUTTER_WEB_HOSTNAME),) \
 		$(FLUTTER_DART_DEFINES)
 
+# Free the backend port by killing whatever currently listens on it.
+# Makes "make dev" deterministic even if a stale server (or another app) squats
+# the port.
+free-port:
+	@PORT=$${POCKET_DRS_PORT:-8000}; \
+	if command -v lsof >/dev/null 2>&1; then \
+		PIDS=$$(lsof -nP -tiTCP:$$PORT -sTCP:LISTEN 2>/dev/null); \
+		if [ -n "$$PIDS" ]; then \
+			printf "%s\n" "Freeing port $$PORT (killing: $$PIDS)"; \
+			kill $$PIDS 2>/dev/null || true; \
+			sleep 1; \
+			PIDS=$$(lsof -nP -tiTCP:$$PORT -sTCP:LISTEN 2>/dev/null); \
+			if [ -n "$$PIDS" ]; then kill -9 $$PIDS 2>/dev/null || true; fi; \
+		fi; \
+	fi
+
+# Start the backend after guaranteeing the port is free.
+dev-server-fresh: free-port
+	@cd "$(SERVER_DIR)" && "$(PYTHON)" run.py
+
+# Reconnect a wirelessly-paired phone if ADB_ADDR is set (no-op otherwise).
+phone-connect:
+	@if [ -n "$(ADB_ADDR)" ]; then \
+		printf "%s\n" "adb connect $(ADB_ADDR)"; \
+		$(ADB) connect "$(ADB_ADDR)" >/dev/null 2>&1 || true; \
+	fi
+
+# Build + install + launch the latest app on the connected phone.
+# Auto-detects the first authorized adb device unless FLUTTER_DEVICE is set.
+dev-app-phone: phone-connect
+	@mkdir -p "$(ROOT_DIR)/logs/flutter"
+	@SERIAL="$(FLUTTER_DEVICE)"; \
+	if [ -z "$$SERIAL" ]; then \
+		SERIAL=$$($(ADB) devices | awk 'NR>1 && $$2=="device"{print $$1; exit}'); \
+	fi; \
+	if [ -z "$$SERIAL" ]; then \
+		printf "%s\n" "No phone detected over adb." \
+			"  - USB: plug in + enable USB debugging, then re-run." \
+			"  - Wireless: set ADB_ADDR=<ip:port> in .env (from Wireless debugging)." >&2; \
+		exit 1; \
+	fi; \
+	printf "%s\n" "Installing latest app on $$SERIAL -> $(FLUTTER_SERVER_URL)"; \
+	cd "$(APP_DIR)" && \
+		flutter run -d "$$SERIAL" \
+		$(if $(filter chrome edge web-server,$(FLUTTER_DEVICE)),--web-port $(FLUTTER_WEB_PORT) --web-hostname $(FLUTTER_WEB_HOSTNAME),) \
+		$(FLUTTER_DART_DEFINES)
+
 # Convenience: start backend + Flutter Web on chrome.
 .PHONY: dev-web
 dev-web:
@@ -107,10 +163,11 @@ dev-web:
 # Ctrl+C should stop both (Make will forward SIGINT to its jobs).
 
 dev: setup
-	@printf "%s\n" "Starting PocketDRS dev (backend + Flutter)" \
-		"- Backend: http://$${POCKET_DRS_HOST:-0.0.0.0}:$${POCKET_DRS_PORT:-8000}" \
-		"- Flutter: interactive device selection unless FLUTTER_DEVICE is set"
-	@$(MAKE) -j2 dev-server-only dev-app-only
+	@printf "%s\n" "Starting PocketDRS dev (backend + phone app)" \
+		"- Backend:  http://$${POCKET_DRS_HOST:-0.0.0.0}:$${POCKET_DRS_PORT:-8000}" \
+		"- App URL:  $(FLUTTER_SERVER_URL) (baked into the build)" \
+		"- Phone:    auto-detected via adb (set FLUTTER_DEVICE/ADB_ADDR to override)"
+	@$(MAKE) -j2 dev-server-fresh dev-app-phone
 
 # ----- Tests / cleanup -----
 

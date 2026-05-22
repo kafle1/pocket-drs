@@ -58,9 +58,12 @@ class _ImageMarkerState extends State<ImageMarker> {
     super.initState();
     final initial = widget.initialMarkers;
     if (initial != null && initial.isNotEmpty) {
-      final capped = initial.take(widget.maxMarkers).map((p) {
-        return Offset(p.dx.clamp(0.0, 1.0), p.dy.clamp(0.0, 1.0));
-      }).toList(growable: false);
+      final capped = initial
+          .take(widget.maxMarkers)
+          .map((p) {
+            return Offset(p.dx.clamp(0.0, 1.0), p.dy.clamp(0.0, 1.0));
+          })
+          .toList(growable: false);
       _markers.addAll(capped);
     }
     _loadImage();
@@ -73,7 +76,10 @@ class _ImageMarkerState extends State<ImageMarker> {
     final frame = await codec.getNextFrame();
     if (mounted) {
       setState(() {
-        _imageSize = Size(frame.image.width.toDouble(), frame.image.height.toDouble());
+        _imageSize = Size(
+          frame.image.width.toDouble(),
+          frame.image.height.toDouble(),
+        );
         _loading = false;
       });
     }
@@ -84,7 +90,9 @@ class _ImageMarkerState extends State<ImageMarker> {
     if (_imageSize == null) return;
     final iw = _imageSize!.width;
     final ih = _imageSize!.height;
-    if (iw <= 0 || ih <= 0 || viewport.width <= 0 || viewport.height <= 0) return;
+    if (iw <= 0 || ih <= 0 || viewport.width <= 0 || viewport.height <= 0) {
+      return;
+    }
 
     final s = (viewport.width / iw).clamp(0.05, 10.0);
     final s2 = (viewport.height / ih).clamp(0.05, 10.0);
@@ -128,8 +136,12 @@ class _ImageMarkerState extends State<ImageMarker> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final done = _markers.length == widget.maxMarkers;
-    final labels = widget.markerLabels ?? List.generate(widget.maxMarkers, (i) => '${i + 1}');
-    final nextLabel = _markers.length < labels.length ? labels[_markers.length] : '';
+    final labels =
+        widget.markerLabels ??
+        List.generate(widget.maxMarkers, (i) => '${i + 1}');
+    final nextLabel = _markers.length < labels.length
+        ? labels[_markers.length]
+        : '';
 
     return Column(
       children: [
@@ -143,7 +155,9 @@ class _ImageMarkerState extends State<ImageMarker> {
             ),
             decoration: BoxDecoration(
               color: scheme.surface,
-              border: Border(bottom: BorderSide(color: scheme.outline, width: 1)),
+              border: Border(
+                bottom: BorderSide(color: scheme.outline, width: 1),
+              ),
             ),
             child: Row(
               children: [
@@ -156,11 +170,15 @@ class _ImageMarkerState extends State<ImageMarker> {
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: AppSpacing.xs),
                       Text(
                         done ? 'All marks placed' : 'Next · $nextLabel',
                         style: theme.textTheme.titleMedium,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
@@ -203,12 +221,16 @@ class _ImageMarkerState extends State<ImageMarker> {
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                Image.file(File(widget.imagePath), fit: BoxFit.fill),
+                                Image.file(
+                                  File(widget.imagePath),
+                                  fit: BoxFit.fill,
+                                ),
                                 CustomPaint(
                                   painter: _MarkerPainter(
                                     markers: _markers,
                                     guides: widget.guides,
-                                    highlightGuideIndex: widget.highlightGuideIndex,
+                                    highlightGuideIndex:
+                                        widget.highlightGuideIndex,
                                     accent: AppColors.signalRed,
                                     labels: labels,
                                   ),
@@ -259,7 +281,9 @@ class _ImageMarkerState extends State<ImageMarker> {
                     child: DrsButton(
                       label: 'CONTINUE',
                       icon: Icons.arrow_forward,
-                      onPressed: done ? () => widget.onComplete(_markers) : null,
+                      onPressed: done
+                          ? () => widget.onComplete(_markers)
+                          : null,
                     ),
                   ),
                 ],
@@ -363,13 +387,13 @@ class _MarkerPainter extends CustomPainter {
       for (var i = 0; i < gs.length; i++) {
         final g = gs[i];
         if (g.length < 2) continue;
-        final isHighlighted = highlightGuideIndex != null && i == highlightGuideIndex;
+        final isHighlighted =
+            highlightGuideIndex != null && i == highlightGuideIndex;
         final guidePaint = Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = isHighlighted ? 2.5 : 1.5
-          ..color = (isHighlighted ? AppColors.pitchGreen : AppColors.bone).withValues(
-            alpha: isHighlighted ? 0.9 : 0.4,
-          );
+          ..color = (isHighlighted ? AppColors.pitchGreen : AppColors.bone)
+              .withValues(alpha: isHighlighted ? 0.9 : 0.4);
         final path = Path();
         final p0 = Offset(g[0].dx * size.width, g[0].dy * size.height);
         path.moveTo(p0.dx, p0.dy);
@@ -383,7 +407,9 @@ class _MarkerPainter extends CustomPainter {
 
     if (markers.isEmpty) return;
 
-    final points = markers.map((m) => Offset(m.dx * size.width, m.dy * size.height)).toList();
+    final points = markers
+        .map((m) => Offset(m.dx * size.width, m.dy * size.height))
+        .toList();
 
     if (points.length >= 3) {
       final path = Path()..moveTo(points[0].dx, points[0].dy);
@@ -415,8 +441,16 @@ class _MarkerPainter extends CustomPainter {
         ..color = accent
         ..strokeWidth = 1.4
         ..style = PaintingStyle.stroke;
-      canvas.drawLine(Offset(p.dx - crossLen, p.dy), Offset(p.dx + crossLen, p.dy), crossPaint);
-      canvas.drawLine(Offset(p.dx, p.dy - crossLen), Offset(p.dx, p.dy + crossLen), crossPaint);
+      canvas.drawLine(
+        Offset(p.dx - crossLen, p.dy),
+        Offset(p.dx + crossLen, p.dy),
+        crossPaint,
+      );
+      canvas.drawLine(
+        Offset(p.dx, p.dy - crossLen),
+        Offset(p.dx, p.dy + crossLen),
+        crossPaint,
+      );
       // Inner dot
       canvas.drawCircle(p, 5, Paint()..color = accent);
       canvas.drawCircle(
@@ -448,7 +482,10 @@ class _MarkerPainter extends CustomPainter {
         tp.width + tagPad.horizontal,
         tp.height + tagPad.vertical,
       );
-      canvas.drawRect(tagRect, Paint()..color = AppColors.inkBlack.withValues(alpha: 0.85));
+      canvas.drawRect(
+        tagRect,
+        Paint()..color = AppColors.inkBlack.withValues(alpha: 0.85),
+      );
       canvas.drawRect(
         tagRect,
         Paint()
@@ -456,7 +493,10 @@ class _MarkerPainter extends CustomPainter {
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1,
       );
-      tp.paint(canvas, Offset(tagRect.left + tagPad.left, tagRect.top + tagPad.top));
+      tp.paint(
+        canvas,
+        Offset(tagRect.left + tagPad.left, tagRect.top + tagPad.top),
+      );
     }
   }
 

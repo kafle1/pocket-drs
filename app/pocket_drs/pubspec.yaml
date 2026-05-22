@@ -1,5 +1,5 @@
 name: pocket_drs
-description: "A new Flutter project."
+description: "Pocket DRS — single-view 3D trajectory & LBW decision review."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -54,12 +54,12 @@ dependencies:
   permission_handler: ^12.0.1
   collection: ^1.19.1
   http: ^1.2.2
-  webview_flutter: ^4.10.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   path_provider_platform_interface: ^2.1.2
+  flutter_launcher_icons: ^0.14.3
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -71,6 +71,17 @@ dev_dependencies:
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
+# Launcher icon — rendered from the in-app cricket mark (Icons.sports_cricket).
+# Regenerate the source PNGs with: python3 tool/gen_app_icon.py
+# Apply to platforms with: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  adaptive_icon_background: "#0A0A0B"
+  adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
+  remove_alpha_ios: true
+
 # The following section is specific to Flutter packages.
 flutter:
 
@@ -78,12 +89,6 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
-
-  # To add assets to your application, add an assets section, like this:
-  assets:
-    - assets/hawkeye/index.html
-    - assets/hawkeye/hawkeye.js
-    - assets/hawkeye/three.min.js
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -112,79 +112,53 @@ def _suppress_static_clutter(
     return cleaned
 
 
-def find_ball_trajectory(
-    detections_by_frame: list[tuple[int, list[dict]]],
+def _search_best_arc(
+    candidates: list[list[dict]],
+    times: list[int],
     *,
     image_diagonal_px: float,
-    min_inliers: int = 6,
-    search_radius_px: float | None = None,
-    max_seed_pairs: int = 600,
-) -> TrajectoryFit | None:
-    """Find the dominant ball trajectory across frames.
+    search_radius_px: float,
+    min_inliers: int,
+    max_seed_pairs: int,
+    total_candidates: int,
+    exclude: set[tuple[int, int]] | None = None,
+) -> tuple[TrajectoryFit | None, set[tuple[int, int]]]:
+    """Recover the single best constant-acceleration arc by RANSAC.
 
-    Parameters
-    ----------
-    detections_by_frame:
-        List of (t_ms, [detection_dict]).  Each detection_dict needs at least
-        x, y, radius_px, confidence.
-    image_diagonal_px:
-        Used to scale tolerances.  Pass sqrt(w^2 + h^2) of the source frame.
-    min_inliers:
-        Reject hypotheses with fewer than this many supporting detections.
-    search_radius_px:
-        Tolerance for an in-frame detection to count as an inlier.  Defaults
-        to ~3 % of the image diagonal which works for typical 1080p phone
-        footage at umpire-POV framing.
+    `exclude` holds (frame_idx, detection_idx) pairs already claimed by an
+    earlier arc; they are skipped both as seeds and as inliers so a later pass
+    can find a *different* arc — the far side of a bounce. Returns the winning
+    fit together with the set of (frame_idx, detection_idx) it claimed.
     """
-    frames = _frames_in_order(detections_by_frame)
-    n_frames = len(frames)
-    if n_frames < 4:
-        return None
+    exclude = exclude or set()
+    n_frames = len(candidates)
 
-    if search_radius_px is None:
-        search_radius_px = max(15.0, 0.03 * image_diagonal_px)
-
-    # Suppress static clutter (sponsor logos, helmets, bat handles) before
-    # association — these are the dominant false positive in handheld footage
-    # and the RANSAC will happily fit a "trajectory" through a static cluster.
-    raw_total = sum(len(d) for _, d in frames)
-    frames = _suppress_static_clutter(frames, image_diagonal_px=image_diagonal_px)
-    total_candidates = sum(len(d) for _, d in frames)
-    if total_candidates < min_inliers:
-        return None
-
-    # Index detections per frame by their array index for fast inlier lookup.
-    candidates: list[list[dict]] = [list(d) for _, d in frames]
-    times: list[int] = [t for t, _ in frames]
-
-    # We seed hypotheses from pairs of detections in the *earliest* frames
-    # because those are most likely to contain the ball release.  Try the
-    # first ~25 % of the sequence as seed window.
-    seed_window = max(2, n_frames // 4)
-
-    # Collect seed pairs (i, ai, j, bj) where i < j are frame indices and
-    # ai/bj are detection indices within those frames.
+    # Seed hypotheses from detection pairs across the WHOLE clip. A delivery can
+    # be released anywhere in the (often untrimmed) segment, so we pair every
+    # frame with a short forward window rather than only the opening frames.
+    pair_span = max(2, n_frames // 4)
     seed_pairs: list[tuple[int, int, int, int]] = []
-    for i in range(seed_window):
-        for j in range(i + 1, min(n_frames, i + seed_window + 1)):
+    for i in range(n_frames):
+        for j in range(i + 1, min(n_frames, i + pair_span + 1)):
             for ai in range(len(candidates[i])):
+                if (i, ai) in exclude:
+                    continue
                 for bj in range(len(candidates[j])):
+                    if (j, bj) in exclude:
+                        continue
                     seed_pairs.append((i, ai, j, bj))
     if len(seed_pairs) > max_seed_pairs:
         # Subsample uniformly so we don't blow up on noisy frames.
         idx = np.linspace(0, len(seed_pairs) - 1, max_seed_pairs).astype(int)
         seed_pairs = [seed_pairs[k] for k in idx]
-
     if not seed_pairs:
-        return None
+        return None, set()
 
     best_fit: TrajectoryFit | None = None
+    best_keys: set[tuple[int, int]] = set()
 
-    # Image-space gravity for a phone-held camera at typical pitch framings.
-    # Physical g of 9.81 m/s^2 projects to ~1e-3 px/ms^2 at 5-10 m subject
-    # distance with fy ~ 900. We sample a small grid plus zero (umpire-POV
-    # motion can be almost purely along the camera axis, giving near-zero
-    # image acceleration). The LSQ refinement adjusts the exact value.
+    # Image-space gravity seeds for a phone-held camera; the LSQ refinement
+    # adjusts the exact value. Zero covers near-axis (umpire-POV) motion.
     g_seed_options = [0.0, 5e-4, 2e-3]
 
     for (i, ai, j, bj) in seed_pairs:
@@ -196,11 +170,7 @@ def find_ball_trajectory(
         vx = (x1 - x0) / dt_ij
         vy = (y1 - y0) / dt_ij
 
-        # Reject seeds whose total displacement is too small to be the ball.
-        # Use displacement (scaled to the image diagonal) rather than absolute
-        # speed: under umpire-POV the ball moves chiefly along the camera axis
-        # and its image-plane velocity can be modest even at 130 km/h. The
-        # original 0.1 px/ms cutoff masked exactly that case.
+        # Reject seeds whose displacement is too small to be the ball.
         disp_px = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
         min_disp_px = max(2.0, 0.002 * image_diagonal_px)  # ~4 px on 1080p
         if disp_px < min_disp_px:
@@ -217,6 +187,8 @@ def find_ball_trajectory(
                 best_d2 = search_radius_px * search_radius_px
                 best_idx = -1
                 for di, d in enumerate(candidates[k]):
+                    if (k, di) in exclude:
+                        continue
                     dx = d["x"] - px
                     dy = d["y"] - py
                     d2 = dx * dx + dy * dy
@@ -284,17 +256,275 @@ def find_ball_trajectory(
             )
 
             # Score: prefer more inliers, then tighter fit.
-            if best_fit is None:
+            if best_fit is None or (fit.inliers, -fit.rms_px) > (best_fit.inliers, -best_fit.rms_px):
                 best_fit = fit
-            else:
-                if (fit.inliers, -fit.rms_px) > (best_fit.inliers, -best_fit.rms_px):
-                    best_fit = fit
+                best_keys = set(inliers)
+
+    return best_fit, best_keys
+
+
+def _merge_bounce_arcs(
+    fit_a: TrajectoryFit,
+    fit_b: TrajectoryFit,
+    *,
+    search_radius_px: float,
+) -> TrajectoryFit | None:
+    """Stitch two arcs that meet at a bounce into one continuous track.
+
+    A bouncing ball is two parabolas sharing the bounce instant. Only the
+    horizontal image motion is continuous across the bounce — the vertical
+    velocity flips — so the join is validated on horizontal evidence alone:
+
+      * the arcs are disjoint and time-ordered (one clearly precedes the other),
+      * the gap between them is at most a few sampled frames (the ball is
+        smallest and most often missed right at the pitch),
+      * both travel the same left/right direction at a similar horizontal pace,
+      * extrapolating the earlier arc at its own horizontal velocity lands near
+        where the later arc begins.
+
+    When those hold the two are the one ball and we concatenate them; otherwise
+    the second arc is unrelated clutter and we return None (keep only the first).
+    """
+    if not fit_a.points or not fit_b.points:
+        return None
+    early, late = (
+        (fit_a, fit_b) if fit_a.points[0].t_ms <= fit_b.points[0].t_ms else (fit_b, fit_a)
+    )
+    e = early.points
+    l = late.points
+
+    # Disjoint and ordered in time — no interleaving.
+    if l[0].t_ms <= e[-1].t_ms:
+        return None
+
+    # Bounded gap: a few times the typical sampling interval of the earlier arc.
+    dts = [e[k].t_ms - e[k - 1].t_ms for k in range(1, len(e)) if e[k].t_ms > e[k - 1].t_ms]
+    dt_typ = float(np.median(dts)) if dts else float(l[0].t_ms - e[-1].t_ms)
+    gap_ms = float(l[0].t_ms - e[-1].t_ms)
+    if dt_typ > 0 and gap_ms > 6.0 * dt_typ:
+        return None
+
+    # Same horizontal travel direction across the join.
+    dir_e = e[-1].x_px - e[0].x_px
+    dx_join = l[0].x_px - e[-1].x_px
+    if dir_e != 0.0 and dx_join != 0.0 and math.copysign(1.0, dir_e) != math.copysign(1.0, dx_join):
+        return None
+
+    # Similar horizontal pace (sign + magnitude) — the ball does not change its
+    # left/right speed appreciably at the bounce.
+    vxa, vxb = early.px_per_ms_x, late.px_per_ms_x
+    if vxa != 0.0 and vxb != 0.0:
+        if math.copysign(1.0, vxa) != math.copysign(1.0, vxb):
+            return None
+        ratio = abs(vxb) / abs(vxa)
+        if ratio < 0.4 or ratio > 2.5:
+            return None
+
+    # Horizontal continuity: the earlier arc, run forward at its own velocity,
+    # should reach the later arc's first detection in x.
+    x_pred = e[-1].x_px + early.px_per_ms_x * gap_ms
+    if abs(x_pred - l[0].x_px) > 3.0 * search_radius_px:
+        return None
+
+    points = list(e) + list(l)
+    n = len(points)
+    rms = math.sqrt(
+        (early.rms_px ** 2 * len(e) + late.rms_px ** 2 * len(l)) / max(1, n)
+    )
+    return TrajectoryFit(
+        points=points,
+        inliers=early.inliers + late.inliers,
+        candidates_total=early.candidates_total,
+        rms_px=rms,
+        px_per_ms_x=early.px_per_ms_x,
+        px_per_ms_y=early.px_per_ms_y,
+        notes=list(early.notes) + list(late.notes) + [
+            f"merged post-bounce arc: +{len(l)} pts across {gap_ms:.0f}ms gap"
+        ],
+    )
+
+
+def _extend_track(
+    points: list[TrajectoryPoint],
+    candidates: list[list[dict]],
+    times: list[int],
+    *,
+    search_radius_px: float,
+    max_gap: int = 2,
+) -> list[TrajectoryPoint]:
+    """Greedily absorb clean detections at the two ends of a recovered arc.
+
+    The constant-acceleration image model fits the bulk of the flight, but a
+    fast, near-axial ball accelerates in the image under perspective, so the
+    last (and first) genuine detections fall just outside the *global* fit's
+    search radius and get dropped — the track stops short of the stumps (or of
+    the release). We locally extrapolate a quadratic through the arc's end
+    points and accept the nearest detection that continues it, frame by frame,
+    re-fitting as we go so the extrapolation tracks the curvature. Bounded by
+    the search radius and a small consecutive-gap tolerance so static clutter
+    near the stumps is not absorbed.
+    """
+    if len(points) < 3:
+        return points
+
+    n_frames = len(candidates)
+    idx_of_t = {t: i for i, t in enumerate(times)}
+
+    def local_predict(end_pts: list[TrajectoryPoint], t_ms: int) -> tuple[float, float]:
+        t0 = end_pts[0].t_ms
+        ts = np.array([p.t_ms - t0 for p in end_pts], dtype=float)
+        deg = min(2, len(end_pts) - 1)
+        cu = np.polyfit(ts, np.array([p.x_px for p in end_pts]), deg)
+        cv = np.polyfit(ts, np.array([p.y_px for p in end_pts]), deg)
+        return float(np.polyval(cu, t_ms - t0)), float(np.polyval(cv, t_ms - t0))
+
+    def nearest(fi: int, pu: float, pv: float) -> dict | None:
+        best, best_d2 = None, search_radius_px * search_radius_px
+        for d in candidates[fi]:
+            d2 = (d["x"] - pu) ** 2 + (d["y"] - pv) ** 2
+            if d2 < best_d2:
+                best_d2, best = d2, d
+        return best
+
+    def as_point(fi: int, d: dict) -> TrajectoryPoint:
+        return TrajectoryPoint(
+            t_ms=int(times[fi]), x_px=float(d["x"]), y_px=float(d["y"]),
+            radius_px=float(d.get("radius_px", 0.0)),
+            confidence=float(d.get("confidence", 0.5)),
+        )
+
+    # Forward from the last point.
+    pts_fwd = list(points)
+    last_i = idx_of_t.get(pts_fwd[-1].t_ms, n_frames - 1)
+    gap = 0
+    for fi in range(last_i + 1, n_frames):
+        pu, pv = local_predict(pts_fwd[-8:], times[fi])
+        d = nearest(fi, pu, pv)
+        if d is None:
+            gap += 1
+            if gap > max_gap:
+                break
+            continue
+        gap = 0
+        pts_fwd.append(as_point(fi, d))
+
+    # Backward from the first point (operate on a forward-time list, prepend).
+    first_i = idx_of_t.get(points[0].t_ms, 0)
+    gap = 0
+    for fi in range(first_i - 1, -1, -1):
+        pu, pv = local_predict(pts_fwd[:8], times[fi])
+        d = nearest(fi, pu, pv)
+        if d is None:
+            gap += 1
+            if gap > max_gap:
+                break
+            continue
+        gap = 0
+        pts_fwd.insert(0, as_point(fi, d))
+
+    pts_fwd.sort(key=lambda p: p.t_ms)
+    return pts_fwd
+
+
+def find_ball_trajectory(
+    detections_by_frame: list[tuple[int, list[dict]]],
+    *,
+    image_diagonal_px: float,
+    min_inliers: int = 6,
+    search_radius_px: float | None = None,
+    max_seed_pairs: int = 1500,
+) -> TrajectoryFit | None:
+    """Find the dominant ball trajectory across frames.
+
+    Parameters
+    ----------
+    detections_by_frame:
+        List of (t_ms, [detection_dict]).  Each detection_dict needs at least
+        x, y, radius_px, confidence.
+    image_diagonal_px:
+        Used to scale tolerances.  Pass sqrt(w^2 + h^2) of the source frame.
+    min_inliers:
+        Reject hypotheses with fewer than this many supporting detections.
+    search_radius_px:
+        Tolerance for an in-frame detection to count as an inlier.  Defaults
+        to ~3 % of the image diagonal which works for typical 1080p phone
+        footage at umpire-POV framing.
+    """
+    frames = _frames_in_order(detections_by_frame)
+    n_frames = len(frames)
+    if n_frames < 4:
+        return None
+
+    if search_radius_px is None:
+        search_radius_px = max(15.0, 0.03 * image_diagonal_px)
+
+    # Suppress static clutter (sponsor logos, helmets, bat handles) before
+    # association — these are the dominant false positive in handheld footage
+    # and the RANSAC will happily fit a "trajectory" through a static cluster.
+    frames = _suppress_static_clutter(frames, image_diagonal_px=image_diagonal_px)
+    total_candidates = sum(len(d) for _, d in frames)
+    if total_candidates < min_inliers:
+        return None
+
+    # Index detections per frame by their array index for fast inlier lookup.
+    candidates: list[list[dict]] = [list(d) for _, d in frames]
+    times: list[int] = [t for t, _ in frames]
+
+    # First pass: recover the dominant constant-acceleration arc.
+    fit_a, claimed_a = _search_best_arc(
+        candidates, times,
+        image_diagonal_px=image_diagonal_px,
+        search_radius_px=search_radius_px,
+        min_inliers=min_inliers,
+        max_seed_pairs=max_seed_pairs,
+        total_candidates=total_candidates,
+    )
+    if fit_a is None:
+        return None
+
+    # A bouncing delivery is two parabolas joined at the pitch. The pass above
+    # locks onto the dominant one — usually the longer pre-bounce descent — and
+    # rejects the other side as outliers, which is exactly why a cleanly tracked
+    # ball appears to "stop" at the bounce. Recover that second arc from the
+    # detections the first pass did not claim and stitch it on when it continues
+    # the same horizontal flight (a real bounce flips only the vertical motion).
+    best_fit = fit_a
+    fit_b, _ = _search_best_arc(
+        candidates, times,
+        image_diagonal_px=image_diagonal_px,
+        search_radius_px=search_radius_px,
+        min_inliers=max(3, min_inliers // 2),
+        max_seed_pairs=max_seed_pairs,
+        total_candidates=total_candidates,
+        exclude=claimed_a,
+    )
+    if fit_b is not None:
+        merged = _merge_bounce_arcs(fit_a, fit_b, search_radius_px=search_radius_px)
+        if merged is not None:
+            best_fit = merged
+
+    # Recover the clean detections the constant-acceleration model drops at the
+    # ends (a fast, near-axial ball accelerates in the image under perspective),
+    # so the track reaches the release and the stumps rather than stopping short
+    # — which otherwise forces a long, error-prone extrapolation downstream.
+    extended = _extend_track(best_fit.points, candidates, times, search_radius_px=search_radius_px)
+    added = len(extended) - len(best_fit.points)
+    if added > 0:
+        best_fit = TrajectoryFit(
+            points=extended,
+            inliers=len(extended),
+            candidates_total=best_fit.candidates_total,
+            rms_px=best_fit.rms_px,
+            px_per_ms_x=best_fit.px_per_ms_x,
+            px_per_ms_y=best_fit.px_per_ms_y,
+            notes=list(best_fit.notes) + [f"extended ends +{added}"],
+        )
 
     # Final-track validation: a genuine ball traverses a meaningful fraction
     # of the image. A track whose points span almost no distance is a static
     # cluster that survived per-seed gating — reject it so the pipeline
     # reports "no trajectory" rather than fabricating a decision from clutter.
-    if best_fit is not None and len(best_fit.points) >= 2:
+    if len(best_fit.points) >= 2:
         xs_t = [p.x_px for p in best_fit.points]
         ys_t = [p.y_px for p in best_fit.points]
         span = math.hypot(max(xs_t) - min(xs_t), max(ys_t) - min(ys_t))

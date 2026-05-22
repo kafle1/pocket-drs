@@ -14,6 +14,10 @@ class AnalysisResult {
     required this.worldTrajectory,
     required this.events,
     required this.lbw,
+    required this.overlay,
+    required this.metrics,
+    required this.imageWidth,
+    required this.imageHeight,
     required this.calibrationQuality,
     required this.warnings,
   });
@@ -22,6 +26,17 @@ class AnalysisResult {
   final WorldTrajectory worldTrajectory;
   final AnalysisEvents? events;
   final LbwResult? lbw;
+
+  /// Pixel-space Hawk-Eye path projected by the server for the video overlay.
+  final TrajectoryOverlay? overlay;
+
+  /// Broadcast delivery metrics (speed / spin / swing).
+  final DeliveryMetrics? metrics;
+
+  /// Pixel dimensions of the analysed frame — the coordinate space of
+  /// [overlay] and [track]. The overlay scales against these.
+  final int imageWidth;
+  final int imageHeight;
   final CalibrationQuality calibrationQuality;
   final List<String> warnings;
 
@@ -78,10 +93,136 @@ class AnalysisResult {
       worldTrajectory: world,
       events: events,
       lbw: lbw,
+      overlay: TrajectoryOverlay.fromJson(json['overlay']),
+      metrics: DeliveryMetrics.fromJson(json['metrics']),
+      imageWidth: width,
+      imageHeight: height,
       calibrationQuality: calQuality,
       warnings: List.unmodifiable(warnings),
     );
   }
+}
+
+/// Broadcast delivery metrics shown as cards over the video.
+class DeliveryMetrics {
+  const DeliveryMetrics({required this.speedMph, required this.spinDeg, required this.swingSf});
+
+  final double speedMph;
+  final double spinDeg;
+  final double swingSf;
+
+  static DeliveryMetrics? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final m = json.cast<String, Object?>();
+    return DeliveryMetrics(
+      speedMph: _readDouble(m, 'speed_mph') ?? 0,
+      spinDeg: _readDouble(m, 'spin_deg') ?? 0,
+      swingSf: _readDouble(m, 'swing_sf') ?? 0,
+    );
+  }
+}
+
+/// Pixel-space Hawk-Eye overlay, projected server-side onto the analysed frame.
+/// All offsets are in the frame's pixel coordinates (see [AnalysisResult.imageWidth]).
+class TrajectoryOverlay {
+  const TrajectoryOverlay({
+    required this.path,
+    required this.bounce,
+    required this.impact,
+    required this.strikerStumps,
+    required this.bowlerStumps,
+    required this.corridor,
+  });
+
+  /// Ordered ball path: real flight first, then the predicted continuation.
+  final List<OverlayPoint> path;
+  final OverlayPoint? bounce;
+  final OverlayPoint? impact;
+  final StumpLine? strikerStumps;
+  final StumpLine? bowlerStumps;
+
+  /// Ground-plane pitch corridor as a 4-point polygon (pixels), or empty.
+  final List<Offset> corridor;
+
+  bool get hasPath => path.length >= 2;
+
+  static TrajectoryOverlay? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final m = json.cast<String, Object?>();
+    final path = <OverlayPoint>[];
+    final list = m['path_px'];
+    if (list is List) {
+      for (final v in list) {
+        final p = OverlayPoint.fromJson(v);
+        if (p != null) path.add(p);
+      }
+    }
+    if (path.isEmpty) return null;
+    final stumps = m['stumps_px'];
+    final stumpsMap = stumps is Map ? stumps.cast<String, Object?>() : const <String, Object?>{};
+    final corridor = <Offset>[];
+    final corr = m['corridor_px'];
+    if (corr is List) {
+      for (final v in corr) {
+        final o = _readOffset(v);
+        if (o != null) corridor.add(o);
+      }
+    }
+    return TrajectoryOverlay(
+      path: List.unmodifiable(path),
+      bounce: OverlayPoint.fromJson(m['bounce_px']),
+      impact: OverlayPoint.fromJson(m['impact_px']),
+      strikerStumps: StumpLine.fromJson(stumpsMap['striker']),
+      bowlerStumps: StumpLine.fromJson(stumpsMap['bowler']),
+      corridor: List.unmodifiable(corridor),
+    );
+  }
+}
+
+class OverlayPoint {
+  const OverlayPoint({required this.tMs, required this.px, required this.predicted});
+
+  final int tMs;
+  final Offset px;
+  final bool predicted;
+
+  static OverlayPoint? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final m = json.cast<String, Object?>();
+    final u = _readDouble(m, 'u');
+    final v = _readDouble(m, 'v');
+    if (u == null || v == null) return null;
+    return OverlayPoint(
+      tMs: _readInt(m, 't_ms') ?? 0,
+      px: Offset(u, v),
+      predicted: m['phase'] == 'predicted',
+    );
+  }
+}
+
+class StumpLine {
+  const StumpLine({required this.base, required this.top});
+
+  final Offset base;
+  final Offset top;
+
+  static StumpLine? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final m = json.cast<String, Object?>();
+    final base = _readOffset(m['base']);
+    final top = _readOffset(m['top']);
+    if (base == null || top == null) return null;
+    return StumpLine(base: base, top: top);
+  }
+}
+
+Offset? _readOffset(Object? json) {
+  if (json is! Map) return null;
+  final m = json.cast<String, Object?>();
+  final u = _readDouble(m, 'u');
+  final v = _readDouble(m, 'v');
+  if (u == null || v == null) return null;
+  return Offset(u, v);
 }
 
 /// 3D ball trajectory in world coordinates (metres).  The pitch frame is

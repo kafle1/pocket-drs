@@ -258,6 +258,100 @@ def solve_camera_pose(
     )
 
 
+def solve_camera_pose_from_stumps(
+    *,
+    image_size: tuple[int, int],            # (width, height)
+    stump_bases_px: list[tuple[float, float]],  # (striker, bowler)
+    stump_tops_px: list[tuple[float, float]],   # (striker, bowler)
+    stump_height_m: float = DEFAULT_STUMP_HEIGHT_M,
+    h_fov_deg: float = 67.0,
+    length_min_m: float = 2.0,
+    length_max_m: float = 26.0,
+) -> tuple[CameraPose, float]:
+    """Recover the camera pose AND the pitch length from the two stump sets.
+
+    The four stump marks — two bases on the ground and two tops at the known
+    stump height — lie in the vertical plane through the pitch centre line. The
+    stump height is a metric scale reference, so the only remaining unknown is
+    the stump-to-stump length. We grid-search that length and keep the value
+    whose PnP reprojection is smallest (the curve has a clear minimum at the
+    true length because the known height pins the absolute scale).
+
+    This removes the need for the user to know the real pitch length — essential
+    for practice nets that are not a regulation 20.12 m — and is far more
+    reliable than the wide, edge-less turf "corners", whose taps rarely match a
+    rectangle centred on the stumps. Returns (pose, derived_length_m).
+    """
+    if cv2 is None:
+        raise CalibrationError("OpenCV required for camera pose")
+    if len(stump_bases_px) != 2 or len(stump_tops_px) != 2:
+        raise CalibrationError("Need exactly 2 stump bases and 2 stump tops")
+
+    width, height = image_size
+    K = estimate_intrinsics(width, height, h_fov_deg=h_fov_deg)
+    dist = np.zeros((4, 1), dtype=np.float64)
+    img = np.array(
+        [stump_bases_px[0], stump_tops_px[0], stump_bases_px[1], stump_tops_px[1]],
+        dtype=np.float64,
+    )
+
+    best: tuple | None = None
+    # 0.1 m steps give length to within a stump's width — finer than the
+    # reprojection minimum is meaningful at this noise level.
+    n_steps = max(2, int(round((length_max_m - length_min_m) / 0.1)) + 1)
+    for length in np.linspace(length_min_m, length_max_m, n_steps):
+        obj = np.array(
+            [(0.0, 0.0, 0.0), (0.0, 0.0, stump_height_m),
+             (float(length), 0.0, 0.0), (float(length), 0.0, stump_height_m)],
+            dtype=np.float64,
+        )
+        ok, rvec, tvec = cv2.solvePnP(obj, img, K, dist, flags=cv2.SOLVEPNP_SQPNP)
+        if not ok:
+            continue
+        R, _ = cv2.Rodrigues(rvec)
+        R_inv = R.T
+        cam = -R_inv @ tvec.reshape(3, 1)
+        # A real camera sits above the ground.
+        if float(cam[2, 0]) <= 0.0:
+            continue
+        proj, _ = cv2.projectPoints(obj, rvec, tvec, K, dist)
+        proj = proj.reshape(-1, 2)
+        reproj = float(np.sqrt(np.mean(np.sum((proj - img) ** 2, axis=1))))
+        if not math.isfinite(reproj):
+            continue
+        if best is None or reproj < best[0]:
+            best = (reproj, float(length), rvec, tvec, R, R_inv, cam)
+
+    if best is None:
+        raise CalibrationError(
+            "Stump calibration is degenerate — re-mark the stump bases and tops."
+        )
+
+    reproj, length, rvec, tvec, R, R_inv, cam = best
+    notes = [
+        "stump-anchored pose",
+        f"derived length={length:.2f} m",
+        f"reproj={reproj:.1f}px",
+    ]
+    return (
+        CameraPose(
+            K=K,
+            rvec=rvec,
+            tvec=tvec,
+            R=R,
+            R_inv=R_inv,
+            cam_center_world=cam,
+            fx=float(K[0, 0]),
+            fy=float(K[1, 1]),
+            cx=float(K[0, 2]),
+            cy=float(K[1, 2]),
+            reproj_error_px=reproj,
+            notes=notes,
+        ),
+        length,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Per-detection 3D from depth-from-size
 # ---------------------------------------------------------------------------
@@ -473,7 +567,7 @@ def solve_bounce_trajectory_linear(
     *,
     gravity: float = GRAVITY_MS2,
     restitution: float = COEFFICIENT_OF_RESTITUTION_Z,
-) -> ProjectileFit | None:
+) -> tuple[ProjectileFit, float] | None:
     """Bounce-aware gravity-constrained linear trajectory recovery.
 
     Grid-searches the bounce time. For each candidate it linearly solves the
@@ -482,6 +576,10 @@ def solve_bounce_trajectory_linear(
     reprojection error. The winning split yields the pre-bounce 6-vector
     plus a vz chosen so the downstream restitution model reproduces the
     linearly-recovered post-bounce vertical velocity.
+
+    Returns (fit, rms_px) — the combined pixel reprojection RMS lets the caller
+    compare it head-to-head with the single-parabola `solve_projectile_linear`
+    — or None if no split fits.
     """
     if len(detections) < 8:
         return None
@@ -492,7 +590,7 @@ def solve_bounce_trajectory_linear(
         return None
 
     best: ProjectileFit | None = None
-    best_score = float("inf")
+    best_rms_px = float("inf")
 
     for frac in np.linspace(0.25, 0.75, 11):
         t_b_s = frac * total_s
@@ -507,8 +605,12 @@ def solve_bounce_trajectory_linear(
             continue
         pre_fit, pre_rms = pre_res
         post_fit, post_rms = post_res
-        score = pre_rms + post_rms
-        if score >= best_score:
+        # Combined reprojection RMS over all points (RMS, not sum, so it is
+        # directly comparable to the single-parabola fit's rms_px).
+        combined_rms = math.sqrt(
+            (pre_rms ** 2 * len(pre) + post_rms ** 2 * len(post)) / max(1, len(pre) + len(post))
+        )
+        if combined_rms >= best_rms_px:
             continue
         # post_fit was solved with its own t=0 at the first post-bounce
         # detection. Its vz is the post-bounce vertical velocity near the
@@ -516,7 +618,7 @@ def solve_bounce_trajectory_linear(
         #   vz_post = -e * (vz_pre - g*t_b)  =>  vz_pre = g*t_b - vz_post/e
         vz_post = post_fit.vz
         vz_pre = gravity * t_b_s - vz_post / max(restitution, 1e-3)
-        best_score = score
+        best_rms_px = combined_rms
         best = ProjectileFit(
             x0=pre_fit.x0, y0=pre_fit.y0, z0=pre_fit.z0,
             vx=pre_fit.vx, vy=pre_fit.vy, vz=vz_pre,
@@ -527,7 +629,9 @@ def solve_bounce_trajectory_linear(
                 f"t_b={t_b_s*1000:.0f}ms pre_rms={pre_rms:.2f}px post_rms={post_rms:.2f}px",
             ],
         )
-    return best
+    if best is None:
+        return None
+    return best, best_rms_px
 
 
 def solve_projectile_linear(
@@ -888,6 +992,7 @@ def reconstruct_trajectory(
     detections: list[tuple[int, float, float, float, float]],  # (t_ms, x_px, y_px, radius_px, conf)
     pitch_length_m: float = DEFAULT_PITCH_LENGTH_M,
     pitch_width_m: float = 3.05,
+    prefer_linear: bool = False,
 ) -> Reconstruction:
     """Build the full 3D reconstruction from per-frame ball detections.
 
@@ -921,43 +1026,84 @@ def reconstruct_trajectory(
         ))
 
     # ---- Trajectory fit ---------------------------------------------------
-    # The fit chain here is the result of an empirical comparison against the
-    # gravity-constrained linear method of Ribnick, Atev & Papanikolopoulos
-    # (IEEE TPAMI 2009). That linear solver (available as
-    # `solve_bounce_trajectory_linear`) is exact in the noise-free case but
-    # noise-sensitive for short pre-bounce windows; the engineered chain
-    # below -- depth-from-size seed, bounded bundle adjustment, then an
-    # image-space bounce anchor that back-projects the bounce pixel onto the
-    # calibrated ground plane -- proved more robust for handheld-phone noise
-    # because the ground-plane back-projection exploits the calibration
-    # directly. The linear solver is retained as a documented reference and a
-    # fallback seed.
+    # Two reconstruction routes:
+    #
+    #  * prefer_linear (real, stump-calibrated footage): solve the trajectory
+    #    directly with the gravity-constrained linear method of Ribnick, Atev &
+    #    Papanikolopoulos (IEEE TPAMI 2009). Given an accurate pose it recovers a
+    #    smooth, correctly-oriented arc straight from the pixel track + gravity —
+    #    no depth-from-size cues — which avoids the "cliff" and direction flips
+    #    the engineered chain produces on noisy handheld phone clips.
+    #
+    #  * otherwise (e.g. synthetic, no stumps): the depth-from-size seed +
+    #    bounded bundle adjustment + image-space bounce anchor chain, which is
+    #    more accurate when the calibration and ball sizes are clean.
     good_dets = [d for d in detections if d[3] >= 0.5]
-    fit_seed = fit_projectile(raw, pitch_length_m=pitch_length_m)
 
     fit: ProjectileFit | None = None
-    if fit_seed is not None and len(detections) >= 6:
-        fit = _search_bounce_then_bundle(
-            pose=pose,
-            detections=good_dets,
-            seed_no_bounce=fit_seed,
-            pitch_length_m=pitch_length_m,
-        )
-    else:
-        fit = fit_seed
+    used_linear = False
+    if prefer_linear and len(good_dets) >= 3:
+        lin = solve_projectile_linear(pose, good_dets)
+        if lin is not None and math.isfinite(lin[0].vx):
+            lin_fit, lin_rms_px = lin
+            # Express the pixel residual in metres for the downstream quality
+            # gate (a pixel error maps to a world error scaled by depth / focal).
+            depth_ref = abs(float(pose.cam_center_world.flatten()[2])) + pitch_length_m * 0.5
+            px_to_m = depth_ref / max(1.0, pose.fx)
+            fit = ProjectileFit(
+                x0=lin_fit.x0, y0=lin_fit.y0, z0=lin_fit.z0,
+                vx=lin_fit.vx, vy=lin_fit.vy, vz=lin_fit.vz,
+                bounce_t_ms=None,
+                rms_m=float(lin_rms_px * px_to_m),
+                notes=list(lin_fit.notes),
+            )
+            used_linear = True
 
-    # Fallback: when the depth-from-size chain fails to produce any fit (e.g.
-    # the lifted world points were all rejected by the plausibility gate), try
-    # the gravity-constrained linear solver. It needs only image observations
-    # and the known pose, so it can still recover a trajectory when the
-    # depth-from-size lift is degenerate.
-    if fit is None and len(good_dets) >= 8:
-        fit = solve_bounce_trajectory_linear(pose, good_dets)
+            # A real delivery bounces. The single parabola above cannot bend at
+            # the pitch, so on a bounced ball it fits one smooth arc with no
+            # pitch point and a prediction that ignores the bounce. Solve the
+            # two-parabola (pre/post-bounce) linear model as well and keep it
+            # when it explains the pixels clearly better. The 0.9 margin stops a
+            # genuine full-toss (no bounce) from being handed a spurious one.
+            bl = solve_bounce_trajectory_linear(pose, good_dets)
+            if bl is not None and math.isfinite(bl[0].vx) and bl[1] < lin_rms_px * 0.9:
+                bl_fit, bl_rms_px = bl
+                fit = ProjectileFit(
+                    x0=bl_fit.x0, y0=bl_fit.y0, z0=bl_fit.z0,
+                    vx=bl_fit.vx, vy=bl_fit.vy, vz=bl_fit.vz,
+                    bounce_t_ms=bl_fit.bounce_t_ms,
+                    rms_m=float(bl_rms_px * px_to_m),
+                    notes=list(bl_fit.notes),
+                )
+
+    if not used_linear:
+        fit_seed = fit_projectile(raw, pitch_length_m=pitch_length_m)
+        if fit_seed is not None and len(detections) >= 6:
+            fit = _search_bounce_then_bundle(
+                pose=pose,
+                detections=good_dets,
+                seed_no_bounce=fit_seed,
+                pitch_length_m=pitch_length_m,
+            )
+        else:
+            fit = fit_seed
+
+        # Fallback: when the depth-from-size chain fails to produce any fit (e.g.
+        # the lifted world points were all rejected by the plausibility gate),
+        # try the gravity-constrained linear solver. It needs only image
+        # observations and the known pose, so it can still recover a trajectory
+        # when the depth-from-size lift is degenerate.
+        if fit is None and len(good_dets) >= 8:
+            bl = solve_bounce_trajectory_linear(pose, good_dets)
+            if bl is not None:
+                fit = bl[0]
 
     # Sanity guard: a real delivery traverses most of the pitch. If the fit
     # barely moves, rebuild a geometry-based estimate from the pitch length.
+    # (Skipped for the linear route, whose arc is already physically derived.)
     if (
-        fit is not None
+        not used_linear
+        and fit is not None
         and pitch_length_m
         and detections
         and len(detections) >= 4
@@ -988,7 +1134,8 @@ def reconstruct_trajectory(
     # calibrated ground plane (z=0) for an exact world bounce position, then
     # re-anchor the trajectory. This is more robust than depth-from-size
     # because the bounce z is known to be zero.
-    if detections and len(detections) >= 8:
+    # (Skipped for the linear route — its arc already comes from the geometry.)
+    if not used_linear and detections and len(detections) >= 8:
         sorted_dets = sorted(detections, key=lambda d: d[0])
         vs = np.array([d[2] for d in sorted_dets], dtype=float)
         ts = np.array([d[0] for d in sorted_dets], dtype=float)
@@ -1147,3 +1294,85 @@ def predict_path_to_stumps(
         z = max(0.0, z_imp + vz_at_imp * tp - 0.5 * GRAVITY_MS2 * tp ** 2)
         out.append((float(impact_t_ms + tp * 1000.0), x, y, z))
     return out
+
+
+def build_overlay_px(
+    *,
+    pose: CameraPose,
+    fit: ProjectileFit,
+    t0_ms: int,
+    impact_t_rel_ms: float,
+    predicted_path: list[tuple[float, float, float, float]],
+    pitch_length_m: float,
+    stump_height_m: float = DEFAULT_STUMP_HEIGHT_M,
+    bounce: tuple[float, float, float, float] | None = None,  # (t_ms_abs, x, y, z)
+    impact: tuple[float, float, float, float] | None = None,  # (t_ms_abs, x, y, z)
+    corridor_half_m: float = 0.18,  # half-width of the stump-line channel on the ground
+    n_steps: int = 48,
+) -> dict:
+    """Project the reconstructed trajectory into image pixels for the video overlay.
+
+    The server owns the camera pose, so it draws the Hawk-Eye path in the
+    analysed frame's pixel space here; the client then renders it directly over
+    the source video without re-implementing the projection. The flight segment
+    is sampled densely from the *fit* (so it is smooth and complete through the
+    bounce even where individual frames were missed) and the predicted segment
+    continues it to the stump plane.
+
+    Returns pixel-space polylines and markers; every coordinate is in the same
+    frame space as ``track.image_points`` and ``image_size``.
+    """
+    params = np.array([fit.x0, fit.y0, fit.z0, fit.vx, fit.vy, fit.vz], dtype=float)
+    has_bounce = fit.bounce_t_ms is not None
+    t_b = fit.bounce_t_ms / 1000.0 if has_bounce else None
+
+    def proj(x: float, y: float, z: float) -> dict | None:
+        p = _project_world(pose, x, y, z)
+        if p is None:
+            return None
+        return {"u": round(float(p[0]), 2), "v": round(float(p[1]), 2)}
+
+    path: list[dict] = []
+    impact_s = max(0.0, float(impact_t_rel_ms) / 1000.0)
+    steps = max(2, n_steps)
+    if impact_s > 1e-3:
+        for i in range(steps + 1):
+            ts = impact_s * i / steps
+            x, y, z = _projectile_at(params, ts, has_bounce=has_bounce, t_b=t_b)
+            pt = proj(x, y, z)
+            if pt is not None:
+                path.append({"t_ms": int(t0_ms + ts * 1000.0), "phase": "flight", **pt})
+    for (tp, x, y, z) in predicted_path:
+        pt = proj(x, y, z)
+        if pt is not None:
+            path.append({"t_ms": int(t0_ms + tp), "phase": "predicted", **pt})
+
+    def marker(ev: tuple[float, float, float, float] | None) -> dict | None:
+        if ev is None:
+            return None
+        pt = proj(ev[1], ev[2], ev[3])
+        return None if pt is None else {"t_ms": int(ev[0]), **pt}
+
+    def stump_pair(x: float) -> dict | None:
+        base = proj(x, 0.0, 0.0)
+        top = proj(x, 0.0, stump_height_m)
+        return None if (base is None or top is None) else {"base": base, "top": top}
+
+    # Pitch corridor: the on-stumps channel on the ground, drawn from the
+    # striker stumps up the pitch. A ground rectangle in perspective gives the
+    # broadcast "tramline" band that shows the line of the delivery.
+    corridor = [
+        proj(0.0, -corridor_half_m, 0.0),
+        proj(0.0, corridor_half_m, 0.0),
+        proj(pitch_length_m, corridor_half_m, 0.0),
+        proj(pitch_length_m, -corridor_half_m, 0.0),
+    ]
+    corridor_px = corridor if all(c is not None for c in corridor) else None
+
+    return {
+        "path_px": path,
+        "bounce_px": marker(bounce),
+        "impact_px": marker(impact),
+        "stumps_px": {"striker": stump_pair(0.0), "bowler": stump_pair(pitch_length_m)},
+        "corridor_px": corridor_px,
+    }

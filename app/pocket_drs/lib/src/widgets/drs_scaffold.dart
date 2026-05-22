@@ -2,6 +2,28 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_spacing.dart';
 
+/// Real top safe-area inset and (text-scale-clamped) [TextScaler] for the
+/// primary view.
+///
+/// Both headers sit in the Scaffold `appBar` slot, which clamps them to
+/// `preferredSize.height`. A fixed height there overflows on devices with a
+/// tall status bar (the inner [SafeArea] eats into the band) or under large
+/// system fonts. Reading the live inset and scaler lets each `preferredSize`
+/// below size its band to the real content height instead of a guess.
+({double topInset, TextScaler textScaler}) _viewMetrics() {
+  final views = WidgetsBinding.instance.platformDispatcher.views;
+  if (views.isEmpty) {
+    return (topInset: 0, textScaler: TextScaler.noScaling);
+  }
+  final mq = MediaQueryData.fromView(views.first);
+  // Mirror the app-wide clamp in PocketDrsApp so the band matches what is
+  // actually rendered.
+  return (
+    topInset: mq.padding.top,
+    textScaler: mq.textScaler.clamp(maxScaleFactor: 1.3),
+  );
+}
+
 /// Editorial header used in place of [AppBar] on top-level screens.
 ///
 /// Structure:
@@ -28,7 +50,21 @@ class DrsHeader extends StatelessWidget implements PreferredSizeWidget {
   final Widget? leading;
 
   @override
-  Size get preferredSize => const Size.fromHeight(132);
+  Size get preferredSize {
+    final (:topInset, :textScaler) = _viewMetrics();
+    // Eyebrow/action row collapses to the eyebrow line when there are no
+    // interactive children; otherwise it is button-sized.
+    final rowHeight = (actions.isNotEmpty || leading != null)
+        ? kMinInteractiveDimension
+        : textScaler.scale(10);
+    final band = AppSpacing.xl // top padding
+        + rowHeight
+        + AppSpacing.md
+        + textScaler.scale(36) * 1.05 // displaySmall title line box
+        + AppSpacing.lg
+        + 1; // divider
+    return Size.fromHeight((topInset + band).ceilToDouble());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,6 +93,8 @@ class DrsHeader extends StatelessWidget implements PreferredSizeWidget {
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 ...actions,
@@ -70,10 +108,7 @@ class DrsHeader extends StatelessWidget implements PreferredSizeWidget {
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: AppSpacing.lg),
-            Container(
-              height: 1,
-              color: theme.colorScheme.outline,
-            ),
+            Container(height: 1, color: theme.colorScheme.outline),
           ],
         ),
       ),
@@ -97,7 +132,18 @@ class DrsSubHeader extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onBack;
 
   @override
-  Size get preferredSize => const Size.fromHeight(120);
+  Size get preferredSize {
+    final (:topInset, :textScaler) = _viewMetrics();
+    final hasEyebrow = eyebrow != null && eyebrow!.isNotEmpty;
+    final band = AppSpacing.sm // top padding
+        + kMinInteractiveDimension // back-button row
+        + AppSpacing.xs
+        + (hasEyebrow ? textScaler.scale(10) + AppSpacing.sm : 0)
+        + textScaler.scale(24) * 1.15 // headlineMedium title line box
+        + AppSpacing.lg
+        + 1; // divider
+    return Size.fromHeight((topInset + band).ceilToDouble());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -137,6 +183,8 @@ class DrsSubHeader extends StatelessWidget implements PreferredSizeWidget {
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   if (eyebrow != null && eyebrow!.isNotEmpty)
                     const SizedBox(height: AppSpacing.sm),
@@ -150,10 +198,7 @@ class DrsSubHeader extends StatelessWidget implements PreferredSizeWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
-            Container(
-              height: 1,
-              color: theme.colorScheme.outline,
-            ),
+            Container(height: 1, color: theme.colorScheme.outline),
           ],
         ),
       ),

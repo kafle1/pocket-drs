@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import 'home_shell.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
+import 'screens/analyze_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
 
@@ -29,11 +29,22 @@ class _PocketDrsAppState extends State<PocketDrsApp> {
       valueListenable: ThemeController.instance.themeMode,
       builder: (context, mode, _) {
         return MaterialApp(
-          title: 'PocketDRS',
+          title: 'Pocket DRS',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: mode,
+          // Cap text scaling so the broadcast-style fixed-tracking layouts
+          // can't overflow under very large system font sizes.
+          builder: (context, child) {
+            final mq = MediaQuery.of(context);
+            return MediaQuery(
+              data: mq.copyWith(
+                textScaler: mq.textScaler.clamp(maxScaleFactor: 1.3),
+              ),
+              child: child!,
+            );
+          },
           home: StreamBuilder<User?>(
             stream: _auth.authStateChanges,
             builder: (context, snapshot) {
@@ -42,11 +53,11 @@ class _PocketDrsAppState extends State<PocketDrsApp> {
                   body: Center(child: CircularProgressIndicator()),
                 );
               }
-              
+
               if (snapshot.hasData) {
-                return const HomeShell();
+                return const AnalyzeScreen();
               }
-              
+
               return const LoginScreen();
             },
           ),

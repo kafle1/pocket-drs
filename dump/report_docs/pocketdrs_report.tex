@@ -892,6 +892,51 @@ Because of the fixed-clutter removal and the path-length check added to the dete
 \paragraph{What a good test video looks like.}
 The lesson from this clip is a simple checklist for recording a usable delivery: mount the phone \emph{high} (above head height) behind the bowler-end stumps so the bowler's body does not block the pitch; keep a clear line of sight with no netting between the camera and the pitch; record one continuous delivery with no edits or text overlays; and use the in-app tap calibration so the four pitch corners are marked precisely. With those conditions met (the same conditions the synthetic validation already simulates), the pipeline has everything it needs.
 
+\subsection{Real-World Validation: A Successfully Tracked Delivery}
+\label{sec:realval_success}
+
+The checklist above was then put to the test on a second real clip (\texttt{test3.mp4}): a $1080 \times 1920$, 60 frames-per-second handheld recording of an off-spin delivery at an indoor practice-nets facility, filmed from behind the bowler looking down the pitch. The decisive difference from the first clip is line of sight: an off-break is \emph{flighted}, so the ball loops up above the bowler's arm and the net line and stays visible against the open background for its whole descent onto the batter. This is exactly the condition the failure clip lacked, and it lets the pipeline run end-to-end on genuine phone footage.
+
+\paragraph{Tracking result.}
+The learned YOLO cricket-ball detector was run on every readable frame; as with the first clip the container over-reported its length (it claims $290$ frames / $4.8$\,s but only $101$ frames decode), and the truncation guard from Section~\ref{sec:hardening} stopped the run cleanly at the last real frame instead of padding with stale frames. The RANSAC constant-acceleration association then recovered a single clean trajectory:
+
+\begin{itemize}
+    \item \textbf{25 ball positions} along one continuous arc, from the point of release (frame~33, $t = 550$\,ms) to arrival at the batter (frame~64, $t = 1067$\,ms): a $517$\,ms flight tracked at 60\,fps.
+    \item \textbf{22 RANSAC inliers} out of $33$ surviving candidates, with an image-space fit RMS of \textbf{14.4\,px} on a 1080p frame; the ball sweeps $341 \times 570$\,px across the image.
+    \item A static red false-positive that recurred at one fixed pixel location for most of the clip was correctly removed by the fixed-clutter suppression (Step~3) before association, so it never contaminated the fit.
+\end{itemize}
+
+Figure~\ref{fig:test3_path} overlays the recovered path on a mid-flight frame: the green marker is the bowler's release point, the colour-graded markers trace the ball down through its arc, and the red marker is arrival at the batter's pads, the line on which an LBW judgement would be made. Figure~\ref{fig:test3_montage} shows the same track at the release, mid-flight, and arrival instants with the detected ball circled in each, confirming the overlay follows the real ball and not background clutter.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.40\textwidth]{figures/test3_path_overlay.png}
+    \hfill
+    \includegraphics[width=0.56\textwidth]{figures/test3_3d_path.png}
+    \caption{Left: the full tracked ball path on \texttt{test3.mp4}, from the bowler's release (green) to arrival at the batter (red), 25 positions recovered by YOLO + RANSAC at 60\,fps. Right: the same delivery lifted to a camera-relative 3D arc by depth-from-apparent-size; the path descends as expected for a flighted off-break (release depth $1.41$\,m $\rightarrow$ arrival depth $2.39$\,m from the camera).}
+    \label{fig:test3_path}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\textwidth]{figures/test3_montage.png}
+    \caption{The same delivery at release, mid-flight, and arrival, with the detected ball circled in each frame.}
+    \label{fig:test3_montage}
+\end{figure}
+
+\paragraph{3D reconstruction and its honest limit.}
+The recovered 2D track is then lifted into three dimensions. Because this is a single, uncalibrated handheld clip, the lift uses depth-from-apparent-size: the known physical radius of a cricket ball ($\approx 36$\,mm) against its measured pixel radius gives the ball's distance from the camera in each frame (estimated intrinsics $f_x = f_y \approx 816$\,px for the $67^{\circ}$ field of view). The right panel of Figure~\ref{fig:test3_path} shows the resulting 3D arc and Figure~\ref{fig:test3_pixel} the underlying pixel trajectory and the shrinking apparent-size profile that drives the depth estimate. The arc has the correct \emph{shape}: a flighted off-break that loops and descends onto the batter. Its absolute \emph{scale}, however, is monocular-ambiguous: a single camera on a short coaching net cannot pin down true distance, so the recovered depths ($1.4$--$2.4$\,m) and the implied average speed ($\approx 20$\,km/h) are order-of-magnitude estimates, not calibrated measurements. This is the same single-camera depth-from-size precision floor identified in the synthetic sweep (Section~\ref{sec:synthval}), and it is precisely why broadcast Hawk-Eye uses six to eight synchronised cameras.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/test3_pixel_track.png}
+    \caption{Left: the ball's pixel trajectory on \texttt{test3.mp4}, coloured by time from release. Right: the ball's apparent radius shrinking through the flight, the depth cue used by the monocular 3D lift.}
+    \label{fig:test3_pixel}
+\end{figure}
+
+\paragraph{Why this clip matters.}
+Taken together, the two real clips bracket the system's real-world envelope. The first clip is the negative case: when the ball is hidden (low camera, netting, clutter) the pipeline refuses to invent a verdict. This clip is the positive case: when the ball stays in view, the same unchanged pipeline recovers a clean, smooth, full-flight 2D track and a plausibly-shaped 3D arc end-to-end on real handheld phone footage, while remaining honest about the metric precision a single phone camera can and cannot deliver. That combination, a usable track when the conditions are met and a safe refusal when they are not, is the behaviour a decision-support tool should have.
+
 % =====================================================================
 % CHAPTER 5: CONCLUSION AND FUTURE RECOMMENDATIONS
 % =====================================================================

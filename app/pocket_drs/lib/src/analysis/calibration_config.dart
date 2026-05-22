@@ -70,7 +70,9 @@ class CalibrationConfig {
       }
     }
 
-    range('Pitch length (m)', pitchLengthM, min: 10, max: 30);
+    // Practice nets are frequently shorter than a regulation 20.12 m strip, so
+    // the lower bound allows short coaching pitches while still rejecting noise.
+    range('Pitch length (m)', pitchLengthM, min: 3, max: 30);
     range('Pitch width (m)', pitchWidthM, min: 1.5, max: 6);
     range('Stump height (m)', stumpHeightM, min: 0.4, max: 1.2);
     range('Camera height (m)', cameraHeightM, min: 0.2, max: 10);

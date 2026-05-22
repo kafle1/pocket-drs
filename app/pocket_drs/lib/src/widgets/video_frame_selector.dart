@@ -42,7 +42,9 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
     try {
       final controller = createVideoPlayerController(widget.videoPath);
       await runWithNativeVideoResources(() async {
-        await coolDownNativeVideoResources(delay: const Duration(milliseconds: 350));
+        await coolDownNativeVideoResources(
+          delay: const Duration(milliseconds: 350),
+        );
         await controller.initialize();
       });
       _controller = controller;
@@ -55,9 +57,9 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
       } catch (_) {}
       _controller = null;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to load video')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Failed to load video')));
       }
     }
   }
@@ -113,7 +115,9 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
       controller.removeListener(_onUpdate);
       await controller.dispose();
       if (_controller == controller) _controller = null;
-      await coolDownNativeVideoResources(delay: const Duration(milliseconds: 550));
+      await coolDownNativeVideoResources(
+        delay: const Duration(milliseconds: 550),
+      );
       widget.onFrameSelected(controller.value.position);
     } finally {
       if (mounted) setState(() => _selecting = false);
@@ -132,7 +136,9 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
     if (!_ready) return const Center(child: CircularProgressIndicator());
 
     final controller = _controller;
-    if (controller == null) return const Center(child: CircularProgressIndicator());
+    if (controller == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
@@ -141,9 +147,12 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
     final playing = controller.value.isPlaying;
 
     final maxMs = dur.inMilliseconds <= 0 ? 1.0 : dur.inMilliseconds.toDouble();
-    final sliderValueMs = (_scrubbing ? (_scrubValueMs ?? pos.inMilliseconds.toDouble()) : pos.inMilliseconds.toDouble())
-        .clamp(0.0, maxMs)
-        .toDouble();
+    final sliderValueMs =
+        (_scrubbing
+                ? (_scrubValueMs ?? pos.inMilliseconds.toDouble())
+                : pos.inMilliseconds.toDouble())
+            .clamp(0.0, maxMs)
+            .toDouble();
     final shownPos = Duration(milliseconds: sliderValueMs.toInt());
 
     return Column(
@@ -198,7 +207,9 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                           },
                           onChangeEnd: (v) {
                             _seekDebounce?.cancel();
-                            controller.seekTo(Duration(milliseconds: v.toInt()));
+                            controller.seekTo(
+                              Duration(milliseconds: v.toInt()),
+                            );
                             setState(() {
                               _scrubbing = false;
                               _scrubValueMs = null;
@@ -208,34 +219,42 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                       ),
                       Text(
                         _fmt(dur),
-                        style: AppTypography.mono(theme.textTheme.labelMedium)?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
+                        style: AppTypography.mono(
+                          theme.textTheme.labelMedium,
+                        )?.copyWith(color: scheme.onSurfaceVariant),
                       ),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _MiniButton(
-                        icon: Icons.skip_previous,
-                        label: '-0.1s',
-                        onTap: _stepBack,
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      _MiniButton(
-                        icon: playing ? Icons.pause : Icons.play_arrow,
-                        large: true,
-                        onTap: _selecting ? null : () => playing ? controller.pause() : controller.play(),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      _MiniButton(
-                        icon: Icons.skip_next,
-                        label: '+0.1s',
-                        onTap: _stepForward,
-                      ),
-                    ],
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const ClampingScrollPhysics(),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _MiniButton(
+                          icon: Icons.skip_previous,
+                          label: '-0.1s',
+                          onTap: _stepBack,
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        _MiniButton(
+                          icon: playing ? Icons.pause : Icons.play_arrow,
+                          large: true,
+                          onTap: _selecting
+                              ? null
+                              : () => playing
+                                    ? controller.pause()
+                                    : controller.play(),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        _MiniButton(
+                          icon: Icons.skip_next,
+                          label: '+0.1s',
+                          onTap: _stepForward,
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   DrsButton(
@@ -254,7 +273,12 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
 }
 
 class _MiniButton extends StatelessWidget {
-  const _MiniButton({required this.icon, this.onTap, this.label, this.large = false});
+  const _MiniButton({
+    required this.icon,
+    this.onTap,
+    this.label,
+    this.large = false,
+  });
   final IconData icon;
   final VoidCallback? onTap;
   final String? label;
@@ -277,7 +301,9 @@ class _MiniButton extends StatelessWidget {
           width: label != null ? null : size,
           height: size,
           child: Padding(
-            padding: label != null ? const EdgeInsets.symmetric(horizontal: 12) : EdgeInsets.zero,
+            padding: label != null
+                ? const EdgeInsets.symmetric(horizontal: 12)
+                : EdgeInsets.zero,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -291,7 +317,9 @@ class _MiniButton extends StatelessWidget {
                   Text(
                     label!.toUpperCase(),
                     style: TextStyle(
-                      color: disabled ? scheme.onSurfaceVariant : scheme.onSurface,
+                      color: disabled
+                          ? scheme.onSurfaceVariant
+                          : scheme.onSurface,
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 1.2,

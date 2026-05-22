@@ -202,6 +202,7 @@ image_slide("Data Modeling: ER Diagram", [FIG / "er_diagram.png"])
 image_slide("Process Modeling: Data Flow Diagrams",
             [FIG / "dfd_level0.png", FIG / "dfd_level1.png"],
             ["Level 0 (context)", "Level 1"])
+image_slide("System Architecture", [FIG / "architecture.png"])
 
 bullet_slide("Algorithm Details", [
     (0, "1.  Camera pose: from 4 tapped pitch corners (PnP); reject the below-ground mirror."),
@@ -229,6 +230,9 @@ bullet_slide("Implementation: Module Details", [
 ])
 
 image_slide("Results: 3D Verdict Render", [FIG / "app_result_out.png"])
+image_slide("Validation: LBW Verdicts",
+            [FIG / "case_out.png", FIG / "case_not_out.png", FIG / "case_umpires_call.png"],
+            ["OUT", "NOT OUT", "Umpire's Call"])
 
 bullet_slide("Conclusion", [
     (0, "A complete single-camera LBW pipeline: calibrate → track → 3D → decision → visualise."),

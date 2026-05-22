@@ -10,7 +10,7 @@
         android:maxSdkVersion="32" />
 
     <application
-        android:label="pocket_drs"
+        android:label="Pocket DRS"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:enableOnBackInvokedCallback="true"
