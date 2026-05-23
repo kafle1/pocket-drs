@@ -112,15 +112,23 @@ class Reconstruction:
 def estimate_intrinsics(image_width: int, image_height: int, *, h_fov_deg: float = 67.0) -> np.ndarray:
     """Approximate K for a phone camera given its frame size and horizontal FOV.
 
-    For typical smartphones the horizontal FOV is in [60, 75] deg; 67 is a
-    safe centre.  Errors here translate ~linearly into depth bias which is
-    correctable later but doesn't matter for relative geometry on the pitch.
+    `h_fov_deg` is the sensor's wide-direction field of view (typical phone
+    main cameras are 60–75°). The sensor's wide direction always maps to the
+    image's *long* axis: in landscape that is the image width, in portrait it
+    is the image height. Using the long axis here keeps fx consistent across
+    orientations and removes a ~1.8× depth-scale bias that the previous
+    width-based formula introduced for portrait clips.
+
+    Errors here translate ~linearly into depth bias, which is correctable
+    later by re-projecting the calibration marks; large bias surfaces as a
+    high reprojection error rather than corrupting the geometry silently.
     """
     if not (1.0 < float(h_fov_deg) < 179.0):
         raise CalibrationError(
             f"h_fov_deg must be in (1, 179) degrees, got {h_fov_deg}"
         )
-    fx = (image_width / 2.0) / math.tan(math.radians(h_fov_deg) / 2.0)
+    long_axis_px = float(max(image_width, image_height))
+    fx = (long_axis_px / 2.0) / math.tan(math.radians(h_fov_deg) / 2.0)
     fy = fx  # square pixels assumption (true for all modern phones)
     cx = image_width / 2.0
     cy = image_height / 2.0
@@ -265,22 +273,24 @@ def solve_camera_pose_from_stumps(
     stump_tops_px: list[tuple[float, float]],   # (striker, bowler)
     stump_height_m: float = DEFAULT_STUMP_HEIGHT_M,
     h_fov_deg: float = 67.0,
+    known_length_m: float | None = None,
     length_min_m: float = 2.0,
     length_max_m: float = 26.0,
 ) -> tuple[CameraPose, float]:
     """Recover the camera pose AND the pitch length from the two stump sets.
 
-    The four stump marks — two bases on the ground and two tops at the known
-    stump height — lie in the vertical plane through the pitch centre line. The
-    stump height is a metric scale reference, so the only remaining unknown is
-    the stump-to-stump length. We grid-search that length and keep the value
-    whose PnP reprojection is smallest (the curve has a clear minimum at the
-    true length because the known height pins the absolute scale).
+    The four stump marks lie in the Y=0 vertical plane (X varies, Z∈{0, h}).
+    With the stump height pinning the metric scale and the focal length fixed
+    by `h_fov_deg` applied to the image's long axis (see
+    ``estimate_intrinsics``), the stump-to-stump length is the single
+    remaining unknown. We grid-search it and pick the value with the smallest
+    PnP reprojection error.
 
-    This removes the need for the user to know the real pitch length — essential
-    for practice nets that are not a regulation 20.12 m — and is far more
-    reliable than the wide, edge-less turf "corners", whose taps rarely match a
-    rectangle centred on the stumps. Returns (pose, derived_length_m).
+    If the caller supplies ``known_length_m`` as a hint, the geometry-fitted
+    length is still trusted (the user's value is often a guess on practice
+    nets); a large mismatch is recorded in ``notes`` so callers can warn.
+
+    Returns ``(pose, derived_length_m)``.
     """
     if cv2 is None:
         raise CalibrationError("OpenCV required for camera pose")
@@ -295,11 +305,7 @@ def solve_camera_pose_from_stumps(
         dtype=np.float64,
     )
 
-    best: tuple | None = None
-    # 0.1 m steps give length to within a stump's width — finer than the
-    # reprojection minimum is meaningful at this noise level.
-    n_steps = max(2, int(round((length_max_m - length_min_m) / 0.1)) + 1)
-    for length in np.linspace(length_min_m, length_max_m, n_steps):
+    def _solve_one(length: float) -> tuple | None:
         obj = np.array(
             [(0.0, 0.0, 0.0), (0.0, 0.0, stump_height_m),
              (float(length), 0.0, 0.0), (float(length), 0.0, stump_height_m)],
@@ -307,21 +313,29 @@ def solve_camera_pose_from_stumps(
         )
         ok, rvec, tvec = cv2.solvePnP(obj, img, K, dist, flags=cv2.SOLVEPNP_SQPNP)
         if not ok:
-            continue
+            return None
         R, _ = cv2.Rodrigues(rvec)
         R_inv = R.T
         cam = -R_inv @ tvec.reshape(3, 1)
-        # A real camera sits above the ground.
         if float(cam[2, 0]) <= 0.0:
-            continue
+            return None
         proj, _ = cv2.projectPoints(obj, rvec, tvec, K, dist)
         proj = proj.reshape(-1, 2)
         reproj = float(np.sqrt(np.mean(np.sum((proj - img) ** 2, axis=1))))
         if not math.isfinite(reproj):
-            continue
-        if best is None or reproj < best[0]:
-            best = (reproj, float(length), rvec, tvec, R, R_inv, cam)
+            return None
+        return (reproj, float(length), rvec, tvec, R, R_inv, cam)
 
+    best = None
+    # 0.05 m steps give length to about half a stump width — finer than the
+    # reprojection minimum is meaningful at this noise level.
+    n_steps = max(2, int(round((length_max_m - length_min_m) / 0.05)) + 1)
+    for length in np.linspace(length_min_m, length_max_m, n_steps):
+        cand = _solve_one(float(length))
+        if cand is None:
+            continue
+        if best is None or cand[0] < best[0]:
+            best = cand
     if best is None:
         raise CalibrationError(
             "Stump calibration is degenerate — re-mark the stump bases and tops."
@@ -330,9 +344,18 @@ def solve_camera_pose_from_stumps(
     reproj, length, rvec, tvec, R, R_inv, cam = best
     notes = [
         "stump-anchored pose",
-        f"derived length={length:.2f} m",
-        f"reproj={reproj:.1f}px",
+        f"length={length:.2f} m (geometry-fit)",
+        f"reproj={reproj:.2f} px",
+        f"cam_height={float(cam[2, 0]):.2f} m",
     ]
+    if known_length_m is not None and known_length_m > 0.0:
+        delta = abs(length - float(known_length_m)) / float(known_length_m)
+        if delta > 0.25:
+            notes.append(
+                f"entered length {known_length_m:.2f} m disagrees with "
+                f"geometry-fit {length:.2f} m by {delta * 100:.0f}% — "
+                "using the geometry-fit value"
+            )
     return (
         CameraPose(
             K=K,
@@ -1304,6 +1327,7 @@ def build_overlay_px(
     impact_t_rel_ms: float,
     predicted_path: list[tuple[float, float, float, float]],
     pitch_length_m: float,
+    pitch_width_m: float = 3.05,
     stump_height_m: float = DEFAULT_STUMP_HEIGHT_M,
     bounce: tuple[float, float, float, float] | None = None,  # (t_ms_abs, x, y, z)
     impact: tuple[float, float, float, float] | None = None,  # (t_ms_abs, x, y, z)
@@ -1369,10 +1393,36 @@ def build_overlay_px(
     ]
     corridor_px = corridor if all(c is not None for c in corridor) else None
 
+    # Full pitch surface polygon — the visible playing strip from striker to
+    # bowler ends at the full pitch width. Distinct from the LBW corridor so
+    # clients can render the broadcast pitch outline as well as the corridor.
+    half_w = float(pitch_width_m) / 2.0
+    pitch_rect = [
+        proj(0.0, -half_w, 0.0),
+        proj(0.0,  half_w, 0.0),
+        proj(pitch_length_m,  half_w, 0.0),
+        proj(pitch_length_m, -half_w, 0.0),
+    ]
+    pitch_rect_px = pitch_rect if all(p is not None for p in pitch_rect) else None
+
+    # Stump-to-stump centerline on the ground (the bowling axis), drawn so
+    # clients can show the "wickets-to-wickets" line at a glance even when
+    # the trajectory is short or the corridor band is hard to see.
+    centerline_segments = max(8, int(round(pitch_length_m)) * 2)
+    centerline: list[dict] = []
+    for i in range(centerline_segments + 1):
+        x_m = pitch_length_m * i / centerline_segments
+        p = proj(x_m, 0.0, 0.0)
+        if p is not None:
+            centerline.append(p)
+    centerline_px = centerline if len(centerline) >= 2 else None
+
     return {
         "path_px": path,
         "bounce_px": marker(bounce),
         "impact_px": marker(impact),
         "stumps_px": {"striker": stump_pair(0.0), "bowler": stump_pair(pitch_length_m)},
         "corridor_px": corridor_px,
+        "pitch_rect_px": pitch_rect_px,
+        "centerline_px": centerline_px,
     }

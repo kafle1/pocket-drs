@@ -469,13 +469,14 @@ def run_pipeline(
     # Optional camera-specific overrides; sensible default works for typical phones.
     h_fov_deg = float(cal_req.get("h_fov_deg") or 67.0)
 
-    # Stump-anchored calibration (preferred on real footage). When both stump
-    # bases and tops are marked, the known 0.711 m stump height fixes the metric
-    # scale, so we DERIVE the pitch length from the stumps rather than trusting
-    # the user-entered length. Practice nets are rarely a regulation 20.12 m, and
-    # a wrong entered length is the usual cause of a rejected calibration. The
-    # turf "corners" stay only for the detection ROI / display — they need not
-    # match a rectangle centred on the stumps, which they rarely do.
+    # Stump-anchored calibration (preferred on real footage). The four stump
+    # marks (striker base+top, bowler base+top) are coplanar at Y=0, so PnP can
+    # only recover the camera pose once the stump-to-stump distance is fixed.
+    # We use the caller-supplied pitch_length_m: it is the geometrically known
+    # value, and the previous grid-search alternative was depth-scale degenerate
+    # on coplanar marks and silently collapsed to a spurious local minimum
+    # (~3.6 m for a 20.12 m pitch). The turf "corners" stay only for the
+    # detection ROI / display — they need not form a perfect rectangle.
     use_stumps = (
         stump_bases_px is not None and len(stump_bases_px) == 2
         and stump_tops_px is not None and len(stump_tops_px) == 2
@@ -486,6 +487,7 @@ def run_pipeline(
             stump_bases_px=stump_bases_px,
             stump_tops_px=stump_tops_px,
             h_fov_deg=h_fov_deg,
+            known_length_m=pitch_length_m,
         )
         best_attempt_label = "stumps"
     else:
@@ -573,6 +575,34 @@ def run_pipeline(
             f"High reprojection error ({pose.reproj_error_px:.1f} px) — "
             f"calibration accuracy may be poor; re-mark the {what} precisely."
         )
+
+    # Physical-plausibility invariants. A phone is held above the pitch (cam_z>0)
+    # and never sits more than a few metres up. If either is violated, the pose
+    # may have fitted a mirrored or otherwise non-physical twin; refuse to use
+    # it for the 3D reconstruction rather than silently emitting garbage.
+    cam_z = float(pose.cam_center_world.flatten()[2])
+    if not (0.10 <= cam_z <= 5.0):
+        raise CalibrationError(
+            f"Calibration rejected: recovered camera height {cam_z:.2f} m is "
+            "outside the plausible phone range (0.10–5.00 m). The marks likely "
+            "form a mirror twin; re-mark them in the canonical order "
+            "(striker before bowler, base before top)."
+        )
+    if not (1.5 <= pitch_length_m <= 25.0):
+        raise CalibrationError(
+            f"Calibration rejected: derived pitch length {pitch_length_m:.2f} m "
+            "is outside the plausible range (1.5–25.0 m). The stump marks may "
+            "be at very different image scales — re-mark them."
+        )
+    _log.info(
+        "calibration ok: reproj=%.2fpx length=%.2fm cam=(%.2f,%.2f,%.2f) fx=%.0f",
+        pose.reproj_error_px,
+        pitch_length_m,
+        float(pose.cam_center_world.flatten()[0]),
+        float(pose.cam_center_world.flatten()[1]),
+        cam_z,
+        pose.fx,
+    )
 
     # Score: 1.0 at 0 px error, 0.0 at >=20 px.
     cal_score = float(max(0.05, min(0.99, 1.0 - pose.reproj_error_px / 20.0)))
@@ -794,6 +824,7 @@ def run_pipeline(
                 impact_t_rel_ms=float(impact_t_rel),
                 predicted_path=predicted_path,
                 pitch_length_m=pitch_length_m,
+                pitch_width_m=pitch_width_m,
                 bounce=(
                     (float(recon.world_points[recon.bounce_index].t_ms), *bounce_world)
                     if recon.bounce_index is not None and bounce_world is not None

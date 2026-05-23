@@ -49,17 +49,25 @@ FLUTTER_WEB_HOSTNAME ?= localhost
 
 .PHONY: help dev setup setup-app setup-server dev-app dev-server dev-app-only dev-server-only \
 	free-port dev-server-fresh phone-connect dev-app-phone \
-	server-test app-test clean
+	server-test app-test clean \
+	logs logs-server logs-flutter logs-errors logs-job logs-pull-android logs-clean
 
 help:
 	@printf "%s\n" "Targets:" \
-		"  make dev          Free port, start backend, build+install+launch app on phone" \
-		"  make setup        Install dependencies (backend venv + flutter pub get)" \
-		"  make dev-server    Start backend only" \
-		"  make dev-app       Start Flutter app only" \
-		"  make free-port     Kill whatever listens on POCKET_DRS_PORT" \
-		"  make server-test   Run backend tests" \
-		"  make clean         Remove generated dev artifacts"
+		"  make dev               Free port, start backend, build+install+launch app on phone" \
+		"  make setup             Install dependencies (backend venv + flutter pub get)" \
+		"  make dev-server        Start backend only" \
+		"  make dev-app           Start Flutter app only" \
+		"  make free-port         Kill whatever listens on POCKET_DRS_PORT" \
+		"  make logs              Tail server + access + errors logs together" \
+		"  make logs-server       Tail server.log" \
+		"  make logs-errors       Tail errors.log (ERROR+)" \
+		"  make logs-flutter      Tail latest Flutter log on host" \
+		"  make logs-job JOB=<id> Tail per-job log" \
+		"  make logs-pull-android Pull Flutter logs from connected Android device" \
+		"  make logs-clean        Remove all files under logs/" \
+		"  make server-test       Run backend tests" \
+		"  make clean             Remove generated dev artifacts"
 
 # ----- Setup -----
 
@@ -185,3 +193,76 @@ clean:
 		"$(ROOT_DIR)/data/jobs" \
 		"$(APP_DIR)/build" \
 		"$(APP_DIR)/.dart_tool"
+
+# ----- Logs -----
+# Centralized layout under $(ROOT_DIR)/logs (see logs/README.md):
+#   logs/server/server.log         All server output (rotating, 10MB x 5)
+#   logs/server/access.log         Per-request HTTP access log
+#   logs/server/errors.log         ERROR+ only, fast triage
+#   logs/server/jobs/<id>.log      One file per job
+#   logs/flutter/app_<ts>.log      Flutter logs (rotating, 5MB x 8)
+
+LOGS_DIR := $(ROOT_DIR)/logs
+
+logs:
+	@mkdir -p "$(LOGS_DIR)/server" "$(LOGS_DIR)/flutter"
+	@touch "$(LOGS_DIR)/server/server.log" "$(LOGS_DIR)/server/access.log" "$(LOGS_DIR)/server/errors.log"
+	@printf "%s\n" "Tailing $(LOGS_DIR)/server/{server,access,errors}.log (Ctrl+C to stop)"
+	@tail -F "$(LOGS_DIR)/server/server.log" "$(LOGS_DIR)/server/access.log" "$(LOGS_DIR)/server/errors.log"
+
+logs-server:
+	@mkdir -p "$(LOGS_DIR)/server"
+	@touch "$(LOGS_DIR)/server/server.log"
+	@tail -F "$(LOGS_DIR)/server/server.log"
+
+logs-errors:
+	@mkdir -p "$(LOGS_DIR)/server"
+	@touch "$(LOGS_DIR)/server/errors.log"
+	@tail -F "$(LOGS_DIR)/server/errors.log"
+
+logs-flutter:
+	@mkdir -p "$(LOGS_DIR)/flutter"
+	@LATEST=$$(ls -t "$(LOGS_DIR)/flutter"/app_*.log 2>/dev/null | head -n 1); \
+	if [ -z "$$LATEST" ]; then \
+		printf "%s\n" "No Flutter log files yet under $(LOGS_DIR)/flutter." \
+			"  - Desktop/Web builds write directly here via POCKET_DRS_LOG_DIR." \
+			"  - For Android, run: make logs-pull-android" >&2; \
+		exit 1; \
+	fi; \
+	printf "%s\n" "Tailing $$LATEST"; \
+	tail -F "$$LATEST"
+
+logs-job:
+	@if [ -z "$(JOB)" ]; then \
+		printf "%s\n" "Usage: make logs-job JOB=<job_id>" >&2; \
+		exit 1; \
+	fi
+	@F="$(LOGS_DIR)/server/jobs/$(JOB).log"; \
+	if [ ! -f "$$F" ]; then \
+		printf "%s\n" "No such job log: $$F" >&2; \
+		exit 1; \
+	fi; \
+	tail -F "$$F"
+
+# Pull the app's private logs from a connected Android device into the host
+# logs/ tree.  Uses adb's run-as so it works on non-rooted devices.
+APP_PACKAGE ?= com.pocketdrs.pocket_drs
+logs-pull-android:
+	@SERIAL="$(FLUTTER_DEVICE)"; \
+	if [ -z "$$SERIAL" ]; then \
+		SERIAL=$$($(ADB) devices | awk 'NR>1 && $$2=="device"{print $$1; exit}'); \
+	fi; \
+	if [ -z "$$SERIAL" ]; then \
+		printf "%s\n" "No phone detected over adb." >&2; \
+		exit 1; \
+	fi; \
+	mkdir -p "$(LOGS_DIR)/flutter/android"; \
+	printf "%s\n" "Pulling logs from $(APP_PACKAGE) on $$SERIAL"; \
+	$(ADB) -s "$$SERIAL" exec-out "run-as $(APP_PACKAGE) sh -c 'cd files/logs/flutter 2>/dev/null && tar c .'" \
+		| tar x -C "$(LOGS_DIR)/flutter/android" 2>/dev/null || \
+		printf "%s\n" "Pull failed. Confirm APP_PACKAGE=$(APP_PACKAGE) and that the app has run at least once." >&2
+
+logs-clean:
+	@rm -rf "$(LOGS_DIR)/server"/*.log* "$(LOGS_DIR)/server/jobs" "$(LOGS_DIR)/flutter"/*
+	@mkdir -p "$(LOGS_DIR)/server/jobs" "$(LOGS_DIR)/flutter"
+	@printf "%s\n" "Cleared logs under $(LOGS_DIR)"

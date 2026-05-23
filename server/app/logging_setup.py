@@ -3,8 +3,23 @@ from __future__ import annotations
 import logging
 import logging.config
 import os
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
+
+
+# Per-request correlation id. Set by RequestLoggingMiddleware; "-" outside
+# a request scope so file columns stay aligned.
+request_id_ctx: ContextVar[str] = ContextVar("request_id_ctx", default="-")
+
+
+class RequestIdFilter(logging.Filter):
+    """Attach the current request id from the ContextVar onto every record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+        if not hasattr(record, "req_id") or not getattr(record, "req_id", None):
+            record.req_id = request_id_ctx.get()
+        return True
 
 
 def default_logs_root() -> Path:
@@ -45,20 +60,34 @@ def build_uvicorn_log_config(*, log_level: str = "info") -> dict[str, Any]:
 
     server_log = str(server_dir / "server.log")
     access_log = str(server_dir / "access.log")
+    errors_log = str(server_dir / "errors.log")
 
     level = (log_level or "info").upper()
+
+    # Includes req_id when set via RequestLoggingMiddleware; falls back to "-"
+    # so the column stays aligned for records emitted outside a request.
+    server_fmt = (
+        "%(asctime)s [%(levelname)s] %(name)s req=%(req_id)s: %(message)s"
+    )
 
     return {
         "version": 1,
         "disable_existing_loggers": False,
+        "filters": {
+            "req_id": {
+                "()": "app.logging_setup.RequestIdFilter",
+            },
+        },
         "formatters": {
             "default": {
-                "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                "format": server_fmt,
             },
             "access": {
-                # Uvicorn access logs already render a complete message; avoid
-                # relying on non-standard LogRecord fields.
-                "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                # Uvicorn renders the full "GET /path HTTP/1.1 200" string into
+                # %(message)s for us; we just prefix our own req_id so a single
+                # `grep req=<id> logs/server/*.log` surfaces every line for that
+                # request, including the access entry.
+                "format": "%(asctime)s [%(levelname)s] %(name)s req=%(req_id)s: %(message)s",
             },
         },
         "handlers": {
@@ -67,6 +96,7 @@ def build_uvicorn_log_config(*, log_level: str = "info") -> dict[str, Any]:
                 "formatter": "default",
                 "level": "WARNING",
                 "stream": "ext://sys.stdout",
+                "filters": ["req_id"],
             },
             "server_file": {
                 "class": "logging.handlers.RotatingFileHandler",
@@ -76,6 +106,18 @@ def build_uvicorn_log_config(*, log_level: str = "info") -> dict[str, Any]:
                 "maxBytes": 10 * 1024 * 1024,
                 "backupCount": 5,
                 "encoding": "utf-8",
+                "filters": ["req_id"],
+            },
+            "errors_file": {
+                # Fast-triage: every ERROR+ across all loggers, one file.
+                "class": "logging.handlers.RotatingFileHandler",
+                "formatter": "default",
+                "level": "ERROR",
+                "filename": errors_log,
+                "maxBytes": 5 * 1024 * 1024,
+                "backupCount": 3,
+                "encoding": "utf-8",
+                "filters": ["req_id"],
             },
             "access_file": {
                 "class": "logging.handlers.RotatingFileHandler",
@@ -85,19 +127,20 @@ def build_uvicorn_log_config(*, log_level: str = "info") -> dict[str, Any]:
                 "maxBytes": 10 * 1024 * 1024,
                 "backupCount": 3,
                 "encoding": "utf-8",
+                "filters": ["req_id"],
             },
         },
         "loggers": {
             # App code: everything to file, only warnings/errors to console
-            "pocket_drs": {"level": level, "handlers": ["console", "server_file"], "propagate": False},
-            "pocket_drs.job": {"level": level, "handlers": ["server_file"], "propagate": False},
+            "pocket_drs": {"level": level, "handlers": ["console", "server_file", "errors_file"], "propagate": False},
+            "pocket_drs.job": {"level": level, "handlers": ["server_file", "errors_file"], "propagate": False},
 
             # uvicorn: file-only for access logs, minimal console for errors
-            "uvicorn": {"level": level, "handlers": ["server_file"], "propagate": False},
-            "uvicorn.error": {"level": level, "handlers": ["console", "server_file"], "propagate": False},
+            "uvicorn": {"level": level, "handlers": ["server_file", "errors_file"], "propagate": False},
+            "uvicorn.error": {"level": level, "handlers": ["console", "server_file", "errors_file"], "propagate": False},
             "uvicorn.access": {"level": level, "handlers": ["access_file"], "propagate": False},
         },
-        "root": {"level": level, "handlers": ["console", "server_file"]},
+        "root": {"level": level, "handlers": ["console", "server_file", "errors_file"]},
     }
 
 

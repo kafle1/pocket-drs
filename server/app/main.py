@@ -3,19 +3,22 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import traceback
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Header
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Header, Request
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from firebase_admin import firestore as fb_firestore
 
 from .jobs import JobStore, default_job_store
 from .job_logging import job_log_context
-from .logging_setup import configure_logging
+from .logging_setup import configure_logging, request_id_ctx
 from .firebase_config import initialize_firebase, verify_user_token, get_firestore
 from .models import (
     ApiError,
@@ -47,6 +50,45 @@ def _require_user_id(authorization: str | None) -> str:
     return uid
 
 app = FastAPI(title="PocketDRS Server", version="1.0")
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Assign a request id, log one INFO line per request with timing.
+
+    The id is also returned to clients via the `X-Request-Id` header so a
+    Flutter-side report can be traced straight to its server log line.
+    """
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        incoming = request.headers.get("x-request-id", "").strip()
+        req_id = incoming if incoming else uuid.uuid4().hex[:12]
+        token = request_id_ctx.set(req_id)
+
+        start = time.perf_counter()
+        status_code = 500
+        try:
+            response: Response = await call_next(request)
+            status_code = response.status_code
+            response.headers["X-Request-Id"] = req_id
+            return response
+        except Exception:
+            _log.exception("Unhandled exception in %s %s", request.method, request.url.path)
+            raise
+        finally:
+            dur_ms = (time.perf_counter() - start) * 1000.0
+            client = request.client.host if request.client else "-"
+            _log.info(
+                "%s %s -> %d %.1fms client=%s",
+                request.method,
+                request.url.path,
+                status_code,
+                dur_ms,
+                client,
+            )
+            request_id_ctx.reset(token)
+
+
+app.add_middleware(RequestLoggingMiddleware)
 
 
 @app.on_event("startup")

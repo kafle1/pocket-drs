@@ -62,7 +62,11 @@ def build_request() -> dict:
         },
         "calibration": {
             "mode": "taps",
-            "pitch_dimensions_m": {"length": 20.12, "width": 3.05},  # length derived from stumps
+            # The solver derives the real pitch length from the stump
+            # geometry under the camera FOV; this hint is only a sanity check.
+            # test3.mp4 is an indoor practice clip whose geometry resolves to
+            # ~6.3 m, so we record that and avoid the cross-check warning.
+            "pitch_dimensions_m": {"length": 6.3, "width": 3.05},
             "pitch_corners_norm": [{"x": x, "y": y} for x, y in CORNERS_NORM],
             "stump_bases_norm": [
                 {"x": STRIKER["base"][0], "y": STRIKER["base"][1]},
@@ -118,8 +122,11 @@ def render(result: dict) -> None:
     metrics = result.get("metrics") or {}
     lbw = result.get("lbw") or {}
     corridor = ov.get("corridor_px") or []
+    pitch_rect = ov.get("pitch_rect_px") or []
+    centerline = ov.get("centerline_px") or []
     stumps = ov.get("stumps_px") or {}
     impact = ov.get("impact_px")
+    bounce = ov.get("bounce_px")
 
     flight = [(p["u"], p["v"]) for p in path if p.get("phase") == "flight"]
     predicted = [(p["u"], p["v"]) for p in path if p.get("phase") == "predicted"]
@@ -138,6 +145,8 @@ def render(result: dict) -> None:
     writer = cv2.VideoWriter(str(OUT / "test3_tracked.mp4"),
                              cv2.VideoWriter_fourcc(*"mp4v"), fps, (W, H))
     corr = np.array([[c["u"], c["v"]] for c in corridor], np.int32) if corridor else None
+    rect = np.array([[c["u"], c["v"]] for c in pitch_rect], np.int32) if pitch_rect else None
+    center = [(int(c["u"]), int(c["v"])) for c in centerline] if centerline else []
     sample_saved = False
 
     for f in range(f_lo, f_hi + 1):
@@ -150,20 +159,33 @@ def render(result: dict) -> None:
         # Dim the scene so the broadcast graphics read clearly.
         frame = (frame * 0.62).astype(np.uint8)
 
-        # Ground corridor (blue fill).
+        # Pitch surface outline — sets the spatial context for the corridor.
+        if rect is not None and len(rect) >= 3:
+            fill = frame.copy()
+            cv2.fillPoly(fill, [rect], BLUE)
+            frame = cv2.addWeighted(fill, 0.10, frame, 0.90, 0)
+            cv2.polylines(frame, [rect], True, BLUE, 2, cv2.LINE_AA)
+
+        # LBW corridor (blue, denser fill).
         if corr is not None and len(corr) >= 3:
             fill = frame.copy()
-            cv2.fillPoly(fill, [corr], BLUE)
-            frame = cv2.addWeighted(fill, 0.18, frame, 0.82, 0)
-            cv2.polylines(frame, [corr], True, BLUE, 2, cv2.LINE_AA)
+            cv2.fillPoly(fill, [corr], GOLD)
+            frame = cv2.addWeighted(fill, 0.22, frame, 0.78, 0)
+            cv2.polylines(frame, [corr], True, GOLD, 2, cv2.LINE_AA)
 
-        # Striker (batsman) stumps — gold, prominent.
-        st = stumps.get("striker") or {}
-        if st.get("base") and st.get("top"):
-            b = (int(st["base"]["u"]), int(st["base"]["v"]))
-            tp = (int(st["top"]["u"]), int(st["top"]["v"]))
-            cv2.line(frame, b, tp, GOLD, 6, cv2.LINE_AA)
-            cv2.circle(frame, tp, 7, GOLD, -1, cv2.LINE_AA)
+        # Centerline along the pitch — single dashed gold line stump-to-stump.
+        for i in range(1, len(center)):
+            if i % 2 == 0:  # 1-on, 1-off pattern
+                cv2.line(frame, center[i - 1], center[i], GOLD, 2, cv2.LINE_AA)
+
+        # Both stump sets — gold for striker (batsman), white for bowler.
+        for key, col, width_px in (("striker", GOLD, 7), ("bowler", WHITE, 5)):
+            st = stumps.get(key) or {}
+            if st.get("base") and st.get("top"):
+                b = (int(st["base"]["u"]), int(st["base"]["v"]))
+                tp = (int(st["top"]["u"]), int(st["top"]["v"]))
+                cv2.line(frame, b, tp, col, width_px, cv2.LINE_AA)
+                cv2.circle(frame, tp, max(4, width_px - 1), col, -1, cv2.LINE_AA)
 
         # Tracked flight (red) + predicted-to-stumps (red dashed).
         for i in range(1, len(flight)):
@@ -172,6 +194,10 @@ def render(result: dict) -> None:
             chain = [flight[-1]] + predicted
             for i in range(1, len(chain)):
                 _dashed(frame, chain[i - 1], chain[i], RED)
+        if bounce:
+            # Distinct marker for the bounce on the ground — diamond ring.
+            cv2.drawMarker(frame, (int(bounce["u"]), int(bounce["v"])),
+                           (60, 200, 245), cv2.MARKER_DIAMOND, 22, 3, cv2.LINE_AA)
         if impact:
             cv2.circle(frame, (int(impact["u"]), int(impact["v"])), 12, (40, 220, 255), 2, cv2.LINE_AA)
 

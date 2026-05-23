@@ -170,29 +170,38 @@ def build_pitch_roi_mask(
     bottom_width = (float(bottom_pts[:, 0].max() - bottom_pts[:, 0].min())
                     if len(bottom_pts) >= 2 else 0.0)
     far_is_top = top_width <= bottom_width
-    envelope_sign = -1.0 if far_is_top else 1.0  # -1 = extend up, +1 = down
     near_width = max(top_width, bottom_width, 1.0)
 
     lat = max(8.0, lateral_margin_frac * near_width)
     cx = float(pts[:, 0].mean())
 
-    # Build polygon: original corners + envelope twins beyond the far end.
-    # Near corners get a larger envelope in pixels because the image scale is
-    # bigger there (a fixed physical height occupies more pixels close-up).
-    extended: list[tuple[float, float]] = []
+    # Build polygon: original corners + airborne envelopes BOTH past the far
+    # end (the bowler/release arc) and past the near end (the batsman/impact
+    # zone). The previous one-sided envelope silenced post-bounce candidates
+    # that crossed into the batsman area, so the detector never saw them.
+    # The lateral expansion stays modest; the convex hull smooths the edges.
+    far_sign = -1.0 if far_is_top else 1.0   # toward image top if far is up
+    near_sign = -far_sign                    # toward image bottom (batsman)
+    extended_far: list[tuple[float, float]] = []
+    extended_near: list[tuple[float, float]] = []
     for x, y in pts:
         depth_norm = (y - y_min) / span_y  # 0 at top, 1 at bottom
         near_norm = depth_norm if far_is_top else (1.0 - depth_norm)
-        dy = envelope_sign * vertical_envelope_px * (0.25 + 0.75 * near_norm)
+        far_norm = 1.0 - near_norm
+        far_dy = far_sign * vertical_envelope_px * (0.25 + 0.75 * near_norm)
+        # Batsman envelope is shorter — the impact zone sits just past the
+        # near end and we do not want to swallow the whole bottom of the frame.
+        near_dy = near_sign * (0.5 * vertical_envelope_px) * (0.25 + 0.75 * far_norm)
         dx = (-lat) if x < cx else lat
-        extended.append((float(x + dx), float(y + dy)))
+        extended_far.append((float(x + dx), float(y + far_dy)))
+        extended_near.append((float(x + dx), float(y + near_dy)))
 
-    # Combine original quad (with lateral margin) + airborne extension.
+    # Combine original quad (with lateral margin) + both airborne extensions.
     grounded = [
         ((-lat) + float(x) if x < cx else float(x) + lat, float(y))
         for x, y in pts
     ]
-    all_pts = np.array(grounded + extended, dtype=np.float32)
+    all_pts = np.array(grounded + extended_far + extended_near, dtype=np.float32)
 
     hull = cv2.convexHull(all_pts).astype(np.int32)
     hull[:, 0, 0] = np.clip(hull[:, 0, 0], 0, w_img - 1)
