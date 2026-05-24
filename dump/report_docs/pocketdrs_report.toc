@@ -3,8 +3,8 @@
 \contentsline {chapter}{Abstract}{iii}{Doc-Start}%
 \contentsline {chapter}{Acknowledgement}{iv}{Doc-Start}%
 \contentsline {chapter}{Certificate}{v}{Doc-Start}%
-\contentsline {chapter}{List of Figures}{ix}{chapter*.1}%
-\contentsline {chapter}{List of Tables}{x}{chapter*.2}%
+\contentsline {chapter}{List of Figures}{viii}{chapter*.1}%
+\contentsline {chapter}{List of Tables}{ix}{chapter*.2}%
 \contentsline {chapter}{List of Abbreviations}{xi}{chapter*.3}%
 \contentsline {chapter}{\numberline {1}Introduction}{1}{chapter.1}%
 \contentsline {section}{\numberline {1.1}Introduction}{1}{section.1.1}%
@@ -20,50 +20,50 @@
 \contentsline {chapter}{\numberline {2}Background Study and Literature Review}{5}{chapter.2}%
 \contentsline {section}{\numberline {2.1}Background Study}{5}{section.2.1}%
 \contentsline {section}{\numberline {2.2}Literature Review}{6}{section.2.2}%
-\contentsline {chapter}{\numberline {3}System Analysis and Design}{8}{chapter.3}%
-\contentsline {section}{\numberline {3.1}System Analysis}{8}{section.3.1}%
-\contentsline {subsection}{\numberline {3.1.1}Requirement Analysis}{8}{subsection.3.1.1}%
-\contentsline {subsubsection}{Functional Requirements}{8}{subsection.3.1.1}%
-\contentsline {subsubsection}{Non-functional Requirements}{9}{table.3.1}%
-\contentsline {subsection}{\numberline {3.1.2}Feasibility Analysis}{9}{subsection.3.1.2}%
-\contentsline {subsection}{\numberline {3.1.3}Data Modelling: ER Diagram}{10}{subsection.3.1.3}%
-\contentsline {subsection}{\numberline {3.1.4}Process Modelling: Data Flow Diagram (DFD)}{11}{subsection.3.1.4}%
-\contentsline {section}{\numberline {3.2}System Design}{13}{section.3.2}%
-\contentsline {subsection}{\numberline {3.2.1}Architectural Design}{13}{subsection.3.2.1}%
-\contentsline {subsection}{\numberline {3.2.2}Database Schema Design}{14}{subsection.3.2.2}%
-\contentsline {subsection}{\numberline {3.2.3}Interface Design (UI/UX)}{15}{subsection.3.2.3}%
-\contentsline {subsection}{\numberline {3.2.4}Physical DFD}{16}{subsection.3.2.4}%
-\contentsline {section}{\numberline {3.3}Algorithm Details}{17}{section.3.3}%
-\contentsline {subsection}{\numberline {3.3.1}Step 1: Finding Where the Camera Was Standing}{17}{subsection.3.3.1}%
-\contentsline {subsection}{\numberline {3.3.2}Step 2: Finding the Ball in Each Frame}{17}{subsection.3.3.2}%
-\contentsline {paragraph}{Ignoring fixed clutter.}{18}{Item.20}%
-\contentsline {subsection}{\numberline {3.3.3}Step 3: Joining the Detections into One Ball Path}{18}{subsection.3.3.3}%
-\contentsline {subsection}{\numberline {3.3.4}Step 4: Rebuilding the Ball Path in Real-World 3D}{19}{subsection.3.3.4}%
-\contentsline {subsection}{\numberline {3.3.5}Step 5: Making the LBW Decision (ICC Rule 36)}{19}{subsection.3.3.5}%
-\contentsline {chapter}{\numberline {4}Implementation and Testing}{20}{chapter.4}%
-\contentsline {section}{\numberline {4.1}Implementation}{20}{section.4.1}%
-\contentsline {subsection}{\numberline {4.1.1}Tools Used}{20}{subsection.4.1.1}%
-\contentsline {subsection}{\numberline {4.1.2}Implementation Details of Modules}{21}{subsection.4.1.2}%
-\contentsline {subsection}{\numberline {4.1.3}Robustness and Edge-Case Hardening}{22}{subsection.4.1.3}%
-\contentsline {section}{\numberline {4.2}Testing}{23}{section.4.2}%
-\contentsline {subsection}{\numberline {4.2.1}Test Cases for Unit Testing}{23}{subsection.4.2.1}%
-\contentsline {subsection}{\numberline {4.2.2}Test Cases for System Testing}{24}{subsection.4.2.2}%
-\contentsline {subsection}{\numberline {4.2.3}Synthetic Validation}{24}{subsection.4.2.3}%
-\contentsline {paragraph}{Per-stage results.}{25}{subsection.4.2.3}%
-\contentsline {paragraph}{Sample rendered decisions.}{25}{subsection.4.2.3}%
-\contentsline {paragraph}{Where accuracy degrades.}{26}{subsection.4.2.3}%
-\contentsline {subsection}{\numberline {4.2.4}Real-World Validation}{26}{subsection.4.2.4}%
-\contentsline {paragraph}{What went wrong, in plain terms.}{27}{figure.caption.10}%
-\contentsline {paragraph}{Why this is a good result, not a failure.}{28}{Item.29}%
-\contentsline {paragraph}{What a good test video looks like.}{28}{Item.29}%
-\contentsline {subsection}{\numberline {4.2.5}Real-World Validation: A Successfully Tracked Delivery}{28}{subsection.4.2.5}%
-\contentsline {paragraph}{Tracking result.}{28}{subsection.4.2.5}%
-\contentsline {paragraph}{3D reconstruction and its honest limit.}{30}{figure.caption.12}%
-\contentsline {paragraph}{Why this clip matters.}{31}{figure.caption.13}%
-\contentsline {chapter}{\numberline {5}Conclusion and Future Recommendations}{32}{chapter.5}%
-\contentsline {section}{\numberline {5.1}Conclusion}{32}{section.5.1}%
-\contentsline {section}{\numberline {5.2}Lesson Learnt/Outcome}{32}{section.5.2}%
-\contentsline {section}{\numberline {5.3}Future Recommendations}{33}{section.5.3}%
-\contentsline {chapter}{References}{34}{Item.43}%
-\contentsline {chapter}{Appendices}{37}{chapter*.15}%
-\contentsline {chapter}{Project Log Book}{45}{lstnumber.-3.48}%
+\contentsline {chapter}{\numberline {3}System Analysis and Design}{7}{chapter.3}%
+\contentsline {section}{\numberline {3.1}System Analysis}{7}{section.3.1}%
+\contentsline {subsection}{\numberline {3.1.1}Requirement Analysis}{7}{subsection.3.1.1}%
+\contentsline {subsubsection}{Functional Requirements}{7}{subsection.3.1.1}%
+\contentsline {subsubsection}{Non-functional Requirements}{8}{table.3.1}%
+\contentsline {subsection}{\numberline {3.1.2}Feasibility Analysis}{8}{subsection.3.1.2}%
+\contentsline {subsection}{\numberline {3.1.3}Data Modelling: ER Diagram}{9}{subsection.3.1.3}%
+\contentsline {subsection}{\numberline {3.1.4}Process Modelling: Data Flow Diagram (DFD)}{10}{subsection.3.1.4}%
+\contentsline {section}{\numberline {3.2}System Design}{11}{section.3.2}%
+\contentsline {subsection}{\numberline {3.2.1}Architectural Design}{11}{subsection.3.2.1}%
+\contentsline {subsection}{\numberline {3.2.2}Database Schema Design}{12}{subsection.3.2.2}%
+\contentsline {subsection}{\numberline {3.2.3}Interface Design (UI/UX)}{12}{subsection.3.2.3}%
+\contentsline {subsection}{\numberline {3.2.4}Physical DFD}{13}{subsection.3.2.4}%
+\contentsline {section}{\numberline {3.3}Algorithm Details}{14}{section.3.3}%
+\contentsline {subsection}{\numberline {3.3.1}Step 1: Finding Where the Camera Was Standing}{14}{subsection.3.3.1}%
+\contentsline {subsection}{\numberline {3.3.2}Step 2: Finding the Ball in Each Frame}{14}{subsection.3.3.2}%
+\contentsline {paragraph}{Ignoring fixed clutter.}{15}{Item.13}%
+\contentsline {subsection}{\numberline {3.3.3}Step 3: Joining the Detections into One Ball Path}{15}{subsection.3.3.3}%
+\contentsline {subsection}{\numberline {3.3.4}Step 4: Rebuilding the Ball Path in Real-World 3D}{15}{subsection.3.3.4}%
+\contentsline {subsection}{\numberline {3.3.5}Step 5: Making the LBW Decision (ICC Rule 36)}{16}{subsection.3.3.5}%
+\contentsline {chapter}{\numberline {4}Implementation and Testing}{17}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Implementation}{17}{section.4.1}%
+\contentsline {subsection}{\numberline {4.1.1}Tools Used}{17}{subsection.4.1.1}%
+\contentsline {subsection}{\numberline {4.1.2}Implementation Details of Modules}{17}{subsection.4.1.2}%
+\contentsline {subsection}{\numberline {4.1.3}Robustness and Edge-Case Hardening}{18}{subsection.4.1.3}%
+\contentsline {section}{\numberline {4.2}Testing}{19}{section.4.2}%
+\contentsline {subsection}{\numberline {4.2.1}Test Cases for Unit Testing}{19}{subsection.4.2.1}%
+\contentsline {subsection}{\numberline {4.2.2}Test Cases for System Testing}{20}{subsection.4.2.2}%
+\contentsline {subsection}{\numberline {4.2.3}Synthetic Validation}{21}{subsection.4.2.3}%
+\contentsline {paragraph}{Per-stage results.}{21}{subsection.4.2.3}%
+\contentsline {paragraph}{Sample rendered decisions.}{22}{subsection.4.2.3}%
+\contentsline {paragraph}{Where accuracy degrades.}{22}{subsection.4.2.3}%
+\contentsline {subsection}{\numberline {4.2.4}Real-World Validation}{22}{subsection.4.2.4}%
+\contentsline {paragraph}{What went wrong, in plain terms.}{23}{figure.caption.10}%
+\contentsline {paragraph}{Why this is a good result, not a failure.}{24}{Item.22}%
+\contentsline {paragraph}{What a good test video looks like.}{24}{Item.22}%
+\contentsline {subsection}{\numberline {4.2.5}Real-World Validation: A Successfully Tracked Delivery}{24}{subsection.4.2.5}%
+\contentsline {paragraph}{Tracking result.}{24}{subsection.4.2.5}%
+\contentsline {paragraph}{3D reconstruction and its honest limit.}{25}{figure.caption.11}%
+\contentsline {paragraph}{Why this clip matters.}{26}{figure.caption.11}%
+\contentsline {chapter}{\numberline {5}Conclusion and Future Recommendations}{27}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Conclusion}{27}{section.5.1}%
+\contentsline {section}{\numberline {5.2}Lesson Learnt/Outcome}{27}{section.5.2}%
+\contentsline {section}{\numberline {5.3}Future Recommendations}{28}{section.5.3}%
+\contentsline {chapter}{References}{28}{Item.36}%
+\contentsline {chapter}{Appendices}{31}{chapter*.13}%
+\contentsline {chapter}{Project Log Book}{34}{lstnumber.-1.23}%

@@ -18,6 +18,20 @@ class VideoDecodeError(RuntimeError):
 
 
 class VideoReader:
+    """Frame-aligned video reader that survives phone-recorded HEVC.
+
+    Phone clips routinely arrive with non-standard b-frame ordering and sparse
+    keyframes; ``cv2.CAP_PROP_POS_MSEC`` seek then blocks inside FFmpeg as it
+    scans for the nearest decodable frame, which is what shows up to the user
+    as the analysis job "stuck at 6%". We avoid the trap by never seeking by
+    millisecond. Instead we keep a running cursor on the current frame index
+    and either grab the next frame sequentially (the common case, since the
+    sampler asks for monotonically increasing timestamps) or do a single,
+    cheap ``CAP_PROP_POS_FRAMES`` jump when the gap is large.
+    """
+
+    _MAX_CONSECUTIVE_STALE = 3
+
     def __init__(self, video_path: str):
         self._cap = cv2.VideoCapture(video_path)
         if not self._cap.isOpened():
@@ -34,14 +48,8 @@ class VideoReader:
 
         self._meta = VideoMeta(fps=fps, frame_count=frame_count, duration_ms=duration_ms)
         self._last_frame: np.ndarray | None = None
-        # Consecutive times we have fallen back to the stale last frame. A
-        # one-off seek hiccup is tolerable; sustained failure means the file
-        # is truncated past this point (the container's frame_count metadata
-        # over-reports what is actually decodable, which is common in
-        # phone-recorded / re-encoded clips).
+        self._cursor_idx: int = -1  # next read returns frame index cursor+1
         self._consecutive_stale = 0
-
-    _MAX_CONSECUTIVE_STALE = 3
 
     @property
     def meta(self) -> VideoMeta:
@@ -56,39 +64,55 @@ class VideoReader:
     def frame_at_ms(self, t_ms: int) -> np.ndarray:
         if t_ms < 0:
             t_ms = 0
-        
-        # Cap at video duration to avoid read errors near end
         if self._meta.duration_ms > 0 and t_ms >= self._meta.duration_ms:
-            t_ms = max(0, self._meta.duration_ms - 100)
+            t_ms = max(0, self._meta.duration_ms - 1)
 
-        # Try millisecond-based seek first
-        ok = self._cap.set(cv2.CAP_PROP_POS_MSEC, float(t_ms))
-        if not ok and self._meta.fps > 0:
-            frame_idx = int(round((t_ms / 1000.0) * self._meta.fps))
-            frame_idx = min(frame_idx, max(0, self._meta.frame_count - 1))
-            self._cap.set(cv2.CAP_PROP_POS_FRAMES, float(frame_idx))
+        target_idx = int(round((t_ms / 1000.0) * self._meta.fps))
+        if self._meta.frame_count > 0:
+            target_idx = min(target_idx, max(0, self._meta.frame_count - 1))
 
-        ok, frame = self._cap.read()
-        if not ok or frame is None:
-            # Fallback: try reading the next frame in case the seek landed
-            # awkwardly (a genuine one-off hiccup).
-            ok, frame = self._cap.read()
-            if not ok or frame is None:
+        # If the target is forward of (or equal to) the current cursor, read
+        # frames sequentially until we land on it. Sequential decode is the
+        # codec's fast path — no keyframe rescan, no MSEC ambiguity. We jump
+        # only when the gap is large enough that scanning would be slower
+        # than a one-off frame-index seek.
+        gap = target_idx - self._cursor_idx
+        if gap < 0 or gap > 16:
+            self._cap.set(cv2.CAP_PROP_POS_FRAMES, float(target_idx))
+            self._cursor_idx = target_idx - 1
+
+        frame = None
+        while self._cursor_idx < target_idx:
+            ok, raw = self._cap.read()
+            if not ok or raw is None:
                 if self._last_frame is None:
                     raise VideoDecodeError(f"Failed to decode frame at {t_ms}ms")
                 self._consecutive_stale += 1
                 if self._consecutive_stale >= self._MAX_CONSECUTIVE_STALE:
-                    # Sustained failure: the file is truncated here. Signal the
-                    # caller to stop rather than silently padding the analysis
-                    # with duplicate stale frames.
                     raise VideoDecodeError(
                         f"Video appears truncated near {t_ms}ms "
                         f"(decoding failed for {self._consecutive_stale} "
                         "consecutive frames)"
                     )
                 return self._last_frame.copy()
+            self._cursor_idx += 1
+            frame = raw
+
+        if frame is None:
+            # target_idx equals cursor_idx and we already returned that frame
+            # earlier; the cached last_frame is the correct response.
+            return (self._last_frame.copy() if self._last_frame is not None
+                    else self._read_nonseek_fallback(t_ms))
 
         self._consecutive_stale = 0
+        self._last_frame = frame
+        return frame
+
+    def _read_nonseek_fallback(self, t_ms: int) -> np.ndarray:
+        ok, frame = self._cap.read()
+        if not ok or frame is None:
+            raise VideoDecodeError(f"Failed to decode frame at {t_ms}ms")
+        self._cursor_idx += 1
         self._last_frame = frame
         return frame
 

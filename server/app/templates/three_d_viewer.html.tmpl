@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PocketDRS — 3D Hawk-Eye</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d12; color: #dde3eb;
+               font: 12px/1.35 -apple-system, "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+  #scene { position: absolute; inset: 0; }
+  .chip { position: absolute; padding: 10px 14px; border-radius: 10px;
+          background: #161b22; border: 1px solid #30363d; }
+  #verdict { top: 16px; left: 16px; font-size: 22px; font-weight: 800;
+             letter-spacing: 1px; }
+  #verdict .sub { display: block; font-size: 12px; font-weight: 600;
+                  letter-spacing: 0; margin-top: 4px; color: #9aa0a6; }
+  #info    { top: 16px; right: 16px; text-align: right; }
+  #info b  { display: inline-block; min-width: 64px; color: #fff; }
+  #legend  { bottom: 16px; left: 16px; font-size: 11px; }
+  #legend .dot { display: inline-block; width: 16px; height: 3px; vertical-align: middle;
+                 margin: 0 6px 2px 0; border-radius: 2px; }
+  #help    { bottom: 16px; right: 16px; color: #5b6473; font-size: 11px; }
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div class="chip" id="verdict"></div>
+<div class="chip" id="info"></div>
+<div class="chip" id="legend">
+  <span class="dot" style="background:#ff4a4a"></span>tracked &nbsp;
+  <span class="dot" style="background:#ffd166;border:1px dashed #ffd166;height:0"></span>predicted &nbsp;
+  <span class="dot" style="background:#22d3ee;border-radius:50%;width:8px;height:8px"></span>pitching &nbsp;
+  <span class="dot" style="background:#fbbf24;border-radius:50%;width:8px;height:8px"></span>impact
+</div>
+<div class="chip" id="help">drag = orbit · scroll = zoom · right-drag = pan</div>
+
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { Line2 } from "three/addons/lines/Line2.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import { LineGeometry } from "three/addons/lines/LineGeometry.js";
+
+// --- payload injected by the build step --------------------------------
+const PAYLOAD = __PAYLOAD__;
+
+// --- helpers -----------------------------------------------------------
+const W = window.innerWidth, H = window.innerHeight;
+const colors = {
+  pitch: 0x1f4a2c, pitchEdge: 0x4f9b66,
+  corridor: 0xf5c14b, crease: 0xffd166,
+  trackRed: 0xff4a4a, predict: 0xffd700,
+  pitching: 0x22d3ee, impact: 0xfbbf24,
+  strikerStump: 0xffd166, bowlerStump: 0xcdd3dc,
+};
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0d12);
+scene.fog = new THREE.Fog(0x0b0d12, 18, 36);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+document.getElementById("scene").appendChild(renderer.domElement);
+
+const L = PAYLOAD.pitch_length_m;
+const PW = PAYLOAD.pitch_width_m;
+const halfW = PW / 2;
+const STUMP_H = 0.711;
+const STUMP_DX = 0.114;
+const CORR_HALF = STUMP_DX + 0.036;
+
+// Camera: behind the bowler, looking down the pitch at the striker.
+const camera = new THREE.PerspectiveCamera(48, W / H, 0.1, 100);
+camera.position.set(L + 3.5, -2.2, 2.2);
+camera.up.set(0, 0, 1);
+camera.lookAt(0, 0, 0.5);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(L / 2, 0, 0.4);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 2;
+controls.maxDistance = 30;
+controls.update();
+
+// Lighting — keyed from the umpire side, soft fill from above.
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const key = new THREE.DirectionalLight(0xffffff, 0.85);
+key.position.set(L + 4, -3, 4);
+scene.add(key);
+scene.add(new THREE.HemisphereLight(0x88aaff, 0x222827, 0.35));
+
+// --- pitch surface -----------------------------------------------------
+{
+  const geom = new THREE.PlaneGeometry(L, PW);
+  const mat = new THREE.MeshStandardMaterial({
+    color: colors.pitch, roughness: 0.95, metalness: 0.0,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(L / 2, 0, 0);
+  scene.add(mesh);
+
+  // pitch border
+  const border = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geom),
+    new THREE.LineBasicMaterial({ color: colors.pitchEdge, transparent: true, opacity: 0.7 }),
+  );
+  border.position.copy(mesh.position);
+  scene.add(border);
+}
+
+// --- in-line LBW corridor strip ---------------------------------------
+{
+  const geom = new THREE.PlaneGeometry(L, CORR_HALF * 2);
+  const mat = new THREE.MeshBasicMaterial({
+    color: colors.corridor, transparent: true, opacity: 0.32,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(L / 2, 0, 0.003);
+  scene.add(mesh);
+  const edge = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geom),
+    new THREE.LineBasicMaterial({ color: colors.corridor, transparent: true, opacity: 0.65 }),
+  );
+  edge.position.copy(mesh.position);
+  scene.add(edge);
+}
+
+// popping creases (visual cricket markings 1.22 m from each stump line)
+const POPPING_CREASE = 1.22;
+for (const cx of [POPPING_CREASE, L - POPPING_CREASE]) {
+  const g = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(cx, -halfW, 0.005),
+    new THREE.Vector3(cx,  halfW, 0.005),
+  ]);
+  scene.add(new THREE.Line(g, new THREE.LineBasicMaterial({
+    color: colors.crease, transparent: true, opacity: 0.8,
+  })));
+}
+
+// --- stumps + bails ---------------------------------------------------
+function makeStumps(x, color, scale) {
+  const group = new THREE.Group();
+  const mat  = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+  const geom = new THREE.CylinderGeometry(0.014 * scale, 0.014 * scale, STUMP_H, 12);
+  for (const dy of [-STUMP_DX, 0, STUMP_DX]) {
+    const m = new THREE.Mesh(geom, mat);
+    m.position.set(x, dy, STUMP_H / 2);
+    m.rotation.x = Math.PI / 2;
+    group.add(m);
+  }
+  // bails
+  const bgeom = new THREE.CylinderGeometry(0.008, 0.008, STUMP_DX + 0.02, 10);
+  for (const offset of [-STUMP_DX / 2, STUMP_DX / 2]) {
+    const b = new THREE.Mesh(bgeom, mat);
+    b.position.set(x, offset, STUMP_H + 0.012);
+    b.rotation.z = Math.PI / 2;
+    group.add(b);
+  }
+  return group;
+}
+scene.add(makeStumps(0,    colors.strikerStump, 1.0));
+scene.add(makeStumps(L,    colors.bowlerStump,  0.9));
+
+// --- ball flight + prediction -----------------------------------------
+function makeFatLine(points, color, dashed = false) {
+  const positions = [];
+  for (const [x, y, z] of points) positions.push(x, y, Math.max(0.012, z));
+  const g = new LineGeometry();
+  g.setPositions(positions);
+  const m = new LineMaterial({
+    color, linewidth: dashed ? 3.5 : 4.5,
+    dashed, dashSize: 0.12, gapSize: 0.07,
+    resolution: new THREE.Vector2(W, H),
+    transparent: true, opacity: 1,
+  });
+  const line = new Line2(g, m);
+  if (dashed) line.computeLineDistances();
+  return line;
+}
+
+function ground(points) { return points.map(([x, y]) => [x, y, 0.006]); }
+
+const tracked = PAYLOAD.tracked.map(p => [p.x, p.y, p.z]);
+if (tracked.length >= 2) {
+  scene.add(makeFatLine(tracked, colors.trackRed));
+  // ground shadow
+  const shadow = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(
+      ground(tracked).map(([x, y, z]) => new THREE.Vector3(x, y, z))),
+    new THREE.LineDashedMaterial({
+      color: colors.trackRed, dashSize: 0.08, gapSize: 0.06, opacity: 0.45, transparent: true,
+    }),
+  );
+  shadow.computeLineDistances();
+  scene.add(shadow);
+}
+
+const predicted = PAYLOAD.predicted.map(p => [p.x, p.y, p.z]);
+if (predicted.length >= 2) {
+  const impact = PAYLOAD.impact;
+  const lead = impact && Number.isFinite(impact.x_m)
+    ? [[impact.x_m, impact.y_m, impact.z_m]]
+    : [];
+  scene.add(makeFatLine([...lead, ...predicted], colors.predict, true));
+}
+
+// --- pitching + impact markers ----------------------------------------
+function marker(x, y, z, color, size) {
+  const g = new THREE.SphereGeometry(size, 18, 18);
+  const m = new THREE.MeshStandardMaterial({
+    color, emissive: color, emissiveIntensity: 0.35, roughness: 0.4,
+  });
+  const sphere = new THREE.Mesh(g, m);
+  sphere.position.set(x, y, z);
+  return sphere;
+}
+
+const bounce = PAYLOAD.bounce;
+if (bounce && Number.isFinite(bounce.x_m)) {
+  const m = marker(bounce.x_m, bounce.y_m, 0.04, colors.pitching, 0.05);
+  scene.add(m);
+  // pitching disc on the ground
+  const disc = new THREE.Mesh(
+    new THREE.CircleGeometry(0.10, 32),
+    new THREE.MeshBasicMaterial({
+      color: colors.pitching, transparent: true, opacity: 0.55,
+    }),
+  );
+  disc.position.set(bounce.x_m, bounce.y_m, 0.008);
+  scene.add(disc);
+}
+const impact = PAYLOAD.impact;
+if (impact && Number.isFinite(impact.x_m)) {
+  scene.add(marker(impact.x_m, impact.y_m, impact.z_m, colors.impact, 0.055));
+}
+
+// --- HUD --------------------------------------------------------------
+const verdictColors = {
+  "OUT": "#ef4444", "UMPIRES CALL": "#fbbf24", "NOT OUT": "#22c55e",
+};
+const dec = (PAYLOAD.lbw_decision || "?").toUpperCase().replace(/_/g, " ");
+const vcol = verdictColors[dec] || "#dde3eb";
+const verdictEl = document.getElementById("verdict");
+verdictEl.style.color = vcol;
+verdictEl.style.borderColor = vcol;
+verdictEl.innerHTML = `${dec}` + (
+  PAYLOAD.y_at_stumps_cm != null
+    ? `<span class="sub">y = ${PAYLOAD.y_at_stumps_cm >= 0 ? "+" : ""}${PAYLOAD.y_at_stumps_cm} cm &nbsp;·&nbsp; z = ${PAYLOAD.z_at_stumps_cm} cm</span>`
+    : ""
+);
+
+document.getElementById("info").innerHTML =
+  `<div><b>${PAYLOAD.speed_kmh.toFixed(0)}</b> km/h</div>`;
+
+// --- animation loop ---------------------------------------------------
+window.addEventListener("resize", () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  scene.traverse(o => {
+    if (o.material && o.material.resolution) o.material.resolution.set(w, h);
+  });
+});
+
+function tick() {
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
+</body>
+</html>

@@ -48,13 +48,13 @@ FLUTTER_WEB_PORT ?= 5173
 FLUTTER_WEB_HOSTNAME ?= localhost
 
 .PHONY: help dev setup setup-app setup-server dev-app dev-server dev-app-only dev-server-only \
-	free-port dev-server-fresh phone-connect dev-app-phone \
+	free-port dev-server-fresh phone-connect dev-app-phone pick-device \
 	server-test app-test clean \
 	logs logs-server logs-flutter logs-errors logs-job logs-pull-android logs-clean
 
 help:
 	@printf "%s\n" "Targets:" \
-		"  make dev               Free port, start backend, build+install+launch app on phone" \
+		"  make dev               Pick device, free port, start backend + app (set FLUTTER_DEVICE to skip picker)" \
 		"  make setup             Install dependencies (backend venv + flutter pub get)" \
 		"  make dev-server        Start backend only" \
 		"  make dev-app           Start Flutter app only" \
@@ -167,15 +167,61 @@ dev-app-phone: phone-connect
 dev-web:
 	@$(MAKE) dev FLUTTER_DEVICE=chrome
 
+# Interactive device picker.
+# Lists authorized adb devices + a chrome (web) option, prompts the user,
+# and prints the chosen serial (or "chrome") to stdout. Prompts go to stderr
+# so callers can capture the selection via $(...) without corruption.
+pick-device:
+	@if [ -n "$(ADB_ADDR)" ]; then \
+		printf "%s\n" "adb connect $(ADB_ADDR)" >&2; \
+		$(ADB) connect "$(ADB_ADDR)" >/dev/null 2>&1 || true; \
+	fi; \
+	DEVICES=$$($(ADB) devices | awk 'NR>1 && $$2=="device"{print $$1}'); \
+	N=0; IDX_LIST=""; \
+	printf "%s\n" "Select device for PocketDRS:" >&2; \
+	for s in $$DEVICES; do \
+		N=$$((N+1)); \
+		MODEL=$$($(ADB) -s "$$s" shell getprop ro.product.model 2>/dev/null | tr -d '\r'); \
+		printf "  %d) %s  (%s)\n" "$$N" "$$s" "$$MODEL" >&2; \
+		IDX_LIST="$$IDX_LIST $$s"; \
+	done; \
+	N=$$((N+1)); \
+	printf "  %d) chrome (web)\n" "$$N" >&2; \
+	if [ $$N -eq 1 ]; then \
+		printf "%s\n" "(no adb devices detected — plug in USB or set ADB_ADDR=<ip:port>)" >&2; \
+	fi; \
+	printf "Choice [1-%d]: " "$$N" >&2; \
+	read CHOICE </dev/tty; \
+	if [ "$$CHOICE" = "$$N" ]; then \
+		echo "chrome"; exit 0; \
+	fi; \
+	i=0; \
+	for s in $$IDX_LIST; do \
+		i=$$((i+1)); \
+		if [ "$$i" = "$$CHOICE" ]; then echo "$$s"; exit 0; fi; \
+	done; \
+	printf "%s\n" "Invalid choice: $$CHOICE" >&2; \
+	exit 1
+
 # Start both in parallel.
 # Ctrl+C should stop both (Make will forward SIGINT to its jobs).
+# If FLUTTER_DEVICE is unset, prompt the user to pick a device first.
 
 dev: setup
-	@printf "%s\n" "Starting PocketDRS dev (backend + phone app)" \
+	@if [ -z "$(FLUTTER_DEVICE)" ]; then \
+		SERIAL=$$($(MAKE) -s pick-device) || exit $$?; \
+		exec $(MAKE) dev FLUTTER_DEVICE="$$SERIAL"; \
+	fi; \
+	printf "%s\n" "Starting PocketDRS dev (backend + app)" \
 		"- Backend:  http://$${POCKET_DRS_HOST:-0.0.0.0}:$${POCKET_DRS_PORT:-8000}" \
 		"- App URL:  $(FLUTTER_SERVER_URL) (baked into the build)" \
-		"- Phone:    auto-detected via adb (set FLUTTER_DEVICE/ADB_ADDR to override)"
-	@$(MAKE) -j2 dev-server-fresh dev-app-phone
+		"- Device:   $(FLUTTER_DEVICE)"; \
+	case "$(FLUTTER_DEVICE)" in \
+		chrome|edge|web-server) \
+			$(MAKE) -j2 dev-server-fresh dev-app-only ;; \
+		*) \
+			$(MAKE) -j2 dev-server-fresh dev-app-phone ;; \
+	esac
 
 # ----- Tests / cleanup -----
 

@@ -20,6 +20,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _auth = AuthService();
   bool _loading = true;
   ThemeMode _themeMode = ThemeMode.system;
+  SpeedUnit _speedUnit = SpeedUnit.kmh;
+  bool _autoDeleteSource = false;
   String _serverUrl = '';
   late final TextEditingController _serverCtrl = TextEditingController();
 
@@ -38,13 +40,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     final themeMode = ThemeController.instance.themeMode.value;
     final url = await AppSettings.getServerUrl();
+    final unit = await AppSettings.getSpeedUnit();
+    final autoDel = await AppSettings.getAutoDeleteSource();
     if (!mounted) return;
     setState(() {
       _themeMode = themeMode;
+      _speedUnit = unit;
+      _autoDeleteSource = autoDel;
       _serverUrl = url;
       _serverCtrl.text = url;
       _loading = false;
     });
+  }
+
+  Future<void> _setSpeedUnit(SpeedUnit unit) async {
+    setState(() => _speedUnit = unit);
+    await AppSettings.setSpeedUnit(unit);
+  }
+
+  Future<void> _setAutoDelete(bool v) async {
+    setState(() => _autoDeleteSource = v);
+    await AppSettings.setAutoDeleteSource(v);
   }
 
   Future<void> _saveServerUrl(String value) async {
@@ -101,6 +117,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setState(() => _themeMode = mode);
                     ThemeController.instance.setThemeMode(mode);
                   },
+                ),
+                const SizedBox(height: AppSpacing.xxl),
+                const SectionLabel(label: 'UNITS'),
+                _SpeedUnitBlock(
+                  unit: _speedUnit,
+                  onChanged: _setSpeedUnit,
+                ),
+                const SizedBox(height: AppSpacing.xxl),
+                const SectionLabel(label: 'STORAGE'),
+                _AutoDeleteBlock(
+                  value: _autoDeleteSource,
+                  onChanged: _setAutoDelete,
                 ),
                 const SizedBox(height: AppSpacing.xxl),
                 const SectionLabel(label: 'BACKEND'),
@@ -264,6 +292,89 @@ class _ThemeOption extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SpeedUnitBlock extends StatelessWidget {
+  const _SpeedUnitBlock({required this.unit, required this.onChanged});
+  final SpeedUnit unit;
+  final ValueChanged<SpeedUnit> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        for (final entry in const [
+          (SpeedUnit.kmh, 'KM/H'),
+          (SpeedUnit.mph, 'MPH'),
+        ])
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(right: entry.$1 == SpeedUnit.mph ? 0 : AppSpacing.sm),
+              child: Material(
+                color: unit == entry.$1 ? scheme.onSurface : Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  side: BorderSide(color: scheme.outline, width: 1),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+                child: InkWell(
+                  onTap: () => onChanged(entry.$1),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
+                    child: Center(
+                      child: Text(
+                        entry.$2,
+                        style: TextStyle(
+                          color: unit == entry.$1 ? scheme.surface : scheme.onSurface,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.4,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _AutoDeleteBlock extends StatelessWidget {
+  const _AutoDeleteBlock({required this.value, required this.onChanged});
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Material(
+      color: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: scheme.outline, width: 1),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+      ),
+      child: SwitchListTile(
+        value: value,
+        onChanged: onChanged,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.xs,
+        ),
+        title: Text(
+          'Auto-delete recordings after analysis',
+          style: theme.textTheme.bodyMedium,
+        ),
+        subtitle: Text(
+          'Removes the source video from the phone once a result is shown. Pre-existing camera-roll videos are never touched.',
+          style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
       ),
     );

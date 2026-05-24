@@ -3,9 +3,19 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+enum SpeedUnit {
+  kmh('km/h'),
+  mph('mph');
+
+  const SpeedUnit(this.label);
+  final String label;
+}
+
 class AppSettings {
   static const _kServerUrl = 'serverUrl';
   static const _kThemeMode = 'themeMode_v1';
+  static const _kSpeedUnit = 'speedUnit_v1';
+  static const _kAutoDeleteSource = 'autoDeleteSource_v1';
   static const String _kServerUrlOverride = String.fromEnvironment(
     'POCKET_DRS_SERVER_URL',
     defaultValue: '',
@@ -78,6 +88,35 @@ class AppSettings {
     } catch (_) {
       return false;
     }
+  }
+
+  static Future<SpeedUnit> getSpeedUnit() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final raw = (p.getString(_kSpeedUnit) ?? 'kmh').trim();
+      return raw == 'mph' ? SpeedUnit.mph : SpeedUnit.kmh;
+    } catch (_) {
+      return SpeedUnit.kmh;
+    }
+  }
+
+  static Future<void> setSpeedUnit(SpeedUnit unit) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_kSpeedUnit, unit == SpeedUnit.mph ? 'mph' : 'kmh');
+  }
+
+  static Future<bool> getAutoDeleteSource() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      return p.getBool(_kAutoDeleteSource) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> setAutoDeleteSource(bool value) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kAutoDeleteSource, value);
   }
 
   static Future<void> setThemeMode(ThemeMode mode) async {

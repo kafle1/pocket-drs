@@ -31,6 +31,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -103,8 +104,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         ],
                       ),
                       const Spacer(flex: 3),
-                      const _StatRow(),
-                      const SizedBox(height: AppSpacing.xl),
                       Container(height: 1, color: scheme.outline),
                       const SizedBox(height: AppSpacing.xl),
                       DrsButton(
@@ -133,70 +132,3 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-class _StatRow extends StatelessWidget {
-  const _StatRow();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Row(
-      children: [
-        Expanded(
-          child: _MiniStat(label: 'PITCH-LEN', value: '20.12', unit: 'M'),
-        ),
-        SizedBox(width: AppSpacing.lg),
-        Expanded(
-          child: _MiniStat(label: 'PITCH-W', value: '3.05', unit: 'M'),
-        ),
-        SizedBox(width: AppSpacing.lg),
-        Expanded(
-          child: _MiniStat(label: 'STUMPS', value: '0.71', unit: 'M'),
-        ),
-      ],
-    );
-  }
-}
-
-class _MiniStat extends StatelessWidget {
-  const _MiniStat({
-    required this.label,
-    required this.value,
-    required this.unit,
-  });
-  final String label;
-  final String value;
-  final String unit;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Text(
-              value,
-              style: AppTypography.mono(theme.textTheme.headlineMedium),
-            ),
-            const SizedBox(width: 2),
-            Text(
-              unit,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}

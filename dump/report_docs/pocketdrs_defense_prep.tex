@@ -1,0 +1,689 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{microtype}
+\usepackage[top=0.9in,bottom=0.9in,left=1in,right=1in]{geometry}
+\renewcommand{\rmdefault}{ptm}
+\usepackage{setspace}
+\usepackage{graphicx}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{xcolor}
+
+\onehalfspacing
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\definecolor{NavyTint}{HTML}{12335B}
+\definecolor{AccentTint}{HTML}{2E6FB5}
+\definecolor{MutedBg}{HTML}{F4F6FA}
+\definecolor{WarmTint}{HTML}{C56C00}
+\definecolor{GoodTint}{HTML}{1F7A4D}
+
+\titleformat{\section}{\normalfont\large\bfseries\color{NavyTint}}{\thesection}{0.8em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries\color{NavyTint}}{\thesubsection}{0.7em}{}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=NavyTint,
+  citecolor=NavyTint,
+  urlcolor=AccentTint,
+  pdftitle={PocketDRS Defense Preparation Guide (Plain English)},
+  pdfauthor={Niraj Kafle}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textit{PocketDRS,Defense Prep (Plain English)}}
+\fancyhead[R]{\small Niraj Kafle}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+
+%,Custom Q&A and callout boxes using only base LaTeX,
+
+% A question/answer block: navy title bar above a light grey body box.
+% Usage: \qa{question}{answer}
+\newcommand{\qa}[2]{%
+  \par\vspace{8pt}%
+  \noindent
+  \colorbox{NavyTint}{%
+    \begin{minipage}{\dimexpr\textwidth-2\fboxsep\relax}%
+      \color{white}\bfseries\strut Q. #1%
+    \end{minipage}%
+  }\par\nobreak
+  \noindent
+  \colorbox{MutedBg}{%
+    \begin{minipage}{\dimexpr\textwidth-2\fboxsep\relax}%
+      \color{black}\setlength{\parskip}{4pt}\strut #2\strut%
+    \end{minipage}%
+  }%
+  \par\vspace{6pt}%
+}
+
+% A "in everyday words" analogy callout.
+\newcommand{\analogy}[1]{%
+  \par\vspace{6pt}%
+  \noindent
+  \colorbox{WarmTint}{%
+    \begin{minipage}{\dimexpr\textwidth-2\fboxsep\relax}%
+      \color{white}\bfseries\strut In everyday words%
+    \end{minipage}%
+  }\par\nobreak
+  \noindent
+  \colorbox{MutedBg}{%
+    \begin{minipage}{\dimexpr\textwidth-2\fboxsep\relax}%
+      \color{black}\setlength{\parskip}{4pt}\strut #1\strut%
+    \end{minipage}%
+  }%
+  \par\vspace{6pt}%
+}
+
+% A "cheat sheet" callout (full-width muted background, accent border via fbox).
+\newcommand{\cheatbox}[1]{%
+  \par\vspace{8pt}%
+  \noindent
+  {\color{AccentTint}\rule{\textwidth}{0.8pt}}\par\nobreak
+  \noindent
+  \colorbox{MutedBg}{%
+    \begin{minipage}{\dimexpr\textwidth-2\fboxsep\relax}%
+      \color{black}\setlength{\parskip}{5pt}\strut #1\strut%
+    \end{minipage}%
+  }\par\nobreak
+  \noindent
+  {\color{AccentTint}\rule{\textwidth}{0.8pt}}\par%
+  \vspace{8pt}%
+}
+
+\begin{document}
+
+%,TITLE PAGE,
+\begin{titlepage}
+\begin{center}
+\vspace*{1.2cm}
+{\Huge\bfseries\color{NavyTint} PocketDRS}\\[10pt]
+{\Large Defense Preparation Guide}\\[4pt]
+{\large \textit{Explained like you have never seen the code}}\\[34pt]
+
+\noindent\colorbox{MutedBg}{%
+  \begin{minipage}{0.86\textwidth}\setlength{\parskip}{4pt}\vspace{6pt}
+    \textbf{Read me first.} This guide does \emph{not} use jargon.\\
+    Every idea is explained with an everyday example.\\
+    Every answer is short enough to say out loud in 20 seconds.\\
+    If something here uses a word you do not know, that is a bug in this document,tell us.
+    \vspace{6pt}
+  \end{minipage}}
+
+\vspace{30pt}
+
+\noindent\colorbox{MutedBg}{%
+  \begin{minipage}{0.86\textwidth}\setlength{\parskip}{4pt}\vspace{6pt}
+    \textbf{Niraj Kafle} \hfill BIT 7th Semester\\
+    University ID: LC0003001674 \hfill Phoenix College of Management\\
+    Supervisor: \textbf{Mr. Saishab Bhattarai}\\
+    May, 2026
+    \vspace{6pt}
+  \end{minipage}}
+
+\vfill
+\textit{Use this with the report and the slides. The report has the formal details.
+The slides are what the panel sees. \emph{This} document is what \emph{you} need to actually understand and speak about the project.}
+
+\end{center}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% =====================================================================
+\section{What This Whole Project Is, In One Page}
+
+Cricket has a problem. When the ball hits the batter's leg before hitting the bat, the umpire has to guess where the ball \emph{would have gone} next. Was it heading for the stumps? That guess is called \textbf{LBW} (Leg Before Wicket), and it is the hardest call in cricket.
+
+The big leagues solved this with \textbf{Hawk-Eye}: six to eight expensive cameras around the ground, all wired together, all looking at the ball from different angles. From all those views they rebuild the ball's path in 3D and show where it would have gone. It works beautifully,but it costs more than a school's whole yearly budget.
+
+So at every level \emph{below} the international one,clubs, schools, training nets,nobody has this. The umpire just guesses.
+
+\textbf{PocketDRS is for those people.} Instead of eight cameras and a control van, it uses \emph{one} thing: a normal smartphone. You record the delivery, tap the four corners of the pitch on your phone screen (so the computer knows what real-world distances look like), and send the clip to our server. The server figures out where the camera was, finds the ball in each frame, fits a smooth curve through those positions, lifts that curve into 3D, then checks the three LBW rules and gives you a verdict: OUT, NOT OUT, or UMPIRE'S CALL. You see it as a 3D animation on your phone.
+
+\analogy{Hawk-Eye is like having eight friends watching a thrown ball from eight different sides,they can pinpoint exactly where it went. PocketDRS is like having \emph{one} friend who watches really carefully and uses what they know (the ball is round and always the same size, the pitch is always 22 yards long, things fall because of gravity) to reconstruct what probably happened.}
+
+\textbf{Does it work?} On 66 fake-but-realistic deliveries (a computer-simulated cricketer) we got the right verdict 80\% of the time, and \emph{every single OUT was correct}. On a real phone clip filmed at a practice net it produced a clean ball track. On a badly-filmed real clip (camera too low, ball hidden behind the bowler's body) it refused to invent a verdict,which is exactly what you want a serious tool to do.
+
+\textbf{What it is not:} It is not Hawk-Eye. It is not certified by the ICC. It is not a replacement for the umpire. It is a \emph{decision-support tool},like a calculator for an accountant. The umpire still calls the game.
+
+\newpage
+
+% =====================================================================
+\section{The 60-Second Pitch (Memorise This)}
+
+\begin{quote}\itshape
+``Hawk-Eye needs eight synchronised cameras and a control rig,way too expensive for clubs or schools. PocketDRS does the same job for LBW with just one phone camera. You tap the four pitch corners so the system knows real-world distances, then it finds the ball in each frame, joins those positions into one smooth path, lifts that path into 3D using the fact that the ball is always the same size and gravity always pulls down, and checks the three LBW rules. On 66 simulated deliveries it gets the right answer 80\% of the time, including 100\% of OUTs. On real handheld footage it tracks the ball cleanly when the camera is positioned well, and it safely refuses to guess when it cannot see the ball. It is decision support, not a replacement for the umpire.''
+\end{quote}
+
+% =====================================================================
+\section{The Whole Algorithm, Like You Are Five}
+
+The server does five things, in order. That is the entire algorithm.
+
+\subsection{Step 1,``Where was the phone?''}
+
+When you tap the four corners of the pitch on your phone screen, the computer compares the \emph{shape} of the pitch on the screen with the \emph{real shape} of a cricket pitch (which is always 22 yards long and about 3 metres wide). From the difference between the two shapes, it figures out where the phone must have been standing and which direction it was pointing.
+
+\analogy{Imagine a friend draws a photo of a soccer goal on a napkin. If the goal looks like a flat rectangle, your friend was standing directly in front of it. If the right side looks bigger than the left, your friend was standing to the left. From the shape \emph{in the picture} you can work out where the photographer was. The computer does exactly that with the cricket pitch.}
+
+\textbf{Tricky bit:} the maths has two possible answers,one where the camera was \emph{above} the pitch (real) and a mirror version where the camera was \emph{below} the pitch (impossible, because a camera underground is silly). We just throw away the silly answer.
+
+\subsection{Step 2,``Where is the ball in each frame?''}
+
+A video is just a stack of still pictures (frames). For each frame, we look for the ball in two different ways at the same time:
+
+\begin{itemize}
+    \item \textbf{Things that moved.} Compare this frame with a model of what the background looks like when nothing is happening. Whatever has changed must be something moving,possibly the ball.
+    \item \textbf{Things that are the right colour.} The ball is red (or white). Look for red-ish (or white-ish) patches in the frame.
+\end{itemize}
+
+If both methods agree on the same spot,``something red moved here'',we are pretty confident that is the ball.
+
+\analogy{Imagine looking for a red apple in a busy fruit market. One person looks for \emph{anything that just moved}; another looks for \emph{anything that is red}. When both say ``it is over there'' you trust them. When only one shouts, you are less sure.}
+
+\textbf{One important trick.} Some red things sit in the same place the whole video,a logo on a sign, a red helmet, a red bag. They are not the ball. The real ball only passes through any spot once or twice. So we remove any ``red moving thing'' that shows up in the \emph{same place} in more than 30\% of the frames. This one trick is what stops the system from falsely drawing a ball path through a cluster of background objects.
+
+\textbf{Another trick.} A fast-moving ball does not look like a clean circle in a single frame,it looks like a short \emph{streak} (like a comet tail). So we accept both shapes (circles and short streaks) as possible balls.
+
+\textbf{Real videos:} for handheld phone clips we also use a smart detector called \textbf{YOLO} that has been trained on many cricket-ball photos and recognises cricket balls automatically.
+
+\subsection{Step 3,``Join the dots into one ball path''}
+
+After Step 2 we have a pile of ``maybe-ball'' positions in different frames. Some are the real ball, some are false alarms. We need the \emph{one path} that makes sense.
+
+We use a technique called \textbf{RANSAC}, which is just a fancy name for ``try every guess and keep the best one''. Take two positions, draw the smooth curve a ball would follow between them, then count how many of the other positions land on or near that curve. Repeat thousands of times with different starting pairs. The curve with the most ``it lands on me'' votes wins.
+
+\analogy{Imagine someone scattered breadcrumbs and a few random pebbles across your lawn, and you want to find the path the bread-thrower walked. You pick two crumbs, draw a smooth line between them, and check: ``how many \emph{other} crumbs are near this line?'' Try with different starting pairs. The line that explains the most crumbs is the path.}
+
+\textbf{Two safety checks here:}
+\begin{enumerate}
+    \item If the ``best path'' barely moves across the picture (less than 20\% of the image width), we throw it away,it is leftover clutter, not a real ball flying down the pitch.
+    \item If the curve does not fit smoothly enough (fit error bigger than 0.75 metres), we throw it away too.
+\end{enumerate}
+In either case we report ``no clear ball trajectory'' instead of inventing a result.
+
+\subsection{Step 4,``Lift the path into 3D''}
+
+A photo is flat (2D). The world is 3D. How do we know how \emph{far away} the ball was in each frame from one photo?
+
+\textbf{Two tricks:}
+
+\begin{enumerate}
+    \item \textbf{Depth from size.} A cricket ball is always exactly 36 millimetres in radius (the rules say so). If it looks big in the photo it is close; if it looks tiny it is far. Measure the ball's size in pixels and you have a rough estimate of how far away it is.
+    \item \textbf{Physics.} A flying ball does not zig-zag,it follows a smooth curve shaped by gravity (it falls). So whatever rough 3D points we get from trick 1, we fit them to the curve gravity actually produces. This smooths out measurement noise.
+\end{enumerate}
+
+\textbf{One more trick: the bounce.} When the ball touches the pitch, we know two things for sure: its height is exactly zero (it is on the ground) and its position on the pitch is directly under that pixel. We use that single rock-solid point to anchor the whole curve in place.
+
+\analogy{Imagine someone throws a tennis ball across a room and you only get a side-on photo. You can guess how far the ball is from you in each frame because you know how big a tennis ball is,if it looks tiny, it is far. Then you remember balls follow a curve because of gravity, so you smooth your estimates into a curve. And the moment the ball touches the floor is the one point you can locate \emph{exactly},so you pin your curve to that point.}
+
+\subsection{Step 5,``Apply the three LBW rules''}
+
+The LBW law in cricket has three checks. The ball is OUT only if \emph{all three} are true:
+
+\begin{enumerate}
+    \item \textbf{Pitched in line.} Did the ball bounce in a sensible place (in line with the stumps, not way outside leg)?
+    \item \textbf{Impact in line.} Did the ball then hit the batter's leg in line with the stumps (not outside off)?
+    \item \textbf{Hitting stumps.} Would the ball, if the leg had not been there, have gone on to hit the stumps?
+\end{enumerate}
+
+If all three pass: \textbf{OUT}. If the ball would have just barely clipped the stumps (within 2.5~cm of the edge): \textbf{UMPIRE'S CALL}. Otherwise: \textbf{NOT OUT}.
+
+\analogy{Think of the bowler as someone throwing a ball at a small target (the stumps) past an obstacle (the batter's leg). LBW asks: would the ball have hit the target if the obstacle had not been there? You answer that by extending the ball's path past the leg and checking if it intersects the target.}
+
+% =====================================================================
+\section{How the App Looks From the Outside (User Journey)}
+
+\begin{enumerate}
+    \item \textbf{Sign in.} Email/password or Google. (Firebase does this for us.)
+    \item \textbf{New analysis.} Tap a button. Pick a video from your phone or record one.
+    \item \textbf{Trim the clip.} Drag two handles so the clip starts just before the delivery and ends just after the bounce. About 3--5 seconds.
+    \item \textbf{Calibrate the pitch.} On the first frame, tap the four corners of the pitch (left-near, right-near, right-far, left-far). The app draws lines to show the corners are joined into a quadrilateral.
+    \item \textbf{Submit.} The clip + the tap positions go to the server. You see a progress bar.
+    \item \textbf{Result.} A 3D viewer opens. You can spin the view around. Below it: the verdict (OUT / NOT OUT / UMPIRE'S CALL) with a one-sentence reason.
+    \item \textbf{History.} Tap ``Home''. All past analyses are listed.
+\end{enumerate}
+
+That is the entire user experience. Five taps, one wait, one verdict.
+
+% =====================================================================
+\section{Defense Q\&A,Whys, Hows, and Why-nots}
+
+This is the heart of the document. Read each question, read the answer, then say it out loud in your own words once.
+
+%,A. Why this exists,
+\subsection{A. Why does this project exist?}
+
+\qa{Why did you build PocketDRS?}{%
+Because cricket review technology only exists at the top level. Hawk-Eye costs more than most clubs earn in a year. Below the international level there is no review aid at all,and the same close LBW calls happen every weekend. We wanted to see if a single normal phone could give those people \emph{some} kind of help.}
+
+\qa{Why LBW and not run-outs or stumpings?}{%
+LBW is the only decision where you have to imagine where the ball \emph{would have gone next}. A run-out or a stumping is about where things \emph{actually are}. LBW needs a 3D ball path. That makes it the hardest \emph{and} the most useful thing to build a tool for.}
+
+\qa{Is this just a Hawk-Eye copy?}{%
+No. Hawk-Eye uses eight cameras and triangulates depth like your two eyes do. We use one camera and have to be clever about depth (ball size + physics). Hawk-Eye is accurate to a few millimetres on a controlled field. We are accurate to about half a metre on synthetic tests and refuse to guess when the footage is bad. Different problem, different solution, different audience.}
+
+\qa{Why not just license a Hawk-Eye SDK?}{%
+Hawk-Eye is closed and only sold to broadcasters. There is no SDK to license. Even if there were, it would need eight cameras installed,defeating the whole point.}
+
+%,B. Tech stack,
+\subsection{B. Why these technologies?}
+
+\qa{Why a phone app plus a cloud server, not just on the phone?}{%
+Three reasons:
+\begin{enumerate}
+    \item Phones vary wildly in CPU strength. Doing the heavy work on a server we control is more reliable.
+    \item Putting analysis history in the cloud lets users switch phones without losing their data.
+    \item We can improve the algorithm whenever we like, without forcing every user to update the app.
+\end{enumerate}
+On-device analysis is on our future-work list once everything is stable.}
+
+\qa{Why Flutter for the app?}{%
+One codebase makes both Android and iOS apps. One developer can build both. It has good plugins for the camera, video, and Firebase. The alternative (writing two native apps) would have doubled the work for no real benefit.}
+
+\qa{Why FastAPI for the server?}{%
+It is the lightest Python web framework that is fast, modern, and works well with the computer-vision libraries we need (OpenCV, NumPy, SciPy). Django would be overkill (it expects a database). Flask is older and slower.}
+
+\qa{Why Firebase / Firestore for the database?}{%
+The data is per-user and document-shaped, not table-shaped. Firestore gives us logins, security rules, and live progress updates for free. Building those with a SQL database would have taken weeks.}
+
+\qa{Why Three.js for the 3D viewer?}{%
+It runs inside a WebView on both Android and iOS with no extra plugins, and looks identical on both. Native 3D plugins for Flutter are immature. Plus we could ship the same viewer as a web page if we wanted.}
+
+\qa{Why Google Cloud Run, not a normal server?}{%
+Cloud Run scales down to zero when nobody is using the system, so we pay nothing when idle. It scales up automatically when many people upload at once. Perfect for a student project that may have bursts of demo traffic.}
+
+%,C. Step 1,
+\subsection{C. Step 1,Camera Pose, in detail}
+
+\qa{Why does the user have to tap four corners,can the system not find them by itself?}{%
+It could in principle (using line detection), but doing it reliably across every ground, every lighting condition, and every camera angle is its own research project. Asking the user to tap four corners takes 30 seconds and is much more reliable. Automatic detection is on our future-work list.}
+
+\qa{What is PnP in plain words?}{%
+PnP just stands for ``Perspective-n-Point''. Given a few real-world points and where they appear on the photo, it figures out where the photographer was standing. We give it the four pitch corners (real positions) and the four taps (where they show up on the photo), and it gives back the camera's position and direction.}
+
+\qa{What is the ``twofold mirror'' problem?}{%
+The maths has two equally-good answers: one where the camera is above the pitch (correct) and a mirror version where the camera is below the ground (silly). We just check which one is above ground and keep that.}
+
+\qa{Why do you assume a $67^\circ$ field of view?}{%
+That is roughly the angle of view of a normal smartphone main camera. We could measure it per phone, but that would mean asking the user to film a checkerboard pattern first, which would be annoying. The small error from assuming $67^\circ$ is much less than the depth-from-size error, which dominates the final accuracy anyway.}
+
+%,D. Step 2,
+\subsection{D. Step 2,Ball Detection, in detail}
+
+\qa{Why use motion AND colour, not just one?}{%
+Each on its own gives lots of false alarms. Motion alone fires on \emph{anything} that moves: players, swaying nets, shadows. Colour alone fires on \emph{anything} that is the right shade: a red helmet, a red logo. Requiring both to agree cuts the false alarms while still finding the real ball.}
+
+\qa{What is MOG2 (motion detection)?}{%
+MOG2 is the standard OpenCV background detector. It learns what the background looks like over time (allowing for slow lighting changes), then flags anything that is different from that background as ``moving''. It handles swaying nets and mild camera shake better than simpler methods.}
+
+\qa{Why look for ``streaks'' as well as circles?}{%
+A fast ball at 30 frames per second \emph{smears} across a frame. It looks like a short streak, not a clean circle. If we only looked for circles we would miss every fast delivery.}
+
+\qa{What is fixed-clutter suppression and why is it your most important fix?}{%
+Anything that shows up in the same pixel location in more than 30\% of frames is removed. Real balls pass through any location once or twice. Logos, helmets, and bags sit still and would fire every frame. Without this fix the next step would happily ``find'' a ball path through that static clutter. With this fix it cannot.}
+
+\qa{What is YOLO and when do you use it?}{%
+YOLO is a deep-learning detector that has been trained on lots of cricket-ball photos. It is more reliable on messy real-world video than our motion+colour combination, but slower. We use it on real handheld clips; the motion+colour combination is enough on cleaner footage.}
+
+%,E. Step 3,
+\subsection{E. Step 3,Trajectory Association, in detail}
+
+\qa{Why RANSAC and not a Kalman filter?}{%
+RANSAC looks at the whole clip at once and finds the single best path. A Kalman filter goes frame by frame and assumes you already know where to start. For our ``analyse this 3-second clip'' workflow RANSAC is simpler, more robust to background junk, and easier to debug. We mention Kalman in the report because it is the natural next step for live tracking.}
+
+\qa{Why measure total movement across the clip, not frame-to-frame speed?}{%
+Because the camera is behind the bowler, the ball is flying \emph{towards} the camera. Frame-to-frame it does not seem to move much across the screen. Measuring how much it moved from start to end of the clip is a much better way to tell a real delivery from a stationary false alarm.}
+
+\qa{Why throw away tracks that cover less than 20\% of the image?}{%
+Because a real delivery sweeps across most of the picture. A short tight cluster of points is almost always background clutter. This is one of the safety checks that makes the system say ``no trajectory'' instead of inventing one.}
+
+%,F. Step 4,
+\subsection{F. Step 4,3D Reconstruction, in detail}
+
+\qa{How can one camera see depth at all?}{%
+It cannot directly. We add two pieces of outside knowledge: (1)~the ball is always the same size (36~mm radius), so if it looks tiny in the picture it must be far away; (2)~the ball is flying, so its path must be a smooth curve shaped by gravity. Together these two constraints give us enough information to recover a reasonable 3D path from one camera.}
+
+\qa{Why anchor the curve at the bounce?}{%
+Because the bounce is the one moment when we know \emph{exactly} where the ball is in 3D: its height is zero (touching the pitch), and we can project the bounce pixel onto the pitch plane to get its forward/sideways position. Anchoring the curve to this rock-solid point removes a huge amount of scale uncertainty.}
+
+\qa{Why cap the release height and forward speed in the fit?}{%
+Without limits, the maths can wander off into impossible solutions (a ball launched from 12 metres high travelling sideways at 200 km/h). Limiting the search to physically realistic values forces the fit to stay close to a real-world delivery.}
+
+\qa{Why ignore air resistance and spin?}{%
+Over the ${\sim}20$~m flight of a delivery, air resistance and spin push the ball by less than 1~cm. Our depth measurement is already noisy by tens of centimetres. So modelling drag and spin would add complexity without improving the answer. Listed in future work for high-precision use cases.}
+
+\qa{What is the 0.75-metre quality gate?}{%
+A safety latch. If the curve we fit is more than 0.75~metres off the measured points on average, something is wrong,we probably did not actually find the ball. So we throw the whole reconstruction away and tell the user ``no clear trajectory''. This stops the system producing confident-but-wrong verdicts on bad input.}
+
+%,G. Step 5,
+\subsection{G. Step 5,LBW Decision, in detail}
+
+\qa{What does ICC Rule 36 say, in three sentences?}{%
+(1)~The ball must \emph{pitch} in line with the stumps (not way outside leg). (2)~The ball must \emph{strike the batter} in line with the stumps. (3)~The ball's projected path must \emph{go on to hit the stumps}. All three true $\rightarrow$ OUT.}
+
+\qa{Why is the umpire's-call margin 25~mm?}{%
+That is the international standard. Hawk-Eye uses it. The idea is: if the projected ball is so close to the stump edge that even a small measurement error could flip the verdict, leave the call to the human umpire. We use the same number so our verdicts read the way an umpire expects.}
+
+\qa{Why widen the vertical margin to 7.2~cm?}{%
+Our depth measurement is noisier in the up-down direction at the stumps than left-right. Using the same tight 2.5~cm margin vertically would unfairly push real OUTs into umpire's-call. One ball-diameter (7.2~cm) is a fair compromise that matches our actual precision.}
+
+%,H. Results,
+\subsection{H. Results and Validation}
+
+\qa{Why use a synthetic test as well as real video?}{%
+Because synthetic tests have \emph{ground truth},we built the simulator, so we know exactly where the ball went. That lets us measure accuracy with numbers. Real video does not have ground truth,we cannot know the correct answer with certainty, so we cannot compute a percentage on it. The two tests answer different questions: synthetic says ``how often is the algorithm right?''; real says ``does it work on a phone in the wild?''.}
+
+\qa{Walk me through the 53 / 66 result.}{%
+We simulated 3~ball speeds (18, 24, 30 m/s) $\times$ 11~release directions (clearly wide of off, off-stump line, middle, leg-stump, outside leg, going down) $\times$ 2~release angles $=$ 66~deliveries. The system gave the right verdict on 53 of them (80.3\%). Per category: OUT 16/16 (100\%), NOT OUT 36/44 (81.8\%), UMPIRE'S CALL 1/6. The 13 failures all came from very fast deliveries (few frames) or very close calls (within ${\pm}20$~cm of the line),both inherent limits of a single camera.}
+
+\qa{Why is the OUT class your strongest result?}{%
+Because OUT needs \emph{all three} checks to pass. That demands a coherent end-to-end trajectory, which our physics-anchored fit produces reliably. OUTs are also the most consequential verdict for an umpire to get right,being perfect there is the most important guarantee.}
+
+\qa{What happened with the first real video?}{%
+Four things went wrong at once: (1) the file header said it was 7 seconds long, but only 3.25 seconds actually decoded; (2) the camera was at chest height, so the bowler's body blocked 20--36\% of the view during the delivery; (3) it was filmed through green net mesh; (4) the background had swaying nets, trees, and two moving people. The system correctly returned ``no clear ball trajectory''. The first item was a real software bug (we fixed it). The others are setup mistakes that the app now warns about.}
+
+\qa{Why is a ``no verdict'' a good result?}{%
+Because a tool that confidently invents wrong answers is worse than useless,it actively misleads umpires. A tool that honestly says ``I cannot see the ball in this clip'' is something you can trust. The bad-clip behaviour is exactly what a safe decision-support tool should do.}
+
+\qa{What about the second real video (test3)?}{%
+1080p / 60~fps handheld clip of an off-spin (flighted) delivery at indoor nets. Because off-spin loops up high, the ball stayed visible above the bowler's arm. The YOLO detector found ball candidates on every readable frame; the new truncation guard stopped at the last real frame (101) even though the header claimed 290; RANSAC linked 22 inliers out of 33 candidates with a 14.4-pixel fit error; a recurring red false-positive was correctly removed by fixed-clutter suppression. The 3D lift produced a smooth descending arc with the correct shape. Absolute distance is monocular-ambiguous and we report it that way,we do not pretend to know the speed precisely.}
+
+%,I. Honest limits,
+\subsection{I. Honest limits,what does NOT work}
+
+\qa{So is this Hawk-Eye?}{%
+No. Hawk-Eye uses 6--8 synchronised cameras and gets 3--5~mm accuracy under controlled conditions. We use one camera and get about half a metre. Hawk-Eye is for international cricket; PocketDRS is for clubs, schools, and nets. Same goal, very different precision.}
+
+\qa{Why is your accuracy half a metre instead of millimetres?}{%
+Because one camera cannot triangulate the way two eyes can. We estimate depth from how big the ball looks, which is noisy: at 10~m away the ball is only 3 pixels across, so a 1-pixel error means a 10\% depth error. The only way to fix this is more cameras,exactly the missing ingredient by design.}
+
+\qa{When does the system fail?}{%
+Three situations: (1) visibility (ball hidden by the bowler, net mesh, or out of focus); (2) calibration (taps far from the real pitch corners); (3) speed (super-fast deliveries that only appear in a handful of frames). In all three cases the system \emph{fails safely},it returns a warning, not a fake verdict.}
+
+\qa{What if the user taps the corners wrong?}{%
+Two safety nets. (1)~The app checks that the four taps form a sensible four-sided shape (not all the same point, not all on a straight line). (2)~The server checks the reprojection error of the recovered camera,if it is too high, it warns the user.}
+
+%,J. Engineering,
+\subsection{J. Engineering practice}
+
+\qa{How is the code organised?}{%
+\texttt{server/app/} is the Python backend (FastAPI + one module per algorithm step: video reader, detector, tracker, calibration, reconstruction, job-runner). \texttt{app/pocket\_drs/} is the Flutter mobile app. Each algorithm step is a small pure function so we can unit-test it on its own.}
+
+\qa{How many tests do you have?}{%
+20 unit tests (per module) and 12 system tests (end-to-end). All pass. Unit tests cover every individual function; system tests cover every realistic scenario including all three verdict types, the bad real clip, the good real clip, and the safety-net behaviours.}
+
+\qa{How do you deploy?}{%
+Docker builds a container, \texttt{gcloud run deploy} pushes it to Cloud Run, Firestore and Cloud Storage are already provisioned. The mobile app is built with \texttt{flutter build}.}
+
+\qa{What about data privacy?}{%
+All data lives under the user's Firebase user-ID. Security rules stop other users from reading it. Data is encrypted in transit (HTTPS). We do not share with third parties and we honour deletion requests. This is documented in NFR-08.}
+
+%,K. Future,
+\subsection{K. Future work}
+
+\qa{What is the single most impactful next improvement?}{%
+Two phones. Even two phones triangulating the ball would remove the depth-from-size problem entirely and bring our accuracy much closer to multi-camera DRS,at zero extra hardware cost beyond a second phone.}
+
+\qa{Could the whole pipeline run on the phone someday?}{%
+Yes. The detector and trajectory step are already feasible on modern phones (YOLO runs at 30~fps on flagship hardware). The 3D fit and LBW logic could follow. We deliberately designed the boundary as ``frames in, JSON out'' so we can move that boundary on-device later without rewriting the mobile app.}
+
+\qa{Could you do live (in-match) analysis?}{%
+Possible but harder. The current system is post-hoc,you record a clip, then analyse it. Live analysis means a streaming detector, per-frame state tracking (this is where Kalman comes back), and continuous verdict refresh. Natural next research project on top of this one.}
+
+% =====================================================================
+\section{Technical Glossary: Every Term Explained}
+
+If the panel asks ``what does X mean?'' your answer lives here. One paragraph per term, in plain English, with the precise definition at the end.
+
+\subsection{Computer Vision Foundations}
+
+\textbf{Pixel.} The smallest dot of colour in a digital image. A 1080$\times$1920 frame has roughly 2 million pixels. Everything the computer ``sees'' in a video is just a grid of pixel colour values.
+
+\textbf{Frame.} One still picture inside a video. At 30 frames per second (fps) the camera captures 30 stills every second; at 60 fps it captures 60.
+
+\textbf{Pinhole camera model.} The mathematical approximation that says: light from every 3D point in the world passes through a single point (the lens) and lands on a flat sensor. It is the standard model used everywhere in computer vision because it is simple, accurate enough, and fully described by a small set of numbers.
+
+\textbf{Intrinsic camera parameters.} The numbers that describe how a particular camera maps 3D points onto its sensor. Focal length $(f_x, f_y)$ controls how ``zoomed in'' the camera is, and principal point $(c_x, c_y)$ is where the centre of the lens lines up on the sensor. Together they make the camera matrix $K$.
+
+\textbf{Extrinsic camera parameters.} Where the camera is and which way it points. Two pieces: a rotation $R$ (orientation) and a translation $t$ (position). Together they place the camera in the world.
+
+\textbf{Field of view (FOV).} The angle the camera can see, measured in degrees. A typical phone main camera has roughly $67^{\circ}$ horizontal FOV.
+
+\textbf{Reprojection error.} A quality check. Take a known 3D point, project it through your camera matrix, and compare the predicted pixel with the actual pixel. The distance between them, measured in pixels, is the reprojection error. Smaller is better; PocketDRS gets 0.00 px on synthetic data and a few pixels on real clips.
+
+\textbf{Homography.} A 3$\times$3 matrix $H$ that maps points between two flat surfaces seen from different angles. Because a cricket pitch is flat, one homography converts any pixel inside the pitch into a real-world position on the pitch in metres.
+
+\textbf{Camera calibration.} The process of measuring the intrinsic parameters of a specific camera. The classical method (Zhang, 2000) uses photos of a checkerboard pattern. PocketDRS skips this step and assumes typical smartphone values so users do not have to film a checkerboard.
+
+\subsection{The Algorithms by Name}
+
+\textbf{PnP (Perspective-n-Point).} The algorithm that recovers the camera's position and orientation when you know a few real-world 3D points and where they appear on the photo. PocketDRS feeds it the four pitch corners (real positions, in metres) plus where the user tapped them (pixels), and gets back the camera's pose. We use OpenCV's \texttt{solvePnP} with the ITERATIVE solver because it accepts the planar case.
+
+\textbf{Twofold mirror ambiguity (planar PnP).} A quirk of the maths: when all the known points lie on one flat surface, PnP has two equally good solutions, one with the camera above the surface and one with it below (mirrored). The maths cannot tell them apart. We just reject the answer where the camera is underground.
+
+\textbf{RANSAC (Random Sample Consensus).} A robust way to fit a model when your data has outliers. Pick the smallest random sample needed to define the model, fit the model to it, count how many of the remaining points agree (``inliers''), and keep the model with the most inliers. PocketDRS uses it twice: once to compute the homography from the four pitch taps, once to link per-frame ball detections into a single trajectory.
+
+\textbf{Inliers vs outliers.} Inliers are measurements that agree with the model you fitted. Outliers are measurements that do not. RANSAC's job is to find the largest possible inlier set.
+
+\textbf{Projectile motion.} The physics of a thrown object under gravity alone (ignoring air resistance). Horizontal velocity stays constant; vertical velocity decreases by $9.81$ m/s every second. The trajectory is a parabola. Cricket-ball flight is close enough to projectile motion that we can use it as a strong constraint.
+
+\textbf{Bundle adjustment.} A classical computer-vision technique that jointly refines camera parameters and 3D point positions to minimise reprojection error across many views. PocketDRS borrows the same least-squares philosophy for the projectile-fit step but with only one view.
+
+\textbf{Coefficient of restitution.} A number between 0 and 1 that describes how bouncy a collision is. After bouncing on the pitch, a cricket ball keeps about 55\% of its vertical speed; the coefficient of restitution is therefore $\approx 0.55$. We use this in the bounce model.
+
+\textbf{Depth-from-size.} The trick we use to recover distance from a single camera. Because a cricket ball is always exactly 36 mm radius, its size in pixels tells you how far away it is. A small ball in the image must be far away.
+
+\textbf{Kalman filter / Extended Kalman Filter (EKF).} A standard recursive estimator for tracking a moving object frame by frame. It combines a motion model (where do we expect the object to be next?) with measurements (where did we observe it?) and keeps an uncertainty estimate. PocketDRS does not use Kalman in the final pipeline because RANSAC plus projectile-fit is simpler and more robust to clutter; Kalman is the natural next step for live tracking.
+
+\subsection{Detection Algorithms}
+
+\textbf{MOG2 (Mixture of Gaussians 2).} The standard OpenCV background-subtraction algorithm. It models each pixel of the background as a mixture of several Gaussians (so it can handle slow lighting drift and mild swaying) and flags anything that does not fit the background model as ``moving''. We use it for motion detection.
+
+\textbf{HSV colour space.} An alternative way of describing colour (Hue, Saturation, Value) that separates ``what colour'' from ``how bright''. Detecting the red of a cricket ball is much easier in HSV than in RGB because shadows mostly affect Value while leaving Hue alone.
+
+\textbf{ROI (Region of Interest).} A rectangular area of the image where you focus your search. We use ROIs to ignore obvious non-pitch areas (e.g. the sky, the umpire) before running the detector.
+
+\textbf{YOLO (You Only Look Once).} A deep-learning object detector that scans the whole image in a single pass and outputs bounding boxes around the objects it recognises. The name comes from how it only looks at the image once (older detectors scanned thousands of windows). It is fast and accurate, so it has become the default real-time object detector in computer vision.
+
+\textbf{Ultralytics YOLOv8.} The specific implementation of YOLO we use. Ultralytics is the company that maintains the modern PyTorch-based version. We feed it a fine-tuned cricket-ball model so it only detects cricket balls (and ignores everything else).
+
+\textbf{Motion blur / streak detector.} A fast object in a single frame does not look like a clean shape, it smears into a short streak (like a comet tail). Our motion detector explicitly accepts both round blobs and short streaks as possible ball candidates, so it does not miss fast deliveries.
+
+\textbf{Fixed-clutter suppression.} Our custom filter that removes any detection appearing in the same pixel location in more than 30\% of frames. The reasoning: a real ball passes through any spot at most twice; a logo, helmet, or bag sits in one place for the whole clip.
+
+\subsection{Cricket Domain Terms}
+
+\textbf{LBW (Leg Before Wicket).} A way for a batter to be dismissed. The ball hits the batter's leg in a position where it would have gone on to hit the stumps if the leg had not been in the way. The umpire's hardest decision.
+
+\textbf{ICC (International Cricket Council).} The world governing body for cricket. They publish the Laws and the Playing Conditions, and they certify ball-tracking systems for international use (Hawk-Eye is ICC-certified; PocketDRS is not).
+
+\textbf{ICC Rule 36 / Law 36.} The specific cricket law that defines LBW. It has three checks: pitched in line, impact in line, wicket hitting. All three must be true for an OUT.
+
+\textbf{Pitched in line.} The ball must bounce in line with the stumps (or outside off stump). If it bounces outside the leg-stump line, it cannot be LBW.
+
+\textbf{Impact in line.} The ball must hit the batter in line with the stumps. If the impact is outside off, the batter cannot be out LBW (unless they offered no shot).
+
+\textbf{Wicket hitting (hitting stumps).} The projected continuation of the ball's path after the impact must intersect the stumps.
+
+\textbf{Umpire's call.} The buffer zone used by Hawk-Eye and the ICC: if any of the three checks is closer than about half a ball-radius to the boundary, the on-field umpire's original decision stands. We use 25 mm horizontally and 7.2 cm vertically.
+
+\textbf{Stumps.} The three vertical wooden poles at each end of the pitch. Combined width of the three is roughly 22.86 cm; each stump is about 71.1 cm tall.
+
+\textbf{Pitch.} The 22-yard strip (20.12 m) between the two sets of stumps. The bowler bowls from one end, the batter stands at the other.
+
+\textbf{Crease.} The line painted across the pitch in front of each set of stumps; the batter stands behind it.
+
+\textbf{Off side / Leg side.} The two halves of the pitch from the batter's point of view. For a right-handed batter, off side is on the right; leg side is on the left. ``Outside off'' and ``outside leg'' are how umpires describe where the ball pitched or struck.
+
+\textbf{Hawk-Eye.} The professional broadcast ball-tracking system used in international cricket since the early 2000s. Uses 6 to 8 synchronised high-speed cameras, ICC-certified, accurate to a few millimetres on controlled fields.
+
+\textbf{Flighted delivery.} A delivery (usually slow spin) that the bowler throws up in a loop so it descends from above onto the batter. Important for PocketDRS because the higher loop means the ball stays visible above the bowler's body in our real clip.
+
+\subsection{Backend / Mobile Stack}
+
+\textbf{Flutter.} Google's cross-platform mobile framework. Write one Dart codebase, get both Android and iOS apps. We use Flutter for the mobile client.
+
+\textbf{Dart.} The programming language used by Flutter. Object-oriented, compiles to native code or JavaScript.
+
+\textbf{FastAPI.} A modern, fast Python web framework with built-in async support and automatic OpenAPI documentation. We use it for the backend.
+
+\textbf{Async / await.} A way of writing code that waits for slow operations (like network or disk) without blocking other work. Important because video processing is slow; FastAPI's async support keeps the API responsive while the pipeline runs in the background.
+
+\textbf{REST API.} A style of web service where the client makes HTTP requests (GET, POST, etc.) and the server returns JSON. Our mobile app talks to the FastAPI server using REST.
+
+\textbf{JSON.} A simple text format for structured data (lists, dictionaries, numbers, strings). Used for every request and response between the app and the server.
+
+\textbf{OpenCV.} The standard open-source computer-vision library. We use it for every image and video operation: decoding frames, motion detection, drawing the result overlay, computing homographies, running PnP.
+
+\textbf{NumPy.} The Python library for fast numerical arrays. Almost every vision operation works on NumPy arrays under the hood.
+
+\textbf{SciPy.} The Python library for scientific computing. We use \texttt{scipy.optimize} for the least-squares projectile fit.
+
+\textbf{Three.js.} A JavaScript library for 3D graphics in the browser. We use it to render the interactive Hawk-Eye-style 3D viewer inside a Flutter WebView.
+
+\textbf{WebView.} A web-browser view embedded inside a mobile app. Lets us run our Three.js viewer on both Android and iOS without writing native 3D code twice.
+
+\textbf{Firebase Authentication.} Google's hosted user-login service. Handles email/password, Google sign-in, token refresh, and password reset for us.
+
+\textbf{Firestore.} Google's hosted NoSQL document database. We store per-user analyses and pitch calibrations here. Comes with real-time sync, security rules, and live updates.
+
+\textbf{Cloud Storage.} Google's hosted file storage. We keep the trimmed video files here while a job is being processed.
+
+\textbf{Cloud Run.} Google's serverless container hosting platform. Our backend container scales down to zero when nobody is using it (no idle cost) and scales up automatically under load.
+
+\textbf{Docker / container.} A standard way to package an application with all its dependencies into one runnable image. Lets us deploy the backend identically on any machine.
+
+\subsection{Software Quality Terms}
+
+\textbf{Unit test.} A test that exercises one small piece of code in isolation. We have 20.
+
+\textbf{System test (end-to-end test).} A test that exercises the full pipeline from input to output, like a real user would. We have 12.
+
+\textbf{Synthetic data / synthetic harness.} Computer-generated test data with known ground truth. Lets us measure accuracy with numbers (impossible on real video where the truth is unknown).
+
+\textbf{Ground truth.} The known correct answer. In synthetic data we built it ourselves so we know it exactly.
+
+\textbf{Quality gate.} A check that automatically rejects a result when it looks wrong. PocketDRS rejects any 3D reconstruction whose fit error exceeds 0.75 m, so the system returns a warning instead of a confident-but-wrong verdict.
+
+\textbf{Edge case.} A scenario at the boundary of valid input (truncated video, all-zero corners, NaN detections). Hardening is the act of finding and fixing how the system behaves on edge cases.
+
+\textbf{Fail-safe behaviour.} Failing in a way that does not harm the user. For a decision-support tool, ``no verdict'' is fail-safe; ``confident wrong verdict'' is not.
+
+% =====================================================================
+\section{Numbers and Facts Cheat Sheet}
+
+Keep this page open during the defense.
+
+\cheatbox{%
+\textbf{Physical constants}
+\begin{itemize}
+  \item Cricket ball radius: \textbf{0.036~m} (36~mm).
+  \item Gravity: $g = 9.81$~m/s$^2$.
+  \item Coefficient of restitution (bounce energy retained): $\approx 0.55$.
+  \item Pitch length (stumps to stumps): \textbf{20.12~m} (22~yards); width $\approx 3$~m.
+  \item Stump height: 71.1~cm; full stump width: ${\approx} 22.86$~cm.
+  \item Umpire's-call margin (horizontal): \textbf{25~mm}; vertical band used: \textbf{7.2~cm} (one ball diameter).
+\end{itemize}
+
+\textbf{Camera \& Calibration}
+\begin{itemize}
+  \item Assumed horizontal field of view: \textbf{$67^{\circ}$} (typical phone main camera).
+  \item Synthetic camera position: $(-3.5, 0, 1.8)$~m looking at $(10, 0, 0)$~m.
+  \item Synthetic intrinsics: $f_x = f_y = 900$, $c_x = 540$, $c_y = 960$; 1080$\times$1920 @ 60~fps.
+  \item PnP reprojection error on synthetic: \textbf{0.00~px} (every scenario).
+\end{itemize}
+
+\textbf{Detection \& Tracking}
+\begin{itemize}
+  \item Candidates per synthetic scenario: 60--130.
+  \item RANSAC inliers per scenario: 60--70 (${\sim}95\%$ of in-pitch detections).
+  \item Image-space fit error (synthetic): 10--25~px.
+  \item Fixed-clutter suppression threshold: \textbf{30\%} of frames at the same location.
+  \item Path-length sanity check: reject if track moves less than 20\% of image width.
+  \item Reconstruction quality gate: \texttt{MAX\_FIT\_RMS\_M = 0.75~m}.
+\end{itemize}
+
+\textbf{Synthetic Results (66 deliveries)}
+\begin{itemize}
+  \item Scenarios: \textbf{66} ($3$ speeds $\times$ $11$ lines $\times$ $2$ angles).
+  \item Correct verdicts: \textbf{53 / 66 = 80.3\%}.
+  \item Per class: OUT \textbf{16/16 (100\%)}, NOT OUT 36/44 (81.8\%), UMPIRE'S CALL 1/6.
+\end{itemize}
+
+\textbf{Real Clip (test3, success case)}
+\begin{itemize}
+  \item 1080$\times$1920 @ 60~fps handheld; off-spin delivery; indoor nets.
+  \item Container claims 290 frames; only 101 decode (truncation guard stops at 101).
+  \item Tracked: \textbf{25} positions; \textbf{22 inliers / 33 candidates}; image-RMS \textbf{14.4~px}.
+  \item Flight: frame 33 ($t=550$~ms) $\rightarrow$ frame 64 ($t=1067$~ms) = 517~ms tracked at 60~fps.
+  \item Depth range (camera-relative): 1.41~m $\rightarrow$ 2.39~m (shape correct, scale ambiguous).
+\end{itemize}
+
+\textbf{Testing}
+\begin{itemize}
+  \item Unit tests: \textbf{20 / 20 pass}.
+  \item System (end-to-end) tests: \textbf{12 / 12 pass}.
+\end{itemize}
+
+\textbf{Stack Versions}
+\begin{itemize}
+  \item Flutter 3.8 / Dart 3.0; FastAPI 0.104.1; Python 3.11.
+  \item OpenCV 4.8.0; NumPy 1.24; SciPy 1.11.
+  \item Firebase Auth + Cloud Firestore + Cloud Storage + Cloud Run.
+  \item Three.js (embedded in WebView).
+\end{itemize}
+}
+
+% =====================================================================
+\section{Trick Questions and How to Answer Them}
+
+\qa{``This is just a Hawk-Eye clone.''}{%
+Hawk-Eye uses 6--8 synchronised high-speed cameras and triangulates depth directly. We use one consumer phone camera and recover depth from ball size + projectile physics. Hawk-Eye is accurate to a few millimetres on a controlled field. We are accurate to about half a metre on synthetic tests and we refuse to invent answers on bad real footage. Same goal, totally different solution, totally different audience.}
+
+\qa{``80\% accuracy is not very good.''}{%
+80\% is the overall figure across a deliberately hard sweep that includes super-fast deliveries with very few frames and razor-close calls. On the most consequential class (OUT) we are at 100\%. The 13 failures all sit on the well-understood single-camera depth-from-size limit,exactly the limit we wanted to document.}
+
+\qa{``Your real video did not even work.''}{%
+The first real clip did not produce a track, and that is the \emph{correct} behaviour on that clip (low camera, occlusion, netting). The system safely refused to invent a verdict. The second real clip, recorded with the guidance the app now provides, worked end-to-end: clean 25-point track, plausible 3D arc. The two clips together prove the system fails safely and succeeds when conditions are met.}
+
+\qa{``Why didn't you use machine learning for everything?''}{%
+Two reasons. (1)~Physical constraints (pitch geometry + projectile motion) are stronger priors than any model could learn from the limited cricket data available. (2)~ML-only systems hide their failure modes; a physics-based pipeline can be reasoned about, tested per stage, and made to fail safely. We do use ML where it actually pays off (YOLO detector for real clips). We do not use ML where the geometry already gives the right answer.}
+
+\qa{``Could the user just trust the umpire?''}{%
+At the top level the umpire already has DRS. At club / school / coaching level the umpire has nothing,and the same close decisions happen. PocketDRS exists for that gap. It is decision support, not authority,the umpire still calls the game.}
+
+% =====================================================================
+\section{Final Checklist Before You Walk In}
+
+\begin{itemize}
+  \item Slides exported as PDF as a backup (in case PowerPoint mis-renders something).
+  \item Phone with the app installed, signed in, with at least one saved analysis ready.
+  \item Pre-loaded synthetic OUT, NOT OUT, and UMPIRE'S CALL renders to show if the live demo fails.
+  \item Pre-loaded \texttt{test3.mp4} (success clip) and \texttt{test1} (failure clip) for the real-world story.
+  \item A printed copy of: this PDF, the final report, and the IEEE reference list.
+  \item Bottle of water on the desk; relax your shoulders; the panel wants you to succeed.
+\end{itemize}
+
+\vfill
+\begin{center}
+\textbf{\color{NavyTint} You know this work. You built it. Go tell the story.}\\[6pt]
+\textit{Good luck,Niraj.}
+\end{center}
+
+\end{document}

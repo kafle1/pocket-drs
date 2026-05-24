@@ -48,7 +48,10 @@ class SegmentRequest(BaseModel):
 
 
 class PitchDimensionsM(BaseModel):
-    length: float = Field(gt=0)
+    # Length is optional: when omitted, the stump-anchored solver
+    # geometry-fits it from the marked stump pair under the configured FOV.
+    # When supplied, the solver treats it as authoritative.
+    length: float | None = Field(default=None, gt=0)
     width: float = Field(gt=0)
 
 

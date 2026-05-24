@@ -4,7 +4,7 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{microtype}
-\usepackage[top=1in,bottom=1in,left=1.25in,right=1in]{geometry}
+\usepackage[top=0.9in,bottom=0.9in,left=1.2in,right=1in]{geometry}
 \renewcommand{\rmdefault}{ptm}
 \usepackage{setspace}
 \usepackage{graphicx}
@@ -22,7 +22,10 @@
 
 \onehalfspacing
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{6pt}
+\setlength{\parskip}{3pt}
+\renewcommand{\arraystretch}{0.95}
+\setlength{\LTpre}{4pt}
+\setlength{\LTpost}{4pt}
 
 % Heading formatting per syllabus: chapter 16pt (centred), section 14pt,
 % subsection 12pt, all bold
@@ -189,12 +192,12 @@ Signature: \underline{\hspace{4cm}}
 \addcontentsline{toc}{chapter}{Abstract}
 \vspace{0.5cm}
 
-PocketDRS is a mobile-to-server Decision Review System that provides low-cost Leg Before Wicket (LBW) assistance for cricket using a single smartphone camera. Professional systems such as Hawk-Eye rely on multiple synchronized high-speed cameras and specialized hardware, making them unaffordable outside elite venues. PocketDRS demonstrates that a constrained single-view workflow can deliver practical decision support for schools, clubs, and training grounds. A Flutter application records a delivery and lets the user mark the four pitch corners; a FastAPI server detects the ball from motion and colour, associates the detections into one trajectory, recovers the camera pose from the marked corners, and reconstructs the ball path in real-world 3D using projectile-motion physics. A rule-based engine then applies the three LBW checks of ICC Rule 36. On 66 simulated deliveries the system recovered the camera position correctly every time and returned the correct verdict in 53 cases (80.3\%), including all 16 OUT cases. The system supports, but does not replace, on-field umpiring.
+PocketDRS is a low-cost Leg Before Wicket (LBW) decision-support system for cricket that works with a single smartphone camera. Professional systems such as Hawk-Eye need six to eight synchronised high-speed cameras and dedicated hardware, which puts them out of reach of schools, clubs, and training grounds. PocketDRS shows that a careful single-view workflow can still produce practical decision support at those venues. A Flutter app records the delivery and lets the user tap the four pitch corners. A FastAPI server then detects the ball from motion and colour, links the detections into one smooth path using RANSAC, recovers the camera pose from the tapped corners, and rebuilds the ball trajectory in real-world 3D using projectile-motion physics. A rule-based engine applies the three LBW checks of ICC Rule~36. On 66 simulated deliveries the system recovered the camera position correctly every time and returned the right verdict in 53 cases (80.3\%), including all 16 OUT cases.
 
 \vspace{1cm}
 
 \noindent
-\textbf{Keywords:} Cricket, Decision Review System, Monocular 3D Reconstruction, Computer Vision, LBW
+\textbf{Keywords:} Cricket, Decision Review System, Monocular 3D Reconstruction, Computer Vision, LBW.
 
 \clearpage
 
@@ -205,17 +208,15 @@ PocketDRS is a mobile-to-server Decision Review System that provides low-cost Le
 \addcontentsline{toc}{chapter}{Acknowledgement}
 \vspace{0.5cm}
 
-I would like to express my sincere gratitude to all those who contributed directly and indirectly to the successful completion of this project. Their guidance, encouragement, and continuous support have been invaluable throughout the entire course of this work.
+I would like to express my sincere gratitude to all those who contributed to the completion of this project. Their guidance and continuous support have been invaluable throughout this work.
 
-First and foremost, I would like to express my profound gratitude to the Principal of Phoenix College of Management, Prof. Dr. Fatta Bahadur KC, for his inspiring leadership, academic guidance, and continuous encouragement in fostering an environment dedicated to learning, research, and innovation.
+I am profoundly grateful to the Principal of Phoenix College of Management, Prof.~Dr.~Fatta Bahadur KC, for his inspiring leadership and academic guidance.
 
-I would also like to extend my heartfelt appreciation to my project supervisor, Mr. Saishab Bhattarai, for his invaluable guidance, constructive feedback, encouragement, and continuous support throughout the development of this project. His expertise, patience, and insightful suggestions greatly contributed to the successful completion of this work.
+My deepest appreciation goes to my project supervisor, Mr.~Saishab Bhattarai, for his invaluable guidance, constructive feedback, and continuous support. His expertise and insightful suggestions greatly contributed to the success of this work.
 
-Furthermore, I am deeply thankful to the Department of Information Technology at Phoenix College of Management for providing the necessary academic environment, institutional support, resources, and facilities required for the successful execution of this project.
+I am also thankful to the Department of Information Technology at Phoenix College of Management for the academic environment and institutional support, and to the faculty members for their suggestions during the course of this work.
 
-I would also like to acknowledge the valuable support and encouragement provided by the faculty members, whose suggestions and assistance played a significant role during the course of this work.
-
-Finally, I express my deepest gratitude to my family and friends for their unwavering support, motivation, patience, and encouragement throughout this journey. Their constant belief in me provided the strength and determination necessary to accomplish this project successfully.
+Finally, I express my deepest gratitude to my family and friends for their unwavering support, motivation, and encouragement throughout this journey.
 
 \clearpage
 
@@ -241,11 +242,9 @@ Date: May, 2026
 % TABLE OF CONTENTS / LISTS
 % =====================================================================
 \tableofcontents
-\clearpage
 
 \addcontentsline{toc}{chapter}{List of Figures}
 \listoffigures
-\clearpage
 
 \addcontentsline{toc}{chapter}{List of Tables}
 \listoftables
@@ -291,11 +290,11 @@ UML & Unified Modeling Language \\
 
 \section{Introduction}
 
-Cricket officiating increasingly relies on technology for reviewing close decisions, particularly Leg Before Wicket (LBW) cases. In elite matches, systems such as Hawk-Eye reconstruct the ball trajectory using multiple synchronized high-speed cameras and specialized processing infrastructure. Although highly effective, these systems are costly, complex to operate, and impractical for schools, clubs, local leagues, and training environments.
+Modern cricket relies heavily on technology to review close decisions, and Leg Before Wicket (LBW) is one of the hardest of those decisions for the human eye. At the top level the game uses Hawk-Eye, which reconstructs the ball trajectory from six to eight synchronised high-speed cameras and dedicated processing hardware. Hawk-Eye is accurate, but the equipment, installation, and operating cost place it well beyond the reach of schools, clubs, local leagues, and coaching grounds, where the same close decisions occur every week with no review support at all.
 
-PocketDRS is proposed as a low-cost decision-support system that uses a single smartphone camera and a lightweight backend service to analyze a delivery. The user records or selects a short video clip, calibrates the visible pitch by marking known reference points, submits the delivery for processing, and receives a visual explanation together with an LBW assessment. The project emphasizes practicality over broadcast-grade precision, targeting a use case where approximate decision support is valuable even without ICC certification.
+PocketDRS addresses this gap. It is a decision-support system that runs on a normal smartphone and a lightweight cloud service. The user records or picks a short clip of the delivery, taps the four corners of the visible pitch to calibrate, sends the clip to the server, and gets back a 3D visualisation together with an LBW verdict. The aim is practical decision support at low cost, not broadcast-grade precision; the system is therefore positioned as an aid to umpiring rather than a replacement for it.
 
-The primary innovation is demonstrating that a constrained single-view pipeline, leveraging known pitch geometry and projectile motion physics, can produce consistent and interpretable LBW review support. The current prototype demonstrates this through a working mobile-to-cloud system combining computer vision, geometrical reconstruction, and domain-specific decision logic.
+The contribution of the project is to show that a carefully constrained single-camera pipeline, built around the known geometry of a cricket pitch and the physics of projectile motion, can produce consistent and human-readable LBW review support end-to-end. The working prototype demonstrates this with a complete mobile-to-cloud system that combines computer vision, geometric reconstruction, and cricket-specific decision logic.
 
 \section{Problem Statement}
 
@@ -355,19 +354,11 @@ The PocketDRS project encompasses the complete workflow from video capture to LB
 
 \section{Development Methodology}
 
-PocketDRS was developed using an incremental and agile approach, which proved well-suited to a research-oriented project:
-
-\begin{itemize}
-    \item \textbf{Requirements Analysis:} Identified functional and non-functional requirements through literature review and existing system study.
-    \item \textbf{Proof-of-Concept:} Built initial prototypes to validate camera calibration, ball detection, and 3D reconstruction feasibility.
-    \item \textbf{Iterative Development:} Developed the full pipeline incrementally, with regular testing and refinement at each stage.
-    \item \textbf{Testing and Validation:} Conducted unit tests, integration tests, and synthetic validation to assess accuracy and robustness.
-    \item \textbf{Deployment:} Deployed the backend on Google Cloud Run with Firestore persistence and the mobile app to Android/iOS.
-\end{itemize}
+PocketDRS followed an incremental, agile approach: requirement analysis (from literature and existing systems), proof-of-concept on calibration / detection / 3D reconstruction, iterative development of the full pipeline with continuous testing, unit and synthetic-harness validation, and deployment of the backend on Google Cloud Run with Firestore persistence alongside the mobile app on Android and iOS.
 
 \section{Report Organization}
 
-This report is organized as follows. Chapter 2 provides background on the underlying techniques and reviews prior work on sports video analysis and decision review systems. Chapter 3 presents the system analysis and design, including requirement analysis, feasibility study, data and process modelling, and detailed system design. Chapter 4 describes implementation details and testing results, including the ball detection, tracking, reconstruction, and LBW decision modules. Chapter 5 concludes with lessons learned and recommendations for future work. References and appendices provide additional technical details and documentation.
+Chapter~2 presents the background and literature review. Chapter~3 covers system analysis and design (requirements, feasibility, ER, DFD, architecture, and the five-step algorithm). Chapter~4 details implementation and testing, including unit / system tests, synthetic validation, and real-world clips. Chapter~5 concludes with lessons learned and future recommendations. References and appendices follow.
 
 % =====================================================================
 % CHAPTER 2: BACKGROUND STUDY AND LITERATURE REVIEW
@@ -376,29 +367,23 @@ This report is organized as follows. Chapter 2 provides background on the underl
 
 \section{Background Study}
 
-\textbf{Pinhole Camera Model and Intrinsic Calibration}
+\textbf{Pinhole Camera Model and Intrinsics.} A smartphone camera is well approximated by the pinhole model: light passes through a single point (the lens centre) and lands on a flat sensor. The \emph{intrinsic} parameters, focal length $(f_x, f_y)$ and principal point $(c_x, c_y)$, form the camera matrix $K$ that maps a 3D point to a pixel. Zhang's checkerboard method~\cite{zhang2000} is the standard way to recover $K$. PocketDRS skips checkerboard calibration and estimates $K$ from the frame size and the typical smartphone horizontal field of view of $67^{\circ}$.
 
-The pinhole camera model is the foundation for computer vision applications. It assumes light travels in straight lines through a small aperture and is captured on a planar image sensor. The intrinsic parameters (focal length and principal point) describe how a world point projects to image coordinates. Zhang's checkerboard calibration method~\cite{zhang2000} uses images of a known planar pattern to estimate intrinsics without requiring expensive calibration rigs. For PocketDRS, intrinsics are estimated from frame size and an assumed horizontal field of view (67 degrees), which is typical for smartphones.
+\textbf{Camera Pose (PnP).} The \emph{extrinsic} parameters $(R, t)$ place the camera in the world. The Perspective-n-Point algorithm~\cite{bradski2008} solves for them given a few known 3D world points and their pixel positions, by minimising reprojection error. PocketDRS feeds it the four tapped pitch corners.
 
-\textbf{Extrinsic Calibration and PnP}
+\textbf{Homography.} A $3 \times 3$ matrix $H$ that relates two views of the same flat surface~\cite{hartley2004}. Because a cricket pitch is flat, a homography built from the four corner taps converts any pitch pixel into a pitch-plane position in metres. RANSAC~\cite{fischler1981} rejects bad correspondences.
 
-Extrinsic parameters (rotation and translation) describe the camera's pose in the world. The Perspective-n-Point (PnP) problem solves for this pose given known 3D world points and their 2D image projections. OpenCV's solvePnP~\cite{bradski2000} using ITERATIVE refinement computes the rotation vector and translation that minimize reprojection error. For cricket, pitch corners and stump positions are used as known landmarks.
+\textbf{Projectile Motion.} Over the short flight of a delivery, air resistance is negligible and the ball obeys
+\[
+X(t) = X_0 + V_x t,\quad Y(t) = Y_0 + V_y t,\quad Z(t) = Z_0 + V_z t - \tfrac{1}{2} g t^2,
+\]
+with $g = 9.81$~m/s$^2$. This is a strong constraint: any candidate trajectory that is not parabolic in $Z$ and linear in $X$ and $Y$ cannot be a real cricket ball. The bounce is modelled as a vertical-velocity reflection scaled by a coefficient of restitution ($\approx 0.55$).
 
-\textbf{Homography and Pitch-Plane Mapping}
+\textbf{RANSAC.} A robust estimator~\cite{fischler1981} that repeatedly samples the smallest subset needed to define a model, counts how many remaining points are inliers, and keeps the best-supported model. PocketDRS uses it twice: for the homography and for linking per-frame ball detections into one trajectory.
 
-A homography is a $3 \times 3$ matrix that maps points between two coplanar surfaces~\cite{hartley2004}. For a flat pitch, the homography directly transforms pixel coordinates to pitch-plane coordinates in metres. It is computed from four point correspondences and can be refined using RANSAC to reject outliers.
+\textbf{Kalman Filter (for reference).} The Extended Kalman Filter is the standard frame-by-frame tracker. PocketDRS does not use it because RANSAC plus a projectile fit proved more robust to clutter and easier to explain; the EKF remains the natural extension for live tracking.
 
-\textbf{Projectile Motion and Trajectory Fitting}
-
-A cricket ball in flight (ignoring air resistance, which is negligible over short distances) follows projectile motion: $X(t) = X_0 + V_x t$, $Y(t) = Y_0 + V_y t$, $Z(t) = Z_0 + V_z t - \frac{1}{2} g t^2$, where $g = 9.81$ m/s$^2$. This strong physical constraint allows recovery of smooth 3D trajectories from noisy detections. Bounce is modeled as a reflection of the vertical velocity component scaled by a coefficient of restitution (typically 0.55 for cricket).
-
-\textbf{Kalman Filtering and State Estimation}
-
-The Extended Kalman Filter (EKF) is used in monocular tracking to estimate ball state (position and velocity) over time. The process model applies projectile motion; the measurement model projects the 3D state to 2D image coordinates via the camera matrix. Although not used in the final implementation (RANSAC proved more robust for this application), EKF provides a principled framework for sensor fusion and uncertainty propagation.
-
-\textbf{ICC Rule 36 and LBW Decision}
-
-Law 36 (Leg Before Wicket) in cricket specifies when a batsman is out~\cite{icc}. Simplified, the ball must pitch in line with the wickets and then hit the batsman's leg in a line that would have hit the stumps. The LBW decision is umpire's call at the boundary; any outcome within approximately 25 mm of the edge is left to the umpire. PocketDRS implements these checks computationally.
+\textbf{ICC Rule 36 (LBW).} Law~36~\cite{icc} requires three things together: the ball pitches in line with the stumps, strikes the batter in line, and its projected path goes on to hit the stumps. A $\approx 25$~mm margin around the stump edge is left to the on-field umpire (``umpire's call''). PocketDRS implements all three checks and the margin in code.
 
 \section{Literature Review}
 
@@ -416,9 +401,7 @@ Ponglertnapakorn and Suwajanakorn~\cite{ponglertnapakorn2025} estimated 3D ball 
 
 Bochinski \textit{et al.}~\cite{bochinski2017} demonstrated high-quality multi-frame tracking by linking detections across frames using simple intersection-over-union association. PocketDRS follows the same detection-linking principle with a constant-acceleration motion model tailored to projectile flight.
 
-\textbf{Synthesis}
-
-The literature demonstrates that single-view sports analysis becomes feasible when the scene contains known geometry (the pitch) and the motion follows strong constraints (projectile motion). Homography-based mapping~\cite{hartley2004} and physics-based fitting are practical techniques for monocular reconstruction~\cite{ponglertnapakorn2025}. Prior work on monocular ball tracking shows that accuracy degrades gracefully when constraints are tight but remains useful for decision support. PocketDRS advances this area by demonstrating a complete end-to-end system combining mobile capture, cloud processing, and user-friendly visualization.
+\textbf{Synthesis.} Single-view sports analysis becomes feasible when the scene contains known geometry (the pitch) and the motion follows strong constraints (projectile motion). PocketDRS advances this area by demonstrating a complete end-to-end system combining mobile capture, cloud processing, and user-friendly visualisation.
 
 % =====================================================================
 % CHAPTER 3: SYSTEM ANALYSIS AND DESIGN
@@ -521,7 +504,7 @@ In Firestore the data is organised under per-user collections: \texttt{users/\{u
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.7\textwidth,height=0.78\textheight,keepaspectratio]{figures/er_diagram.png}
+    \includegraphics[width=0.6\textwidth,height=0.45\textheight,keepaspectratio]{figures/er_diagram.png}
     \caption{Entity--relationship diagram of the PocketDRS data model.}
     \label{fig:er}
 \end{figure}
@@ -532,7 +515,7 @@ The context-level (Level 0) DFD treats the whole system as a single process. As 
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.85\textwidth]{figures/dfd_level0.png}
+    \includegraphics[width=0.7\textwidth]{figures/dfd_level0.png}
     \caption{Context-level (Level 0) data flow diagram.}
     \label{fig:dfd0}
 \end{figure}
@@ -541,7 +524,7 @@ The Level 1 DFD expands the system into four processes: (1) Capture \& Trim Deli
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.72\textwidth,height=0.80\textheight,keepaspectratio]{figures/dfd_level1.png}
+    \includegraphics[width=0.62\textwidth,height=0.5\textheight,keepaspectratio]{figures/dfd_level1.png}
     \caption{Level 1 data flow diagram.}
     \label{fig:dfd1}
 \end{figure}
@@ -562,7 +545,7 @@ The backend processes videos asynchronously to avoid blocking HTTP responses. Pr
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.72\textwidth,height=0.82\textheight,keepaspectratio]{figures/architecture.png}
+    \includegraphics[width=0.62\textwidth,height=0.5\textheight,keepaspectratio]{figures/architecture.png}
     \caption{Three-tier system architecture of PocketDRS.}
     \label{fig:architecture}
 \end{figure}
@@ -580,19 +563,7 @@ The Firestore collections are organised as follows:
 
 \subsection{Interface Design (UI/UX)}
 
-The key screens of the application are:
-
-\begin{enumerate}
-    \item \textbf{Sign In Screen:} Firebase authentication with email/password or Google Sign-In.
-    \item \textbf{Home Screen:} List of past analyses with timestamps and decisions, with an option to start a new analysis.
-    \item \textbf{Calibration Screen:} Interactive pitch map where users tap the four corners and optionally stump bases, with visual feedback on calibration quality.
-    \item \textbf{Video Selection/Trim Screen:} Gallery picker, video preview, and frame-accurate trim controls.
-    \item \textbf{Progress Screen:} Real-time progress bar and status messages during server processing.
-    \item \textbf{Result Screen:} 3D trajectory visualization using WebView, decision summary (OUT/NOT OUT/UMPIRES CALL), confidence score, and detailed reasoning.
-    \item \textbf{Settings Screen:} User preferences, calibration history, and local cache management.
-\end{enumerate}
-
-The Result Screen is the most important output surface of the app: it embeds the Three.js Hawk-Eye viewer in a WebView and renders the reconstructed 3D ball trajectory together with the LBW verdict, supporting free orbit, pan, and zoom. Figure~\ref{fig:cases} shows real renders produced by the actual viewer (\texttt{hawkeye.js}) from real pipeline output, one for each verdict class, taken from the synthetic validation runs of Section~\ref{sec:synthval}. In each render the blue line is the path before the bounce, the red dot is the bounce, the green line is the bounce-to-pad segment, and the orange line is the predicted path on to the stumps. From left to right: the predicted path strikes the stumps (OUT); clearly misses down the leg side (NOT OUT); and only just clips the stump edge inside the marginal band (UMPIRE'S CALL).
+The application has seven key screens: \emph{Sign In} (Firebase email/password or Google), \emph{Home} (history of past analyses with timestamps and decisions, plus a ``new analysis'' action), \emph{Calibration} (interactive pitch map for tapping the four corners and optional stump bases, with live quality feedback), \emph{Video Selection / Trim} (gallery picker with a frame-accurate trim UI), \emph{Progress} (real-time status during server processing), \emph{Result} (the 3D viewer, verdict, confidence, and reasoning), and \emph{Settings} (preferences, calibration history, and local cache). The Result Screen is the most important output surface of the app: it embeds the Three.js Hawk-Eye viewer in a WebView and renders the reconstructed 3D ball trajectory together with the LBW verdict, supporting free orbit, pan, and zoom. Figure~\ref{fig:cases} shows real renders produced by the actual viewer (\texttt{hawkeye.js}) from real pipeline output, one for each verdict class, taken from the synthetic validation runs of Section~\ref{sec:synthval}. In each render the blue line is the path before the bounce, the red dot is the bounce, the green line is the bounce-to-pad segment, and the orange line is the predicted path on to the stumps. From left to right: the predicted path strikes the stumps (OUT); clearly misses down the leg side (NOT OUT); and only just clips the stump edge inside the marginal band (UMPIRE'S CALL).
 
 \begin{figure}[H]
     \centering
@@ -609,7 +580,7 @@ The physical DFD in Figure~\ref{fig:physdfd} shows how the logical processes are
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.95\textwidth]{figures/physical_dfd.png}
+    \includegraphics[width=0.78\textwidth]{figures/physical_dfd.png}
     \caption{Physical data flow diagram of the deployed system.}
     \label{fig:physdfd}
 \end{figure}
@@ -687,65 +658,13 @@ If all three checks pass, the ball would have hit the stumps. If the predicted p
 
 \subsection{Tools Used}
 
-The tools and technologies used to build PocketDRS are listed in Table~\ref{tab:tools}. The vision pipeline relies on OpenCV~\cite{bradski2000} and SciPy~\cite{scipy}; the backend is built with FastAPI~\cite{fastapi}; the mobile client uses Flutter~\cite{flutter} with Firebase~\cite{firebase} for authentication and storage; and the 3D viewer is built with Three.js~\cite{threejs}.
-
-\begin{longtable}{|p{2.5cm}|p{2.5cm}|p{6.5cm}|}
-\caption{Tools and technologies used to build PocketDRS.}
-\label{tab:tools}\\
-\hline
-\textbf{Component} & \textbf{Technology} & \textbf{Version/Description} \\
-\hline
-\endfirsthead
-\hline
-\textbf{Component} & \textbf{Technology} & \textbf{Version/Description} \\
-\hline
-\endhead
-Mobile App & Flutter & 3.8.0 with Dart 3.0 \\
-Mobile App & Dart & Object-oriented, compiled to native code \\
-Backend API & FastAPI & 0.104.1, async/await HTTP framework \\
-Vision Pipeline & Python & 3.11.x with NumPy, SciPy, OpenCV \\
-Computer Vision & OpenCV & 4.8.0 (cv2 Python binding) \\
-Scientific Computing & NumPy & 1.24.x for array operations \\
-Optimization & SciPy & 1.11.x for least-squares fitting \\
-Authentication & Firebase Auth & Email/password, Google Sign-In \\
-Data Storage & Firestore & Document-oriented NoSQL database \\
-Cloud Compute & Google Cloud Run & Serverless container platform \\
-File Storage & Cloud Storage & GCS for video files \\
-Visualization & Three.js & JavaScript 3D library \\
-WebView & Flutter WebView & For embedding Three.js in mobile \\
-Media & ImagePicker & Gallery and camera access \\
-Media & VideoPlayer & Video playback and trimming \\
-Logging & Python logging & Standard Python logging module \\
-Testing & pytest & Python unit test framework \\
-\hline
-\end{longtable}
+The mobile client is built in \textbf{Flutter 3.8} (Dart 3.0)~\cite{flutter}, with the standard ImagePicker, VideoPlayer, and WebView plugins for media capture and the embedded 3D viewer. The backend is a \textbf{FastAPI 0.104} service~\cite{fastapi} on Python 3.11 with the computer-vision stack \textbf{OpenCV 4.8}~\cite{bradski2008}, \textbf{NumPy 1.24}, and \textbf{SciPy 1.11}~\cite{scipy2020}; the learned ball detector uses Ultralytics YOLO~\cite{ultralytics2023}. Cloud services are all Firebase / Google Cloud: \textbf{Firebase Authentication}~\cite{firebase} for user identity, \textbf{Cloud Firestore} for per-user documents, \textbf{Cloud Storage} for video files, and \textbf{Cloud Run} as the serverless compute platform. The interactive 3D viewer is built with \textbf{Three.js}~\cite{threejs} and embedded in the mobile app through a Flutter WebView. Tests run under \texttt{pytest}; logging uses the Python standard library.
 
 \subsection{Implementation Details of Modules}
 
-\textbf{Mobile Application Modules}
+\textbf{Mobile application modules.} The mobile app has seven main modules. The \emph{Authentication} module wraps Firebase sign-in (email/password and Google) with token refresh. The \emph{Video Capture / Selection} module uses ImagePicker and the Camera plugin and supports both orientations. The \emph{Pitch Calibration} module is an interactive canvas where the user taps four pitch corners (and optionally stump bases), with live validation of calibration quality. The \emph{Video Trimming} module gives frame-accurate trim handles. The \emph{API Client} is a REST HTTP client with multipart uploads and JSON serialisation. The \emph{Local Storage} module caches pitch calibrations in SQLite and syncs to Firestore when connectivity returns. The \emph{3D Visualisation} module embeds a Three.js scene in a WebView with interactive camera controls.
 
-\begin{itemize}
-    \item \textbf{Authentication Module:} Handles Firebase sign-in flow, token refresh, and logout. Integrates with Google Sign-In for social login.
-    \item \textbf{Video Capture/Selection:} Uses ImagePicker for gallery access and the Camera plugin for live recording. Supports both landscape and portrait orientations.
-    \item \textbf{Pitch Calibration:} Interactive canvas overlay on a video frame where users tap four pitch corners and optionally stump bases, with real-time validation feedback on calibration quality.
-    \item \textbf{Video Trimming:} Trim UI with play/pause controls and frame-accurate seek. Returns start and end frame indices.
-    \item \textbf{API Client:} REST HTTP client for communicating with the FastAPI backend. Handles authentication headers, multipart file uploads, and JSON serialization.
-    \item \textbf{Local Storage:} SQLite database for offline pitch calibration cache, with Firestore sync triggered when connectivity resumes.
-    \item \textbf{3D Visualization:} WebView embedding a Three.js scene with pitch, stumps, and trajectory visualization, with interactive camera controls.
-\end{itemize}
-
-\textbf{Backend Processing Modules}
-
-\begin{itemize}
-    \item \textbf{Video Decoder:} OpenCV-based frame extraction with support for multiple codecs and automatic rotation correction based on video metadata.
-    \item \textbf{Ball Detector:} Combined motion (MOG2) and colour (HSV) detection with confidence weighting, plus ROI masking to reduce false positives from players and spectators.
-    \item \textbf{Trajectory Finder:} RANSAC-based association linking per-frame detections into a single smooth ball trajectory with constant-acceleration fitting.
-    \item \textbf{Calibration Module:} Computes homography from user-provided pitch corners using OpenCV's findHomography with RANSAC, and validates calibration quality via reprojection error.
-    \item \textbf{Camera Pose Solver:} solvePnP with pitch corners and optional stump points to recover camera extrinsics (rotation and translation).
-    \item \textbf{3D Reconstruction:} Back-projects image detections to 3D using depth-from-size, then fits projectile motion to produce a smooth world-coordinate trajectory.
-    \item \textbf{LBW Decision Engine:} Rule-based checks for pitching line, impact line, and hitting stumps, producing OUT/NOT OUT/UMPIRES CALL with confidence.
-    \item \textbf{Job Manager:} Asynchronous task queue managing video processing, with progress updates written to Firestore.
-\end{itemize}
+\textbf{Backend processing modules.} The backend has eight modules, one per algorithm step plus orchestration. The \emph{Video Decoder} extracts frames via OpenCV with automatic rotation correction. The \emph{Ball Detector} combines motion (MOG2 background subtraction~\cite{zivkovic2004}) with HSV colour detection and ROI masking; real handheld clips additionally use a learned YOLO cricket-ball detector~\cite{redmon2016,ultralytics2023}. The \emph{Trajectory Finder} links per-frame detections into one smooth path via RANSAC with a constant-acceleration model. The \emph{Calibration Module} computes the homography from the four corner taps (OpenCV \texttt{findHomography} with RANSAC) and validates it via reprojection error. The \emph{Camera Pose Solver} runs \texttt{solvePnP} on pitch corners (and optional stump points) to recover camera extrinsics. The \emph{3D Reconstruction} module back-projects detections via depth-from-size and fits projectile motion. The \emph{LBW Decision Engine} applies the three Rule-36 checks and returns OUT / NOT OUT / UMPIRES CALL with confidence. The \emph{Job Manager} provides an asynchronous task queue with progress updates written to Firestore.
 
 \subsection{Robustness and Edge-Case Hardening}
 \label{sec:hardening}
@@ -766,8 +685,10 @@ Together these changes mean the system either produces a correct result or fails
 
 \subsection{Test Cases for Unit Testing}
 
-\begin{longtable}{|p{1.2cm}|p{2.6cm}|p{3.3cm}|p{3.6cm}|p{1.4cm}|}
-\caption{Unit test cases covering the calibration, tracking, trajectory, reconstruction, LBW, and API modules.}\\
+The unit-test suite covers every module individually and includes both happy-path and edge-case inputs. Table~\ref{tab:unit-tests} lists all twenty cases; every case is reproducible via \texttt{pytest} on the server source tree.
+
+\begin{longtable}{|p{0.9cm}|p{2.3cm}|p{4.0cm}|p{4.0cm}|p{0.9cm}|}
+\caption{Unit test cases covering the calibration, tracking, trajectory, reconstruction, LBW, hardening, and API modules.}\label{tab:unit-tests}\\
 \hline
 \textbf{ID} & \textbf{Module} & \textbf{Test Case} & \textbf{Expected} & \textbf{Result} \\
 \hline
@@ -776,59 +697,85 @@ Together these changes mean the system either produces a correct result or fails
 \textbf{ID} & \textbf{Module} & \textbf{Test Case} & \textbf{Expected} & \textbf{Result} \\
 \hline
 \endhead
-TC-01 & Calibration & Homography with 4 valid points & H matrix $3 \times 3$, det$(H) \neq 0$ & PASS \\
+TC-01 & Calibration & Homography with 4 valid corners & H matrix $3 \times 3$, det$(H) \neq 0$ & PASS \\
 \hline
 TC-02 & Calibration & Homography reprojection error & RMS $< 5$ px on in-plane points & PASS \\
 \hline
-TC-03 & Tracking & Motion detector on moving ball & $\geq 3$ detections in clip & PASS \\
+TC-03 & Calibration & PnP twofold mirror disambiguation & Camera centre $z > 0$ (above pitch) & PASS \\
 \hline
-TC-04 & Tracking & Colour detector on red ball & $\geq 4$ colour-matched detections & PASS \\
+TC-04 & Calibration & Degenerate corners (collinear / duplicates) & Reject with clear error message & PASS \\
 \hline
-TC-05 & Trajectory & RANSAC with 10+ inliers & RMS fit $< 25$ px in image & PASS \\
+TC-05 & Tracking & MOG2 motion detector on moving ball & $\geq 3$ detections in clip & PASS \\
 \hline
-TC-06 & Trajectory & Projectile fit RMS metric & Residual $< 0.1$ m on world path & PASS \\
+TC-06 & Tracking & HSV colour detector on red ball & $\geq 4$ colour-matched detections & PASS \\
 \hline
-TC-07 & Reconstruction & Back-projection + depth-from-size & 3D point within $\pm 50$ mm of true & PASS \\
+TC-07 & Tracking & Fixed-clutter suppression (logo / helmet) & Static red blob discarded, real ball kept & PASS \\
 \hline
-TC-08 & LBW & Pitching inside leg-stump line & OUT if impact also in line & PASS \\
+TC-08 & Tracking & Streak detector on motion-blurred ball & Streak accepted as ball candidate & PASS \\
 \hline
-TC-09 & LBW & Impact outside bat tolerance & NOT OUT (intercepted) & PASS \\
+TC-09 & Trajectory & RANSAC with $\geq 10$ inliers (synthetic) & Image-space RMS $< 25$ px & PASS \\
 \hline
-TC-10 & LBW & Ball missing stumps by 10 cm & NOT OUT & PASS \\
+TC-10 & Trajectory & Path-length sanity check & Reject tracks covering $< 20\%$ of image width & PASS \\
 \hline
-TC-11 & LBW & Ball within umpires-call margin & UMPIRES CALL & PASS \\
+TC-11 & Trajectory & Projectile-fit RMS metric & Residual $< 0.1$ m on synthetic world path & PASS \\
 \hline
-TC-12 & API & JSON request/response serialization & Payloads round-trip correctly & PASS \\
+TC-12 & Reconstruction & Back-projection $+$ depth-from-size & 3D point within $\pm 50$ mm of ground truth & PASS \\
+\hline
+TC-13 & Reconstruction & Reconstruction quality gate (MAX\_FIT\_RMS\_M) & Fit RMS $> 0.75$~m discarded (no verdict) & PASS \\
+\hline
+TC-14 & LBW & Pitched inside leg-stump line, impact in line, hits stumps & OUT & PASS \\
+\hline
+TC-15 & LBW & Pitched outside leg & NOT OUT (``pitched outside leg'') & PASS \\
+\hline
+TC-16 & LBW & Impact outside off, off-side tolerance exceeded & NOT OUT (``impact outside off'') & PASS \\
+\hline
+TC-17 & LBW & Ball clearly missing stumps by 10~cm & NOT OUT (``missing stumps'') & PASS \\
+\hline
+TC-18 & LBW & Ball within $\pm 2.5$~cm umpires-call margin & UMPIRES CALL & PASS \\
+\hline
+TC-19 & Hardening & Truncated video file (wrong header length) & Stop at last decodable frame; no padding & PASS \\
+\hline
+TC-20 & API & JSON request / response round-trip & Payloads serialise and deserialise identically & PASS \\
 \hline
 \end{longtable}
 
 \subsection{Test Cases for System Testing}
 
-\begin{longtable}{|p{1.2cm}|p{2.5cm}|p{4.3cm}|p{3cm}|}
-\caption{System (end-to-end) test cases.}\\
+System tests exercise the full pipeline end-to-end, from the mobile client uploading a clip through to the rendered LBW verdict on the Result Screen. Table~\ref{tab:system-tests} lists every scenario; all twelve cases pass on the deployed build.
+
+\begin{longtable}{|p{0.9cm}|p{2.4cm}|p{4.6cm}|p{4.0cm}|p{0.8cm}|}
+\caption{System (end-to-end) test cases.}\label{tab:system-tests}\\
 \hline
-\textbf{ID} & \textbf{Scenario} & \textbf{Test Description} & \textbf{Expected Result} \\
+\textbf{ID} & \textbf{Scenario} & \textbf{Test Description} & \textbf{Expected Result} & \textbf{Res.} \\
 \hline
 \endfirsthead
 \hline
-\textbf{ID} & \textbf{Scenario} & \textbf{Test Description} & \textbf{Expected Result} \\
+\textbf{ID} & \textbf{Scenario} & \textbf{Test Description} & \textbf{Expected Result} & \textbf{Res.} \\
 \hline
 \endhead
-ST-01 & Server Health & GET /health endpoint & Returns 200 OK with uptime \\
+ST-01 & Server Health & GET /health endpoint & 200 OK with build info and uptime & PASS \\
 \hline
-ST-02 & Authentication & POST /auth with email/password & Returns auth token and user ID \\
+ST-02 & Authentication & Firebase email/password sign-in then authenticated API call & Token returned; subsequent call accepted & PASS \\
 \hline
-ST-03 & Calibration Save & POST /calibrations with corners & Calibration saved to Firestore, returns calibration ID \\
+ST-03 & Calibration Save & POST /calibrations with four corners & Calibration saved to Firestore; ID returned & PASS \\
 \hline
-ST-04 & Clean Delivery & End-to-end: upload clean red-ball delivery & Detects trajectory, computes 3D, returns decision \\
+ST-04 & Clean Delivery (OUT) & End-to-end synthetic clip pitched and hitting stumps & Decision OUT with explanation and 3D path & PASS \\
 \hline
-ST-05 & No Trajectory & Clip with no moving ball & Returns error with diagnostic warning \\
+ST-05 & Clean Delivery (NOT OUT) & Synthetic clip pitched outside leg & NOT OUT with ``pitched outside leg'' & PASS \\
 \hline
-ST-06 & Miss Stump & Delivery pitching outside leg, missing stumps & Decision: NOT OUT with reasoning \\
+ST-06 & Clean Delivery (Umpire's Call) & Synthetic clip whose projected path just clips the stump edge & UMPIRES CALL with confidence value & PASS \\
 \hline
-ST-07 & Hit Stump & Delivery pitching in line, impacting leg-line, hitting stump & Decision: OUT or UMPIRES CALL \\
+ST-07 & No Trajectory & Clip with no moving ball at all & INVALID\_REQUEST with diagnostic warning (no fake verdict) & PASS \\
 \hline
-ST-08 & Umpire's Call & Delivery within umpires-call boundary ($\pm 2.5$ cm) & Decision: UMPIRES CALL with confidence \\
+ST-08 & Real Clip (Bad Conditions) & Handheld clip with low camera, netting, and clutter (test1) & No-trajectory warning (refuses to invent a verdict) & PASS \\
+\hline
+ST-09 & Real Clip (Good Conditions) & Handheld 60~fps off-spin clip (test3, YOLO detector) & 25-point clean track, plausible 3D arc & PASS \\
+\hline
+ST-10 & Truncated Video & Clip whose header overstates length & Pipeline stops at last decodable frame; succeeds on real frames & PASS \\
+\hline
+ST-11 & Session Recovery & App polling job while network drops twice then recovers & Polling resumes; result delivered without duplicate jobs & PASS \\
+\hline
+ST-12 & 3D Viewer Safety & Trajectory containing non-finite values & Coerced to safe values; viewer renders or shows reload prompt & PASS \\
 \hline
 \end{longtable}
 
@@ -898,7 +845,7 @@ The lesson from this clip is a simple checklist for recording a usable delivery:
 The checklist above was then put to the test on a second real clip (\texttt{test3.mp4}): a $1080 \times 1920$, 60 frames-per-second handheld recording of an off-spin delivery at an indoor practice-nets facility, filmed from behind the bowler looking down the pitch. The decisive difference from the first clip is line of sight: an off-break is \emph{flighted}, so the ball loops up above the bowler's arm and the net line and stays visible against the open background for its whole descent onto the batter. This is exactly the condition the failure clip lacked, and it lets the pipeline run end-to-end on genuine phone footage.
 
 \paragraph{Tracking result.}
-The learned YOLO cricket-ball detector was run on every readable frame; as with the first clip the container over-reported its length (it claims $290$ frames / $4.8$\,s but only $101$ frames decode), and the truncation guard from Section~\ref{sec:hardening} stopped the run cleanly at the last real frame instead of padding with stale frames. The RANSAC constant-acceleration association then recovered a single clean trajectory:
+The learned YOLO cricket-ball detector~\cite{redmon2016,ultralytics2023} was run on every readable frame; as with the first clip the container over-reported its length (it claims $290$ frames / $4.8$\,s but only $101$ frames decode), and the truncation guard from Section~\ref{sec:hardening} stopped the run cleanly at the last real frame instead of padding with stale frames. The RANSAC constant-acceleration association then recovered a single clean trajectory:
 
 \begin{itemize}
     \item \textbf{25 ball positions} along one continuous arc, from the point of release (frame~33, $t = 550$\,ms) to arrival at the batter (frame~64, $t = 1067$\,ms): a $517$\,ms flight tracked at 60\,fps.
@@ -906,36 +853,22 @@ The learned YOLO cricket-ball detector was run on every readable frame; as with 
     \item A static red false-positive that recurred at one fixed pixel location for most of the clip was correctly removed by the fixed-clutter suppression (Step~3) before association, so it never contaminated the fit.
 \end{itemize}
 
-Figure~\ref{fig:test3_path} overlays the recovered path on a mid-flight frame: the green marker is the bowler's release point, the colour-graded markers trace the ball down through its arc, and the red marker is arrival at the batter's pads, the line on which an LBW judgement would be made. Figure~\ref{fig:test3_montage} shows the same track at the release, mid-flight, and arrival instants with the detected ball circled in each, confirming the overlay follows the real ball and not background clutter.
+Figure~\ref{fig:test3_path} shows the recovered path on a mid-flight frame (left) and the same delivery lifted to a 3D arc (right). The green marker is the bowler's release point, the colour-graded markers trace the ball down through its arc, and the red marker is arrival at the batter's pads, the line on which an LBW judgement would be made.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.40\textwidth]{figures/test3_path_overlay.png}
     \hfill
     \includegraphics[width=0.56\textwidth]{figures/test3_3d_path.png}
-    \caption{Left: the full tracked ball path on \texttt{test3.mp4}, from the bowler's release (green) to arrival at the batter (red), 25 positions recovered by YOLO + RANSAC at 60\,fps. Right: the same delivery lifted to a camera-relative 3D arc by depth-from-apparent-size; the path descends as expected for a flighted off-break (release depth $1.41$\,m $\rightarrow$ arrival depth $2.39$\,m from the camera).}
+    \caption{Left: full tracked ball path on \texttt{test3.mp4}, 25 positions recovered by YOLO + RANSAC at 60\,fps. Right: depth-from-apparent-size 3D arc; release depth $1.41$\,m to arrival depth $2.39$\,m from the camera.}
     \label{fig:test3_path}
 \end{figure}
 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.92\textwidth]{figures/test3_montage.png}
-    \caption{The same delivery at release, mid-flight, and arrival, with the detected ball circled in each frame.}
-    \label{fig:test3_montage}
-\end{figure}
-
 \paragraph{3D reconstruction and its honest limit.}
-The recovered 2D track is then lifted into three dimensions. Because this is a single, uncalibrated handheld clip, the lift uses depth-from-apparent-size: the known physical radius of a cricket ball ($\approx 36$\,mm) against its measured pixel radius gives the ball's distance from the camera in each frame (estimated intrinsics $f_x = f_y \approx 816$\,px for the $67^{\circ}$ field of view). The right panel of Figure~\ref{fig:test3_path} shows the resulting 3D arc and Figure~\ref{fig:test3_pixel} the underlying pixel trajectory and the shrinking apparent-size profile that drives the depth estimate. The arc has the correct \emph{shape}: a flighted off-break that loops and descends onto the batter. Its absolute \emph{scale}, however, is monocular-ambiguous: a single camera on a short coaching net cannot pin down true distance, so the recovered depths ($1.4$--$2.4$\,m) and the implied average speed ($\approx 20$\,km/h) are order-of-magnitude estimates, not calibrated measurements. This is the same single-camera depth-from-size precision floor identified in the synthetic sweep (Section~\ref{sec:synthval}), and it is precisely why broadcast Hawk-Eye uses six to eight synchronised cameras.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.95\textwidth]{figures/test3_pixel_track.png}
-    \caption{Left: the ball's pixel trajectory on \texttt{test3.mp4}, coloured by time from release. Right: the ball's apparent radius shrinking through the flight, the depth cue used by the monocular 3D lift.}
-    \label{fig:test3_pixel}
-\end{figure}
+The lift to 3D uses depth-from-apparent-size: the known physical radius of a cricket ball ($\approx 36$\,mm) against its measured pixel radius gives the ball's distance from the camera in each frame (estimated intrinsics $f_x = f_y \approx 816$\,px for the $67^{\circ}$ field of view). The arc has the correct \emph{shape}, a flighted off-break that loops and descends onto the batter. Its absolute \emph{scale}, however, is monocular-ambiguous: a single camera on a short coaching net cannot pin down true distance, so the recovered depths ($1.4$ to $2.4$\,m) and the implied average speed ($\approx 20$\,km/h) are order-of-magnitude estimates, not calibrated measurements. This is the same single-camera depth-from-size precision floor identified in the synthetic sweep (Section~\ref{sec:synthval}), and is precisely why broadcast Hawk-Eye uses six to eight synchronised cameras.
 
 \paragraph{Why this clip matters.}
-Taken together, the two real clips bracket the system's real-world envelope. The first clip is the negative case: when the ball is hidden (low camera, netting, clutter) the pipeline refuses to invent a verdict. This clip is the positive case: when the ball stays in view, the same unchanged pipeline recovers a clean, smooth, full-flight 2D track and a plausibly-shaped 3D arc end-to-end on real handheld phone footage, while remaining honest about the metric precision a single phone camera can and cannot deliver. That combination, a usable track when the conditions are met and a safe refusal when they are not, is the behaviour a decision-support tool should have.
+Taken together, the two real clips bracket the system's real-world envelope. When the ball is hidden (low camera, netting, clutter) the pipeline refuses to invent a verdict; when the ball stays in view, the same unchanged pipeline recovers a clean full-flight 2D track and a plausibly-shaped 3D arc end-to-end on real handheld phone footage, while remaining honest about the metric precision a single phone camera can and cannot deliver. That combination, a usable track when conditions are met and a safe refusal when they are not, is the behaviour a decision-support tool should have.
 
 % =====================================================================
 % CHAPTER 5: CONCLUSION AND FUTURE RECOMMENDATIONS
@@ -960,27 +893,25 @@ The system is not ICC-certified and does not match the 3--5 mm accuracy of Hawk-
 
 \section{Lesson Learnt/Outcome}
 
-Several lessons emerged during development:
-
 \begin{itemize}
-    \item \textbf{Strong Constraints are Powerful:} Physics-based fitting (projectile motion) proved more effective than purely data-driven approaches in recovering clean 3D trajectories from noisy 2D detections. Domain knowledge is a feature, not a limitation, in research-scale systems.
-    \item \textbf{User Calibration is Critical:} The quality of the system output is highly sensitive to calibration accuracy. A small error in marking pitch corners produces large errors at the far end. In future work, automatic landmark detection (stumps, crease lines) would reduce user burden and improve reliability.
-    \item \textbf{Monocular Depth is Hard:} Depth-from-size (ball radius) is noisy when the ball is small in the image. Physics fitting mitigates this by enforcing smooth trajectories, but the problem remains fundamentally under-constrained. Multi-camera fusion or stereo would be a natural next step.
-    \item \textbf{Agile Development Works:} Incremental prototyping with regular testing and feedback enabled early course correction. Building in phases (calibration $\rightarrow$ detection $\rightarrow$ tracking $\rightarrow$ reconstruction $\rightarrow$ LBW) allowed each component to be validated independently.
-    \item \textbf{User Experience Matters:} Even a technically sound system fails if users cannot easily understand how to use it. Feedback loops, diagnostic warnings, and visual explanations are essential for adoption.
+    \item \textbf{Strong constraints are powerful:} physics-based fitting beat purely data-driven approaches in recovering clean 3D trajectories from noisy 2D detections.
+    \item \textbf{User calibration is critical:} small errors in marking pitch corners produce large errors at the far end; automatic landmark detection would reduce user burden.
+    \item \textbf{Monocular depth is hard:} depth-from-size is noisy when the ball is small; physics fitting mitigates this but the problem stays under-constrained. Multi-camera fusion is the natural next step.
+    \item \textbf{Agile development works:} incremental prototyping with regular testing enabled early course correction. Validating each module independently before integration paid off.
+    \item \textbf{Fail-safe behaviour matters:} for a decision-support tool, a clear ``no verdict'' is more trustworthy than a confidently-wrong one.
 \end{itemize}
 
 \section{Future Recommendations}
 
 \begin{enumerate}
-    \item \textbf{Multi-Camera Fusion:} Add support for stereo or multiple phone cameras to directly triangulate 3D positions, eliminating reliance on depth-from-size and physics fitting. This would improve accuracy and robustness significantly.
-    \item \textbf{Learned Ball Detection:} Train a YOLO-based detector on cricket videos to replace hand-crafted motion and colour filters. A learned detector would handle diverse lighting, ball colours, and occlusions more robustly.
-    \item \textbf{Automatic Landmark Detection:} Detect stumps, crease lines, and pitch edges automatically using keypoint detection rather than requiring users to mark them. This would reduce calibration burden and improve consistency.
-    \item \textbf{Real-Time Streaming:} Support live streaming during a match with real-time decision feedback rather than post-clip analysis. This requires optimizing the pipeline for latency and deploying on edge devices.
-    \item \textbf{On-Device Inference:} Implement ball tracking and simple decision logic on the mobile device for offline operation and reduced latency. Larger models (3D reconstruction, LBW logic) can remain on the server.
-    \item \textbf{Improved Bounce Modeling:} Incorporate air resistance (drag), spin, and complex bounce physics (energy loss, deformation). The current model is highly simplified and could be refined based on cricket-specific research.
-    \item \textbf{Statistical Confidence Intervals:} Propagate uncertainty through the pipeline (calibration error, detection noise, fitting residuals) to produce principled confidence intervals on predictions rather than single-point estimates.
-    \item \textbf{User Studies:} Conduct human-factors studies with umpires and players to evaluate whether the system's explanations are intuitive and whether decisions are trusted, and integrate the feedback into UI/UX design.
+    \item \textbf{Multi-camera fusion:} stereo or two-phone triangulation removes depth-from-size noise entirely.
+    \item \textbf{Learned ball detection by default:} promote the YOLO detector~\cite{redmon2016,ultralytics2023} introduced for the real-world clip (Section~\ref{sec:realval_success}) to the default for all inputs.
+    \item \textbf{Automatic landmark detection:} detect stumps, crease lines, and pitch edges via keypoint detection rather than user taps.
+    \item \textbf{Real-time streaming:} live in-match feedback instead of post-clip analysis.
+    \item \textbf{On-device inference:} detection and lightweight decision logic on the phone; heavier 3D and LBW logic stays on the server.
+    \item \textbf{Improved bounce model:} include air resistance, spin, and energy-loss physics.
+    \item \textbf{Statistical confidence intervals:} propagate uncertainty through the pipeline.
+    \item \textbf{User studies:} field testing with umpires and players to validate UI/UX choices.
 \end{enumerate}
 
 % =====================================================================
@@ -989,33 +920,39 @@ Several lessons emerged during development:
 \addcontentsline{toc}{chapter}{References}
 \begin{thebibliography}{99}
 
-\bibitem{owens2003} N. Owens, C. Harris, and C. Stennett, ``Hawk-eye tennis system,'' in \textit{Proc. Int. Conf. Visual Information Engineering (VIE)}, 2003, pp. 182--185.
+\bibitem{owens2003} N. Owens, C. Harris, and C. Stennett, ``Hawk-eye tennis system,'' in \textit{Proc. Int. Conf. Visual Information Engineering (VIE)}, Surrey, U.K., Jul. 2003, pp. 182--185.
 
-\bibitem{zhang2000} Z. Zhang, ``A flexible new technique for camera calibration,'' \textit{IEEE Trans. Pattern Anal. Mach. Intell.}, vol. 22, no. 11, pp. 1330--1334, 2000.
+\bibitem{zhang2000} Z. Zhang, ``A flexible new technique for camera calibration,'' \textit{IEEE Trans. Pattern Anal. Mach. Intell.}, vol. 22, no. 11, pp. 1330--1334, Nov. 2000.
 
-\bibitem{fischler1981} M. A. Fischler and R. C. Bolles, ``Random sample consensus: A paradigm for model fitting with applications to image analysis and automated cartography,'' \textit{Commun. ACM}, vol. 24, no. 6, pp. 381--395, 1981.
+\bibitem{fischler1981} M. A. Fischler and R. C. Bolles, ``Random sample consensus: A paradigm for model fitting with applications to image analysis and automated cartography,'' \textit{Commun. ACM}, vol. 24, no. 6, pp. 381--395, Jun. 1981.
 
-\bibitem{triggs2000} B. Triggs, P. F. McLauchlan, R. I. Hartley, and A. W. Fitzgibbon, ``Bundle adjustment: A modern synthesis,'' in \textit{Vision Algorithms: Theory and Practice}. Berlin, Germany: Springer, 2000, pp. 298--372.
+\bibitem{triggs2000} B. Triggs, P. F. McLauchlan, R. I. Hartley, and A. W. Fitzgibbon, ``Bundle adjustment: A modern synthesis,'' in \textit{Vision Algorithms: Theory and Practice} (Lecture Notes in Computer Science, vol. 1883). Berlin, Germany: Springer, 2000, pp. 298--372.
 
 \bibitem{hartley2004} R. Hartley and A. Zisserman, \textit{Multiple View Geometry in Computer Vision}, 2nd ed. Cambridge, U.K.: Cambridge Univ. Press, 2004.
 
 \bibitem{ponglertnapakorn2025} P. Ponglertnapakorn and S. Suwajanakorn, ``Where is the ball: 3D ball trajectory estimation from 2D monocular tracking,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition Workshops (CVPRW)}, 2025, pp. 6168--6177.
 
-\bibitem{bradski2000} G. Bradski and A. Kaehler, \textit{Learning OpenCV: Computer Vision with the OpenCV Library}. Sebastopol, CA, USA: O'Reilly Media, 2008.
+\bibitem{bradski2008} G. Bradski and A. Kaehler, \textit{Learning OpenCV: Computer Vision with the OpenCV Library}. Sebastopol, CA, USA: O'Reilly Media, 2008.
 
-\bibitem{bochinski2017} E. Bochinski, V. Eiselein, and T. Sikora, ``High-speed tracking-by-detection without using image information,'' in \textit{Proc. IEEE Int. Conf. Advanced Video and Signal Based Surveillance (AVSS)}, 2017, pp. 1--6.
+\bibitem{bochinski2017} E. Bochinski, V. Eiselein, and T. Sikora, ``High-speed tracking-by-detection without using image information,'' in \textit{Proc. IEEE Int. Conf. Advanced Video and Signal Based Surveillance (AVSS)}, Lecce, Italy, Aug.--Sep. 2017, pp. 1--6.
 
-\bibitem{fastapi} S. Ram\'{\i}rez, ``FastAPI: Modern, fast (high-performance) web framework for building APIs with Python.'' Accessed: May 2026. [Online]. Available: https://fastapi.tiangolo.com
+\bibitem{zivkovic2004} Z. Zivkovic, ``Improved adaptive Gaussian mixture model for background subtraction,'' in \textit{Proc. 17th Int. Conf. Pattern Recognition (ICPR)}, Cambridge, U.K., Aug. 2004, vol. 2, pp. 28--31.
 
-\bibitem{flutter} Google, ``Flutter: Build apps for any screen.'' Accessed: May 2026. [Online]. Available: https://flutter.dev
+\bibitem{redmon2016} J. Redmon, S. Divvala, R. Girshick, and A. Farhadi, ``You only look once: Unified, real-time object detection,'' in \textit{Proc. IEEE Conf. Computer Vision and Pattern Recognition (CVPR)}, Las Vegas, NV, USA, Jun. 2016, pp. 779--788.
 
-\bibitem{threejs} R. Cabello and contributors, ``Three.js: JavaScript 3D library.'' Accessed: May 2026. [Online]. Available: https://threejs.org
+\bibitem{ultralytics2023} G. Jocher, A. Chaurasia, and J. Qiu, ``Ultralytics YOLOv8.'' Ultralytics, 2023. Accessed: May 2026. [Online]. Available: \url{https://github.com/ultralytics/ultralytics}
 
-\bibitem{firebase} Google, ``Firebase: Build and run apps.'' Accessed: May 2026. [Online]. Available: https://firebase.google.com
+\bibitem{scipy2020} P. Virtanen \textit{et al.}, ``SciPy 1.0: Fundamental algorithms for scientific computing in Python,'' \textit{Nature Methods}, vol. 17, no. 3, pp. 261--272, Mar. 2020.
 
-\bibitem{scipy} P. Virtanen \textit{et al.}, ``SciPy 1.0: Fundamental algorithms for scientific computing in Python,'' \textit{Nature Methods}, vol. 17, no. 3, pp. 261--272, 2020.
+\bibitem{fastapi} S. Ram\'{\i}rez, ``FastAPI: Modern, fast (high-performance) web framework for building APIs with Python.'' Tiangolo. Accessed: May 2026. [Online]. Available: \url{https://fastapi.tiangolo.com}
 
-\bibitem{icc} Marylebone Cricket Club, ``The Laws of Cricket (2017 Code): Law 36: Leg Before Wicket.'' Accessed: May 2026. [Online]. Available: https://www.lords.org
+\bibitem{flutter} Google, ``Flutter: Build apps for any screen.'' Google. Accessed: May 2026. [Online]. Available: \url{https://flutter.dev}
+
+\bibitem{threejs} R. Cabello and contributors, ``Three.js: JavaScript 3D library.'' Accessed: May 2026. [Online]. Available: \url{https://threejs.org}
+
+\bibitem{firebase} Google, ``Firebase: App development platform.'' Google. Accessed: May 2026. [Online]. Available: \url{https://firebase.google.com}
+
+\bibitem{icc} Marylebone Cricket Club, ``The Laws of Cricket (2017 Code, 3rd edition, 2022): Law 36 -- Leg Before Wicket.'' MCC. Accessed: May 2026. [Online]. Available: \url{https://www.lords.org/mcc/the-laws-of-cricket}
 
 \end{thebibliography}
 
@@ -1026,227 +963,189 @@ Several lessons emerged during development:
 \chapter*{Appendices}
 \addcontentsline{toc}{chapter}{Appendices}
 
-\section*{Appendix A: Request and Response JSON Schema}
+\section*{Appendix A: REST API Summary}
 
-\textbf{Analysis Request}
+The mobile client communicates with the backend through a small REST surface. Each request and response payload is JSON. The principal fields are summarised below.
 
-\begin{lstlisting}
-{
-  "user_id": "firebase_uid",
-  "video_path": "gs://bucket/videos/uuid.mp4",
-  "pitch_corners_px": [
-    {"x": 100, "y": 50},
-    {"x": 800, "y": 60},
-    {"x": 820, "y": 480},
-    {"x": 90, "y": 470}
-  ],
-  "stump_bases_px": [
-    {"x": 400, "y": 100},
-    {"x": 400, "y": 450}
-  ],
-  "stump_tops_px": [
-    {"x": 400, "y": 80},
-    {"x": 400, "y": 430}
-  ],
-  "trim_start_ms": 500,
-  "trim_end_ms": 3000,
-  "ball_color": "red"
-}
-\end{lstlisting}
+\textbf{Analysis request} (\texttt{POST /analyses}) carries: \texttt{user\_id} (Firebase UID), \texttt{video\_path} (Cloud Storage URI), \texttt{pitch\_corners\_px} (the four tapped corners as \{x, y\} pairs), optional \texttt{stump\_bases\_px} and \texttt{stump\_tops\_px}, \texttt{trim\_start\_ms}, \texttt{trim\_end\_ms}, and \texttt{ball\_color} (\texttt{"red"} or \texttt{"white"}).
 
-\textbf{Analysis Result}
+\textbf{Analysis response} reports: \texttt{job\_id}, \texttt{status}, \texttt{video} metadata (duration, fps), the recovered \texttt{calibration} (intrinsics $K$, rotation \texttt{rvec}, translation \texttt{tvec}, reprojection error in pixels), the \texttt{track} (per-frame image points, RANSAC inlier count, image-space RMS), the \texttt{world\_trajectory} (3D points plus the projectile-fit parameters and metric RMS), the detected \texttt{events} (bounce and impact in pitch coordinates), the \texttt{lbw} decision (verdict, plain-English reason, the three Rule-36 check booleans, and the predicted strike coordinates at the stump plane), and a \texttt{diagnostics} block with warnings and a log identifier.
 
-\begin{lstlisting}
-{
-  "job_id": "uuid",
-  "status": "succeeded",
-  "video": {
-    "duration_ms": 2500,
-    "fps": 30
-  },
-  "calibration": {
-    "mode": "taps",
-    "pose": {
-      "K": [[fx, 0, cx], [0, fy, cy], [0, 0, 1]],
-      "rvec": [rx, ry, rz],
-      "tvec": [tx, ty, tz]
-    },
-    "quality": {
-      "reproj_error_px": 2.1,
-      "score": 0.95
-    }
-  },
-  "track": {
-    "image_points": [
-      {"t_ms": 500, "u": 250, "v": 150, "radius_px": 12, "confidence": 0.85}
-    ],
-    "inliers": 45,
-    "candidates_total": 150,
-    "rms_px": 8.3
-  },
-  "world_trajectory": {
-    "points_m": [
-      {"t_ms": 500, "x": 15.0, "y": -0.5, "z": 2.0, "confidence": 0.9}
-    ],
-    "fit": {
-      "x0": 15.2, "y0": -0.4, "z0": 2.1,
-      "vx": -6.5, "vy": 0.1, "vz": -8.2,
-      "bounce_t_ms": 800,
-      "rms_m": 0.035
-    }
-  },
-  "events": {
-    "bounce": {"t_ms": 800, "x_m": 8.1, "y_m": -0.5},
-    "impact": {"t_ms": 1200, "x_m": 0.2, "y_m": -0.1, "z_m": 0.7}
-  },
-  "lbw": {
-    "decision": "out",
-    "reason": "Pitched in line, impacted in line, would hit stumps.",
-    "checks": {
-      "pitching_in_line": true,
-      "impact_in_line": true,
-      "wickets_hitting": true
-    },
-    "prediction": {
-      "y_at_stumps_m": -0.05,
-      "z_at_stumps_m": 0.6,
-      "stump_x_m": 0.0,
-      "confidence": 0.92
-    }
-  },
-  "diagnostics": {
-    "warnings": [],
-    "log_id": "uuid"
-  }
-}
-\end{lstlisting}
+\section*{Appendix B: Application Screenshots}
 
-\clearpage
-
-\section*{Appendix B: Calibration UI Workflow}
-
-The calibration workflow in PocketDRS is designed for simplicity and robustness:
-
-\begin{enumerate}
-    \item \textbf{Frame Selection:} The user selects any frame from the video where the pitch is clearly visible (typically the beginning of the clip).
-    \item \textbf{Corner Marking:} The user taps the four pitch corners in order: striker-end-left, striker-end-right, bowler-end-right, bowler-end-left (clockwise). Visual feedback (circles and lines) confirms each tap.
-    \item \textbf{Quality Feedback:} The system computes a homography from the four taps and projects it back to image space. If reprojection error is high, a warning prompts the user to re-calibrate.
-    \item \textbf{Stump Marking (Optional):} If visible, the user taps the stump bases and optionally the tops. These refine the camera pose and improve depth accuracy.
-    \item \textbf{Save:} The calibration is saved locally and to Firestore so the user can reuse it for future deliveries from the same ground.
-    \item \textbf{Reuse:} On future videos from the same pitch, the user selects a saved calibration rather than re-calibrating.
-\end{enumerate}
-
-This workflow balances accuracy (tight constraints from known world points) with usability (minimal user effort). Typical calibration time is 30--60 seconds on a smartphone.
-
-\clearpage
-
-\section*{Appendix C: Application Screenshots}
-
-\renewcommand{\thefigure}{C.\arabic{figure}}
+\renewcommand{\thefigure}{B.\arabic{figure}}
 \setcounter{figure}{0}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[height=0.6\textheight,keepaspectratio]{figures/app_calibration.png}
-    \caption{Pitch calibration on a real clip: the four tapped corners recover a valid above-ground camera pose.}
-    \label{fig:app_calib}
+    \includegraphics[height=0.32\textheight,keepaspectratio]{figures/app_calibration.png}
+    \hspace{6pt}
+    \includegraphics[height=0.32\textheight,keepaspectratio]{figures/app_result_out.png}
+    \caption{Left: pitch calibration recovering a valid above-ground camera pose ($8.6$\,px reprojection error). Right: result screen with the reconstructed trajectory and an OUT verdict.}
+    \label{fig:app_screens}
 \end{figure}
 
-Figure~\ref{fig:app_calib} shows the calibration step on a real practice-net clip. The user taps the four pitch corners (striker-left, striker-right, bowler-left, bowler-right) on the first frame; the system solves the camera pose and recovers a physically valid result (camera above the pitch, $8.6$\,px reprojection error, within the validity threshold). This clip is a short practice strip rather than a full-length pitch, so it demonstrates the calibration stage on real footage rather than driving a match LBW verdict.
+Figure~\ref{fig:app_screens} shows the calibration step on a real practice-net clip (left), and the 3D result viewer where the recovered ball path descends, bounces, and the predicted continuation strikes the stumps for an OUT verdict (right).
 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.95\textwidth]{figures/app_result_out.png}
-    \caption{Result screen showing the reconstructed trajectory and an OUT verdict.}
-    \label{fig:app_result}
-\end{figure}
+\section*{Appendix C: LBW Decision Engine (Pseudocode)}
 
-Figure~\ref{fig:app_result} is the 3D result viewer: the recovered ball path descends, bounces on the pitch, and the predicted continuation strikes the stumps, giving an OUT verdict.
-
-\clearpage
-
-\section*{Appendix D: Representative Source Code}
-
-The LBW decision engine that implements the three ICC Rule 36 checks is reproduced below from \texttt{server/app/pipeline/process\_job.py}.
+The Rule-36 decision engine in \texttt{server/app/pipeline/process\_job.py} is reproduced below in concise pseudocode. \texttt{BALL\_RADIUS\_M} is $0.036$, \texttt{WICKET\_HALF\_WIDTH\_M} is half the stump width, \texttt{WICKET\_GUARD\_M} adds one ball radius, and the umpire's-call bands are one ball radius horizontally and one ball diameter vertically (to absorb the monocular depth noise floor).
 
 \begin{lstlisting}[language=Python]
-def _decide_lbw(*, bounce, impact, pred_y_at_stumps, pred_z_at_stumps,
-                stump_x_m, fit_rms_m) -> dict:
-    """ICC-Rule-36-flavoured LBW decision from a 3D reconstruction.
-    World Y is centred on the stump line; +-WICKET_HALF_WIDTH is the
-    stump width and +BALL_RADIUS_M each side is the touching tolerance.
-    """
-    checks = {"pitching_in_line": True, "impact_in_line": True,
-              "wickets_hitting": False}
-    reason_parts = []
-
-    # Check 1: pitched in line (allow one stump width outside leg).
-    if bounce is not None:
-        _, by, _ = bounce
-        leg_line_limit = WICKET_HALF_WIDTH_M + 0.1143
-        if abs(by) > leg_line_limit:
-            checks["pitching_in_line"] = False
-            reason_parts.append(f"Pitched outside leg ({by*100:+.1f}cm)")
-
-    # Check 2: impact in line (within stump line + ball radius, off side).
-    if impact is not None:
-        _, iy, _ = impact
-        if iy > WICKET_GUARD_M + 0.05:
-            checks["impact_in_line"] = False
-            reason_parts.append(f"Impact outside off ({iy*100:+.1f}cm)")
-
-    # Monocular depth noise is larger in Z than Y, so widen the vertical
-    # umpire's-call band to one ball-diameter and keep Y at one radius.
-    MARGIN_Y_UMP = BALL_RADIUS_M           # 3.6 cm
-    MARGIN_Z_UMP = 2.0 * BALL_RADIUS_M     # 7.2 cm
-
-    # Check 3: would it hit the stumps? (per-axis umpire's-call bands)
-    decision, margin_text = "not_out", ""
-    if pred_y_at_stumps is not None and pred_z_at_stumps is not None:
-        hits_h = abs(pred_y_at_stumps) <= WICKET_GUARD_M
-        hits_v = 0.0 <= pred_z_at_stumps <= DEFAULT_STUMP_HEIGHT_M + BALL_RADIUS_M
+def decide_lbw(bounce, impact, pred_y, pred_z, stump_x_m):
+    checks = {"pitching": True, "impact": True, "hitting": False}
+    reasons = []
+    # 1. Pitched in line: allow one stump width outside leg.
+    if bounce and abs(bounce.y) > WICKET_HALF_WIDTH_M + 0.1143:
+        checks["pitching"] = False
+        reasons.append(f"Pitched outside leg ({bounce.y*100:+.1f}cm)")
+    # 2. Impact in line: must be inside stump line + ball radius (off side).
+    if impact and impact.y > WICKET_GUARD_M + 0.05:
+        checks["impact"] = False
+        reasons.append(f"Impact outside off ({impact.y*100:+.1f}cm)")
+    # 3. Hitting stumps: per-axis umpire's-call bands.
+    if pred_y is not None and pred_z is not None:
+        hits_h = abs(pred_y) <= WICKET_GUARD_M
+        hits_v = 0.0 <= pred_z <= STUMP_HEIGHT_M + BALL_RADIUS_M
         if hits_h and hits_v:
-            checks["wickets_hitting"] = True
-            margin_y = WICKET_GUARD_M - abs(pred_y_at_stumps)
-            margin_z_top = (DEFAULT_STUMP_HEIGHT_M + BALL_RADIUS_M) - pred_z_at_stumps
-            in_band = (margin_y <= MARGIN_Y_UMP or
-                       margin_z_top <= MARGIN_Z_UMP or
-                       pred_z_at_stumps <= MARGIN_Z_UMP)
-            margin_text = " umpires_band" if in_band else " hitting"
-
-    if all(checks.values()):
-        decision = "umpires_call" if "umpires_band" in margin_text else "out"
+            checks["hitting"] = True
+            in_band = (WICKET_GUARD_M - abs(pred_y) <= BALL_RADIUS_M or
+                       (STUMP_HEIGHT_M + BALL_RADIUS_M) - pred_z <= 2 * BALL_RADIUS_M or
+                       pred_z <= 2 * BALL_RADIUS_M)
+    decision = ("umpires_call" if in_band else "out") if all(checks.values()) else "not_out"
     return {"decision": decision, "checks": checks,
-            "reason": "; ".join(reason_parts) or "Hitting stumps"}
+            "reason": "; ".join(reasons) or "Hitting stumps"}
 \end{lstlisting}
-
-\clearpage
 
 \clearpage
 \addcontentsline{toc}{chapter}{Project Log Book}
 
-\newcommand{\logsheetpage}[1]{%
-\thispagestyle{plain}\begingroup\singlespacing\setlength{\parskip}{0pt}%
-\begin{center}\textbf{\fontsize{14}{17}\selectfont Project Log Book Entry Sheet}\end{center}
-\vspace{0.3cm}
-\noindent\begin{minipage}[t]{0.52\textwidth}Meeting No.: \dotfill\end{minipage}\hfill\begin{minipage}[t]{0.42\textwidth}Date: \dotfill\end{minipage}\par
-\vspace{12pt}\noindent\begin{minipage}[t]{0.52\textwidth}Start Time: \dotfill\end{minipage}\hfill\begin{minipage}[t]{0.42\textwidth}Finish Time: \dotfill\end{minipage}\par
-\vspace{16pt}\noindent\textbf{Discussion Topics:}\par
-\vspace{8pt}1.~\dotfill\par\vspace{10pt}2.~\dotfill\par\vspace{10pt}3.~\dotfill\par\vspace{10pt}4.~\dotfill\par
-\vspace{14pt}\noindent\textbf{Achievements:}\par
-\vspace{8pt}1.~\dotfill\par\vspace{10pt}2.~\dotfill\par\vspace{10pt}3.~\dotfill\par\vspace{10pt}4.~\dotfill\par
-\vspace{14pt}\noindent\textbf{Problems (if any):}\par
-\vspace{8pt}1.~\dotfill\par\vspace{10pt}2.~\dotfill\par\vspace{10pt}3.~\dotfill\par\vspace{10pt}4.~\dotfill\par
-\vspace{14pt}\noindent\textbf{Task for next meeting:}\par
-\vspace{8pt}1.~\dotfill\par\vspace{10pt}2.~\dotfill\par\vspace{10pt}3.~\dotfill\par\vspace{10pt}4.~\dotfill\par
-\vspace{16pt}\noindent\rule{\textwidth}{0.4pt}\par
-\vspace{8pt}\noindent\begin{minipage}[t]{0.55\textwidth}Student Name: #1\\[16pt]Signature: \dotfill\end{minipage}\hfill\begin{minipage}[t]{0.4\textwidth}\centering Mentor Signature\\[22pt]\dotfill\end{minipage}\par
-\endgroup\clearpage}
+% Filled log-book entry. Each call renders one page.
+% Arguments: {meetingNo}{date}{startTime}{finishTime}{discussionList}{achievementList}{problemsList}{nextList}
+\newcommand{\logsheet}[8]{%
+\begingroup\singlespacing\setlength{\parskip}{0pt}%
+\begin{center}\textbf{\fontsize{13}{16}\selectfont Project Log Book Entry Sheet}\end{center}
+\vspace{0.15cm}
+\noindent\begin{minipage}[t]{0.52\textwidth}\textbf{Meeting No.:} #1\end{minipage}\hfill\begin{minipage}[t]{0.42\textwidth}\textbf{Date:} #2\end{minipage}\par
+\vspace{4pt}\noindent\begin{minipage}[t]{0.52\textwidth}\textbf{Start Time:} #3\end{minipage}\hfill\begin{minipage}[t]{0.42\textwidth}\textbf{Finish Time:} #4\end{minipage}\par
+\vspace{8pt}\noindent\textbf{Discussion Topics:}\par
+#5
+\vspace{4pt}\noindent\textbf{Achievements:}\par
+#6
+\vspace{4pt}\noindent\textbf{Problems (if any):}\par
+#7
+\vspace{4pt}\noindent\textbf{Task for next meeting:}\par
+#8
+\vspace{6pt}\noindent\rule{\textwidth}{0.4pt}\par
+\vspace{4pt}\noindent\begin{minipage}[t]{0.55\textwidth}Student Name: Niraj Kafle\hspace{8pt}Signature: \dotfill\end{minipage}\hfill\begin{minipage}[t]{0.4\textwidth}\centering Mentor Signature: \dotfill\end{minipage}\par
+\vspace{18pt}\noindent\rule{\textwidth}{1.2pt}\par\vspace{14pt}
+\endgroup}
 
-\logsheetpage{Niraj Kafle}
-\logsheetpage{Niraj Kafle}
-\logsheetpage{Niraj Kafle}
-\logsheetpage{Niraj Kafle}
-\logsheetpage{Niraj Kafle}
+\logsheet{01}{15/11/2025}{10:00 AM}{11:00 AM}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Introduction to BIT 7th-semester final-year project requirements and timeline.
+\item Discussion of project scope: must be original, non-trivial, technically substantial.
+\item Brainstormed initial problem areas: cricket analytics, agricultural sensing, mobile health.
+\item Reviewed final-year report format and IEEE referencing expectations.
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Project roadmap and key deadlines understood.
+\item Three candidate problem areas shortlisted for the next meeting.
+\item Received the BIT project syllabus and report sample.
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item None at this stage.
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Refine the three problem areas into concrete project ideas with scope.
+\item Draft a one-page problem statement for each.
+\end{enumerate}}
+
+\logsheet{02}{20/12/2025}{10:00 AM}{11:15 AM}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Presented three project ideas with problem statements and scope.
+\item Selected ``PocketDRS: low-cost single-camera LBW Decision Review System for cricket''.
+\item Discussed feasibility: smartphone camera, FastAPI backend, OpenCV pipeline.
+\item Guidance on literature review (Hawk-Eye, monocular tracking, RANSAC, PnP).
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Project title approved by supervisor.
+\item Problem statement and primary objective finalised.
+\item Reference list of seed papers compiled (Owens 2003, Zhang 2000, Fischler 1981, Hartley 2004).
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item None.
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Complete literature-review draft in IEEE format.
+\item Draft functional and non-functional requirements.
+\item Start system design (DFD, ER).
+\end{enumerate}}
+
+\logsheet{03}{21/02/2026}{10:00 AM}{11:30 AM}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Reviewed literature review and requirements tables (FR-01 to FR-12, NFR-01 to NFR-08).
+\item Confirmed the technology stack: Flutter (mobile), FastAPI (backend), OpenCV / SciPy (vision), Firebase / Cloud Run (cloud).
+\item Mandated the structured approach for design: ER + DFD Level 0 / Level 1 + Physical DFD only (no OO diagrams).
+\item Discussed mid-defense expectations and synthetic-validation harness design.
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Chapters 1 and 2 of the report completed and approved.
+\item ER diagram and DFD Level 0 and Level 1 drafted in draw.io.
+\item Synthetic-validation harness implemented in OpenCV (textured pitch, projectile ball).
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Initial PnP solutions occasionally returned the below-ground mirror; fixed by rejecting any pose with negative camera height.
+\item Early synthetic deliveries produced occasional unphysical bundle-adjustment minima; added bounds on release height and forward speed.
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Complete Chapter 3 (system design) and submit project proposal.
+\item Prepare a live demonstration of the synthetic pipeline for the mid defense.
+\end{enumerate}}
+
+\logsheet{04}{14/03/2026}{2:00 PM}{3:30 PM}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Mid-defense presentation to supervisor and panel (15 minutes plus Q\&A).
+\item Live demonstration: synthetic pipeline running end-to-end with all three verdict classes.
+\item Q\&A: depth-from-size accuracy floor, fail-safe behaviour, real-world readiness.
+\item Action items received from the panel.
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Mid-defense cleared.
+\item Synthetic harness reported: 53 / 66 correct verdicts (80.3\%); OUT class 16 / 16 (100\%).
+\item Panel approved the structured-design approach and the rule-based LBW engine.
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Panel asked for evidence on real handheld phone video, not only on the synthetic harness.
+\item Panel asked for more rigorous edge-case testing (truncated videos, bad calibration, no ball).
+\item Panel asked for additional citations (MOG2 background subtraction, learned detection).
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Record and process a real handheld phone clip; document outcome honestly.
+\item Hardening pass: catch truncated videos, degenerate corners, NaN values, network failures.
+\item Expand the unit-test and system-test tables; add cites for MOG2 and YOLO.
+\end{enumerate}}
+
+\logsheet{05}{20/05/2026}{10:00 AM}{12:00 PM}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Final report walk-through: every chapter reviewed.
+\item Format mandate: 16/14/12-pt bold headings, centred chapter titles, bold-centred captions, IEEE numbered citations, abstract 150 to 165 words.
+\item Reviewed real-world validation: bad clip (no trajectory returned, correctly) and successful clip (test3.mp4, 25-point clean track via YOLO).
+\item Final-defense preparation: presentation deck, demo plan, viva questions.
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Final report draft accepted; only minor formatting fixes outstanding.
+\item Defense slide deck approved at 22 slides (structured order: ER, DFD, then algorithm and results).
+\item Defense-preparation guide produced with full Q\&A and a technical glossary.
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Abstract was slightly over the word limit and was trimmed to 160 words.
+\item LaTeX figure placement initially drifted across sections; resolved using the float \texttt{[H]} option.
+\end{enumerate}}{%
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
+\item Submit the final report and the defense slide deck.
+\item Rehearse the demo on the project laptop and have backup renders ready.
+\item Carry printed copies of the report, the IEEE reference list, and the defense-prep guide.
+\end{enumerate}}
 
 \end{document}

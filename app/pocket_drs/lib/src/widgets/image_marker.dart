@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
@@ -9,7 +11,8 @@ import 'drs_button.dart';
 class ImageMarker extends StatefulWidget {
   const ImageMarker({
     super.key,
-    required this.imagePath,
+    this.imagePath,
+    this.imageBytes,
     required this.onComplete,
     this.maxMarkers = 4,
     this.title = 'Mark Points',
@@ -19,9 +22,15 @@ class ImageMarker extends StatefulWidget {
     this.guides,
     this.highlightGuideIndex,
     this.showHeader = true,
-  });
+  }) : assert(imagePath != null || imageBytes != null,
+            'Provide imagePath or imageBytes');
 
-  final String imagePath;
+  /// Native-only path (dart:io File). On web, leave null and pass imageBytes.
+  final String? imagePath;
+
+  /// In-memory image bytes. Required on web; optional on native (takes
+  /// priority over imagePath when both are set).
+  final Uint8List? imageBytes;
   final void Function(List<Offset>) onComplete;
   final int maxMarkers;
   final String title;
@@ -70,8 +79,14 @@ class _ImageMarkerState extends State<ImageMarker> {
   }
 
   Future<void> _loadImage() async {
-    final file = File(widget.imagePath);
-    final bytes = await file.readAsBytes();
+    final Uint8List bytes;
+    if (widget.imageBytes != null) {
+      bytes = widget.imageBytes!;
+    } else if (!kIsWeb && widget.imagePath != null) {
+      bytes = await File(widget.imagePath!).readAsBytes();
+    } else {
+      return;  // nothing to load
+    }
     final codec = await ui.instantiateImageCodec(bytes);
     final frame = await codec.getNextFrame();
     if (mounted) {
@@ -221,8 +236,15 @@ class _ImageMarkerState extends State<ImageMarker> {
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                Image.file(
-                                  File(widget.imagePath),
+                                if (widget.imageBytes != null)
+                                  Image.memory(
+                                    widget.imageBytes!,
+                                    fit: BoxFit.fill,
+                                    gaplessPlayback: true,
+                                  )
+                                else
+                                  Image.file(
+                                  File(widget.imagePath!),
                                   fit: BoxFit.fill,
                                 ),
                                 CustomPaint(
@@ -461,7 +483,10 @@ class _MarkerPainter extends CustomPainter {
           ..strokeWidth = 1
           ..style = PaintingStyle.stroke,
       );
-      // Label tag
+      // Label tag — flip to the opposite side of the marker so the chip
+      // never covers the next tap target. Right-half markers get their
+      // label on the LEFT, left-half markers on the RIGHT. Same logic
+      // vertically near the top/bottom edges of the image.
       final label = i < labels.length ? labels[i] : '${i + 1}';
       final tp = TextPainter(
         text: TextSpan(
@@ -476,12 +501,13 @@ class _MarkerPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       )..layout();
       final tagPad = const EdgeInsets.symmetric(horizontal: 5, vertical: 3);
-      final tagRect = Rect.fromLTWH(
-        p.dx + 10,
-        p.dy - tp.height / 2 - tagPad.vertical / 2,
-        tp.width + tagPad.horizontal,
-        tp.height + tagPad.vertical,
-      );
+      final tagW = tp.width + tagPad.horizontal;
+      final tagH = tp.height + tagPad.vertical;
+      final placeRight = p.dx < size.width / 2;
+      final tagLeft = placeRight ? p.dx + 10 : p.dx - 10 - tagW;
+      final placeBelow = p.dy < size.height / 2;
+      final tagTop = placeBelow ? p.dy + 10 : p.dy - 10 - tagH;
+      final tagRect = Rect.fromLTWH(tagLeft, tagTop, tagW, tagH);
       canvas.drawRect(
         tagRect,
         Paint()..color = AppColors.inkBlack.withValues(alpha: 0.85),

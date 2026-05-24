@@ -103,21 +103,19 @@ class AnalysisResult {
   }
 }
 
-/// Broadcast delivery metrics shown as cards over the video.
+/// Release-speed metric shown as a card over the video.
 class DeliveryMetrics {
-  const DeliveryMetrics({required this.speedMph, required this.spinDeg, required this.swingSf});
+  const DeliveryMetrics({required this.speedKmh, required this.speedMph});
 
+  final double speedKmh;
   final double speedMph;
-  final double spinDeg;
-  final double swingSf;
 
   static DeliveryMetrics? fromJson(Object? json) {
     if (json is! Map) return null;
     final m = json.cast<String, Object?>();
     return DeliveryMetrics(
+      speedKmh: _readDouble(m, 'speed_kmh') ?? 0,
       speedMph: _readDouble(m, 'speed_mph') ?? 0,
-      spinDeg: _readDouble(m, 'spin_deg') ?? 0,
-      swingSf: _readDouble(m, 'swing_sf') ?? 0,
     );
   }
 }

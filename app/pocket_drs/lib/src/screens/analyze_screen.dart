@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
@@ -17,9 +19,11 @@ import '../theme/app_typography.dart';
 import '../utils/app_logger.dart';
 import '../utils/app_settings.dart';
 import '../widgets/drs_button.dart';
+import '../utils/web_open.dart';
 import '../widgets/image_marker.dart';
 import '../widgets/trajectory_video_view.dart';
 import '../widgets/video_frame_selector.dart';
+import '../widgets/video_trim_selector.dart';
 import 'settings_screen.dart';
 
 /// Single end-to-end flow: pick one video → choose a frame → tap pitch corners
@@ -35,6 +39,7 @@ class AnalyzeScreen extends StatefulWidget {
 
 enum _Step {
   upload,
+  trim,
   frame,
   pitch,
   stumpsStriker,
@@ -51,21 +56,32 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   // Calibration inputs (one video drives everything).
   XFile? _video;
   String? _framePath;
+  Uint8List? _frameBytes;
   ui.Size? _frameSize;
   List<Offset>? _corners; // normalized [0..1], striker-L, striker-R, bowler-R, bowler-L
   List<Offset>? _strikerStumps; // normalized: [base, top]
   List<Offset>? _bowlerStumps; // normalized: [base, top]
-  // Pitch length is DERIVED on the server from the stump height, so it is not
-  // asked of the user. Width barely affects the ball reconstruction; a
-  // regulation default is sent as a fallback only.
-  static const double _pitchLengthM = 20.12;
+  // Pitch length is geometry-fit on the server from the stump marks.
+  // Width barely affects the ball reconstruction; a regulation default
+  // is sent so the in-line LBW corridor renders at the right scale.
   static const double _pitchWidthM = 3.05;
+
+  // Trimmed segment (whole clip by default). Backend honours these as
+  // ``segment.{start_ms, end_ms}`` so it only decodes what the user
+  // bracketed — keeps tracking work proportional to the delivery, not the
+  // surrounding minutes of recording.
+  int _segmentStartMs = 0;
+  int _segmentEndMs = 600000;
+  // Whether the source came from the camera roll's RECORD button (so we
+  // can optionally delete it after analysis to save phone storage).
+  bool _videoFromCamera = false;
 
   // Processing / result state.
   int? _progressPct;
   String? _progressStage;
   String? _progressError;
   AnalysisResult? _analysis;
+  String? _jobId;
   String? _decision;
   String? _decisionReason;
 
@@ -78,12 +94,25 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       if (video == null || !mounted) return;
       setState(() {
         _video = video;
+        _videoFromCamera = source == ImageSource.camera;
         _framePath = null;
-        _step = _Step.frame;
+        _frameBytes = null;
+        _segmentStartMs = 0;
+        _segmentEndMs = 600000;
+        _step = _Step.trim;
       });
     } catch (_) {
       _showError('Failed to load video');
     }
+  }
+
+  // ---------------------------------------------------------------- step 1.5: trim
+  void _onTrimSelected(Duration start, Duration end) {
+    setState(() {
+      _segmentStartMs = start.inMilliseconds;
+      _segmentEndMs = end.inMilliseconds;
+      _step = _Step.frame;
+    });
   }
 
   // ---------------------------------------------------------------- step 2: frame
@@ -91,8 +120,6 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     final video = _video;
     if (video == null) return;
     try {
-      final tempDir = await getTemporaryDirectory();
-      final framePath = '${tempDir.path}/cal_${timestamp.inMilliseconds}.jpg';
       final bytes = await decodeFrameJpeg(
         videoPath: video.path,
         timeMs: timestamp.inMilliseconds,
@@ -102,17 +129,38 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         _showError('Failed to extract frame');
         return;
       }
-      await File(framePath).writeAsBytes(bytes);
-      final size = await _decodeImageSize(framePath);
+      // dart:io File is a stub on Flutter web — keep the frame in memory
+      // there, and only persist to a temp file on native platforms where
+      // downstream code may still want a path (image_picker debug, etc.).
+      String? framePath;
+      if (!kIsWeb) {
+        final tempDir = await getTemporaryDirectory();
+        framePath = '${tempDir.path}/cal_${timestamp.inMilliseconds}.jpg';
+        await File(framePath).writeAsBytes(bytes);
+      }
+      final size = await _decodeImageSizeFromBytes(bytes);
       if (!mounted) return;
       setState(() {
         _framePath = framePath;
+        _frameBytes = Uint8List.fromList(bytes);
         _frameSize = size;
         _step = _Step.pitch;
       });
-    } catch (_) {
+    } catch (e, st) {
+      _log('[FRAME] extraction failed: $e\n$st');
       _showError('Frame extraction failed');
     }
+  }
+
+  Future<ui.Size> _decodeImageSizeFromBytes(List<int> bytes) async {
+    final codec = await ui.instantiateImageCodec(Uint8List.fromList(bytes));
+    final frame = await codec.getNextFrame();
+    final size = ui.Size(
+      frame.image.width.toDouble(),
+      frame.image.height.toDouble(),
+    );
+    frame.image.dispose();
+    return size;
   }
 
   Future<ui.Size> _decodeImageSize(String path) async {
@@ -136,21 +184,36 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   }
 
   // ------------------------------------------------------------ step 4/5: stumps
-  bool _validateStumpPair(List<Offset> pair, String endName) {
-    if (pair.length != 2) {
-      _showError('Mark both base and top for the $endName stumps');
+  // Four taps per end define the bounding rectangle of the 3-stump cluster:
+  // top-left, top-right, bottom-right, bottom-left. World coords place those
+  // at (X, ±OUTER_STUMP_HALF, {h, 0}) so the eight stump corner points (4 per
+  // side) become an over-constrained PnP input — each side alone fully
+  // determines the camera pose, the joint fit averages out tap noise.
+  bool _validateStumpQuad(List<Offset> q, String endName) {
+    if (q.length != 4) {
+      _showError('Tap all 4 corners of the $endName stump cluster');
       return false;
     }
-    // Base is tapped first and sits below the top on screen (larger y).
-    if (pair[1].dy >= pair[0].dy) {
-      _showError('For the $endName stumps: tap the base first, then the top');
+    final tl = q[0], tr = q[1], br = q[2], bl = q[3];
+    final topY = (tl.dy + tr.dy) / 2.0;
+    final bottomY = (br.dy + bl.dy) / 2.0;
+    if (topY >= bottomY) {
+      _showError(
+          'For the $endName stumps: tap top-left, top-right, bottom-right, bottom-left in that order');
+      return false;
+    }
+    final leftX = (tl.dx + bl.dx) / 2.0;
+    final rightX = (tr.dx + br.dx) / 2.0;
+    if (leftX >= rightX) {
+      _showError(
+          'For the $endName stumps: tap top-left, top-right, bottom-right, bottom-left in that order');
       return false;
     }
     return true;
   }
 
   void _onStrikerStumpsComplete(List<Offset> markers) {
-    if (!_validateStumpPair(markers, 'striker (far)')) return;
+    if (!_validateStumpQuad(markers, 'striker (far)')) return;
     setState(() {
       _strikerStumps = markers;
       _step = _Step.stumpsBowler;
@@ -158,7 +221,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   }
 
   void _onBowlerStumpsComplete(List<Offset> markers) {
-    if (!_validateStumpPair(markers, 'bowler (near)')) return;
+    if (!_validateStumpQuad(markers, 'bowler (near)')) return;
     setState(() => _bowlerStumps = markers);
     // Pitch length is derived server-side from the stump height, so there is
     // nothing more to enter — go straight to analysis.
@@ -225,32 +288,32 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       final cornersNorm = calibration.imagePointsNorm!
           .map((p) => <String, Object?>{'x': p.dx, 'y': p.dy})
           .toList(growable: false);
-      final s = calibration.stumpPointsNorm!;
-
+      // Each stump set is 4 taps forming the bounding rectangle of the
+      // cluster: [top-left, top-right, bottom-right, bottom-left]. The
+      // bottom pair sits at z=0 (ground), the top pair at z=stump_height.
+      final sk = _strikerStumps!;
+      final bw = _bowlerStumps!;
+      Map<String, Object?> pt(Offset o) => {'x': o.dx, 'y': o.dy};
       final requestJson = <String, Object?>{
         'client': <String, Object?>{
           'platform': platformName,
           'app_version': 'dev',
         },
-        // Analyse the whole clip; the server finds the delivery wherever it is.
-        'segment': <String, Object?>{'start_ms': 0, 'end_ms': 600000},
+        'segment': <String, Object?>{
+          'start_ms': _segmentStartMs,
+          'end_ms': _segmentEndMs,
+        },
         'calibration': <String, Object?>{
           'mode': 'taps',
           'pitch_corners_norm': cornersNorm,
-          'stump_bases_norm': <Map<String, Object?>>[
-            {'x': s[0].dx, 'y': s[0].dy},
-            {'x': s[2].dx, 'y': s[2].dy},
+          'stump_quads_norm': <Map<String, Object?>>[
+            pt(sk[0]), pt(sk[1]), pt(sk[2]), pt(sk[3]),
+            pt(bw[0]), pt(bw[1]), pt(bw[2]), pt(bw[3]),
           ],
-          // Stump tops (z = stump height) anchor the absolute scale so the
-          // server recovers a correct camera pose on non-regulation nets.
-          'stump_tops_norm': <Map<String, Object?>>[
-            {'x': s[1].dx, 'y': s[1].dy},
-            {'x': s[3].dx, 'y': s[3].dy},
-          ],
-          'pitch_dimensions_m': <String, Object?>{
-            'length': _pitchLengthM,
-            'width': _pitchWidthM,
-          },
+          // Only width is sent — pitch length is geometry-fit on the
+          // server from the marked stump rectangle so non-regulation
+          // indoor / practice nets are handled correctly out of the box.
+          'pitch_dimensions_m': <String, Object?>{'width': _pitchWidthM},
         },
         'tracking': <String, Object?>{'sample_fps': 60, 'max_frames': 180},
       };
@@ -276,9 +339,23 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         LbwDecisionKey.umpiresCall => 'umpires_call',
         _ => null,
       };
+      // Storage cleanup — only fires when the user has opted in AND the
+      // clip came from in-app recording. A user-picked file from the
+      // camera roll is theirs to keep; we never touch it.
+      if (!kIsWeb && _videoFromCamera &&
+          await AppSettings.getAutoDeleteSource()) {
+        try {
+          await File(video.path).delete();
+          _log('[ANALYZE] deleted recorded source ${video.path}');
+        } catch (e) {
+          _log('[ANALYZE] auto-delete failed: $e');
+        }
+      }
+
       if (!mounted) return;
       setState(() {
         _analysis = analysis;
+        _jobId = jobId;
         _decision = decision;
         _decisionReason = analysis.lbw?.reason;
         _step = _Step.results;
@@ -331,7 +408,11 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     setState(() {
       _step = _Step.upload;
       _video = null;
+      _videoFromCamera = false;
+      _segmentStartMs = 0;
+      _segmentEndMs = 600000;
       _framePath = null;
+      _frameBytes = null;
       _frameSize = null;
       _corners = null;
       _strikerStumps = null;
@@ -340,6 +421,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       _progressStage = null;
       _progressError = null;
       _analysis = null;
+      _jobId = null;
       _decision = null;
       _decisionReason = null;
     });
@@ -348,12 +430,15 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   void _back() {
     setState(() {
       switch (_step) {
-        case _Step.frame:
+        case _Step.trim:
           _step = _Step.upload;
           _video = null;
+        case _Step.frame:
+          _step = _Step.trim;
         case _Step.pitch:
           _step = _Step.frame;
           _framePath = null;
+          _frameBytes = null;
         case _Step.stumpsStriker:
           _step = _Step.pitch;
           _corners = null;
@@ -374,7 +459,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   }
 
   // -------------------------------------------------------------------- build
-  static const _labels = ['UPLOAD', 'FRAME', 'PITCH', 'STRIKER', 'BOWLER'];
+  static const _labels = ['UPLOAD', 'TRIM', 'FRAME', 'PITCH', 'STRIKER', 'BOWLER'];
 
   String? get _hint => switch (_step) {
         _Step.pitch => 'Tap the 4 pitch corners, clockwise from the striker end.',
@@ -475,6 +560,14 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     switch (_step) {
       case _Step.upload:
         return _UploadStep(onPick: _pickVideo);
+      case _Step.trim:
+        final v = _video;
+        return v == null
+            ? const SizedBox()
+            : VideoTrimSelector(
+                videoPath: v.path,
+                onTrimSelected: _onTrimSelected,
+              );
       case _Step.frame:
         final v = _video;
         return v == null
@@ -484,12 +577,11 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
                 onFrameSelected: _onFrameSelected,
               );
       case _Step.pitch:
-        final f = _framePath;
-        return f == null
-            ? const SizedBox()
-            : ImageMarker(
+        if (_frameBytes == null && _framePath == null) return const SizedBox();
+        return ImageMarker(
                 key: const ValueKey('pitch'),
-                imagePath: f,
+                imagePath: _framePath,
+                imageBytes: _frameBytes,
                 maxMarkers: 4,
                 title: 'Mark Pitch Corners',
                 subtitle: 'Tap clockwise from the striker end',
@@ -504,16 +596,17 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
                 onComplete: _onPitchComplete,
               );
       case _Step.stumpsStriker:
-        final f = _framePath;
-        return f == null
-            ? const SizedBox()
-            : ImageMarker(
+        if (_frameBytes == null && _framePath == null) return const SizedBox();
+        return ImageMarker(
                 key: const ValueKey('striker'),
-                imagePath: f,
-                maxMarkers: 2,
+                imagePath: _framePath,
+                imageBytes: _frameBytes,
+                maxMarkers: 4,
                 title: 'Mark Striker Stumps',
-                subtitle: 'Base first, then top',
-                markerLabels: const ['Striker Base', 'Striker Top'],
+                subtitle: 'Tap the 4 corners of the stump cluster — top-left, top-right, bottom-right, bottom-left',
+                markerLabels: const [
+                  'Top Left', 'Top Right', 'Bottom Right', 'Bottom Left',
+                ],
                 initialMarkers: _strikerStumps,
                 guides: _stumpGuides(),
                 highlightGuideIndex: 1,
@@ -521,16 +614,17 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
                 onComplete: _onStrikerStumpsComplete,
               );
       case _Step.stumpsBowler:
-        final f = _framePath;
-        return f == null
-            ? const SizedBox()
-            : ImageMarker(
+        if (_frameBytes == null && _framePath == null) return const SizedBox();
+        return ImageMarker(
                 key: const ValueKey('bowler'),
-                imagePath: f,
-                maxMarkers: 2,
+                imagePath: _framePath,
+                imageBytes: _frameBytes,
+                maxMarkers: 4,
                 title: 'Mark Bowler Stumps',
-                subtitle: 'Base first, then top',
-                markerLabels: const ['Bowler Base', 'Bowler Top'],
+                subtitle: 'Tap the 4 corners of the stump cluster — top-left, top-right, bottom-right, bottom-left',
+                markerLabels: const [
+                  'Top Left', 'Top Right', 'Bottom Right', 'Bottom Left',
+                ],
                 initialMarkers: _bowlerStumps,
                 guides: _stumpGuides(),
                 highlightGuideIndex: 2,
@@ -549,6 +643,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
           result: _analysis!,
           decision: _decision,
           reason: _decisionReason,
+          jobId: _jobId,
           onRestart: _restart,
         );
     }
@@ -646,11 +741,30 @@ class _ProcessingView extends StatelessWidget {
   final String? stage;
   final String? error;
 
+  // Friendly description for each backend stage. The backend emits short
+  // tokens like "decode" / "tracking"; the user wants to see what is
+  // actually happening at that moment instead of guessing.
+  static const Map<String, String> _stageHelp = {
+    'queued': 'Waiting for a worker',
+    'starting': 'Loading the video',
+    'decode': 'Reading frames from your clip',
+    'calibration': 'Calibrating the pitch with your taps',
+    'tracking': 'Finding the ball in every frame',
+    'reconstruction': 'Reconstructing the 3D trajectory',
+    'lbw': 'Running the LBW decision',
+    'finalize': 'Wrapping up the report',
+    'succeeded': 'Done',
+    'failed': 'Failed',
+  };
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final p = (pct ?? 0).clamp(0, 100);
+    final stageKey = (stage ?? 'working').toLowerCase();
+    final help = _stageHelp[stageKey] ?? 'Processing your delivery';
+    final hasError = error != null;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.xl),
@@ -660,25 +774,46 @@ class _ProcessingView extends StatelessWidget {
             Text(
               '$p%',
               style: AppTypography.mono(theme.textTheme.displayLarge)
-                  ?.copyWith(color: AppColors.signalRed),
+                  ?.copyWith(color: hasError ? scheme.error : AppColors.signalRed),
             ),
             const SizedBox(height: AppSpacing.md),
             Text(
-              (stage ?? 'working').toUpperCase(),
-              style: theme.textTheme.labelMedium
-                  ?.copyWith(color: scheme.onSurfaceVariant, letterSpacing: 1.4),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            SizedBox(
-              width: 220,
-              child: LinearProgressIndicator(
-                value: p / 100.0,
-                color: AppColors.signalRed,
-                backgroundColor: scheme.surfaceContainerHigh,
+              stageKey.toUpperCase(),
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+                letterSpacing: 1.4,
               ),
             ),
-            if (error != null) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              help,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            // Determinate bar when the backend has emitted a percent, animated
+            // indeterminate bar otherwise — so the user always sees motion and
+            // can tell the difference between "stuck at this percent" and
+            // "still working but no measurable progress yet".
+            SizedBox(
+              width: 240,
+              child: pct == null
+                  ? LinearProgressIndicator(
+                      color: AppColors.signalRed,
+                      backgroundColor: scheme.surfaceContainerHigh,
+                    )
+                  : LinearProgressIndicator(
+                      value: p / 100.0,
+                      color: hasError ? scheme.error : AppColors.signalRed,
+                      backgroundColor: scheme.surfaceContainerHigh,
+                    ),
+            ),
+            if (hasError) ...[
               const SizedBox(height: AppSpacing.lg),
+              Icon(Icons.error_outline, color: scheme.error, size: 28),
+              const SizedBox(height: AppSpacing.sm),
               Text(
                 error!,
                 textAlign: TextAlign.center,
@@ -698,13 +833,40 @@ class _ResultsView extends StatelessWidget {
     required this.result,
     required this.decision,
     required this.reason,
+    required this.jobId,
     required this.onRestart,
   });
   final String videoPath;
   final AnalysisResult result;
   final String? decision;
   final String? reason;
+  final String? jobId;
   final VoidCallback onRestart;
+
+  Future<void> _open3D(BuildContext context) async {
+    final id = jobId;
+    if (id == null) return;
+    try {
+      final base = await AppSettings.getServerUrl();
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      final url = (base.endsWith('/') ? base : '$base/') +
+          'v1/jobs/$id/three-d' +
+          (token == null ? '' : '?token=$token');
+      if (kIsWeb) {
+        openWebUrl(url);
+      } else if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('3D view: $url')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open 3D view: $e')),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -740,6 +902,16 @@ class _ResultsView extends StatelessWidget {
                   ),
                   const SizedBox(height: AppSpacing.md),
                 ],
+                if (jobId != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: DrsButton(
+                      label: 'VIEW 3D HAWK-EYE',
+                      icon: Icons.view_in_ar,
+                      style: DrsButtonStyle.secondary,
+                      onPressed: () => _open3D(context),
+                    ),
+                  ),
                 DrsButton(
                   label: 'NEW ANALYSIS',
                   icon: Icons.refresh,

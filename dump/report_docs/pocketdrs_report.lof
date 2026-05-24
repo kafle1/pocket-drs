@@ -1,17 +1,14 @@
 \addvspace {10\p@ }
 \addvspace {10\p@ }
 \addvspace {10\p@ }
-\contentsline {figure}{\numberline {3.1}{\ignorespaces Entity--relationship diagram of the PocketDRS data model.}}{11}{figure.caption.4}%
-\contentsline {figure}{\numberline {3.2}{\ignorespaces Context-level (Level 0) data flow diagram.}}{11}{figure.caption.5}%
-\contentsline {figure}{\numberline {3.3}{\ignorespaces Level 1 data flow diagram.}}{12}{figure.caption.6}%
-\contentsline {figure}{\numberline {3.4}{\ignorespaces Three-tier system architecture of PocketDRS.}}{14}{figure.caption.7}%
-\contentsline {figure}{\numberline {3.5}{\ignorespaces Result-screen renders for the three LBW verdicts.}}{16}{figure.caption.8}%
-\contentsline {figure}{\numberline {3.6}{\ignorespaces Physical data flow diagram of the deployed system.}}{17}{figure.caption.9}%
+\contentsline {figure}{\numberline {3.1}{\ignorespaces Entity--relationship diagram of the PocketDRS data model.}}{10}{figure.caption.4}%
+\contentsline {figure}{\numberline {3.2}{\ignorespaces Context-level (Level 0) data flow diagram.}}{10}{figure.caption.5}%
+\contentsline {figure}{\numberline {3.3}{\ignorespaces Level 1 data flow diagram.}}{11}{figure.caption.6}%
+\contentsline {figure}{\numberline {3.4}{\ignorespaces Three-tier system architecture of PocketDRS.}}{12}{figure.caption.7}%
+\contentsline {figure}{\numberline {3.5}{\ignorespaces Result-screen renders for the three LBW verdicts.}}{13}{figure.caption.8}%
+\contentsline {figure}{\numberline {3.6}{\ignorespaces Physical data flow diagram of the deployed system.}}{14}{figure.caption.9}%
 \addvspace {10\p@ }
-\contentsline {figure}{\numberline {4.1}{\ignorespaces Frames from the real-world test clip.}}{27}{figure.caption.10}%
-\contentsline {figure}{\numberline {4.2}{\ignorespaces Left: the full tracked ball path on \texttt {test3.mp4}, from the bowler's release (green) to arrival at the batter (red), 25 positions recovered by YOLO + RANSAC at 60\,fps. Right: the same delivery lifted to a camera-relative 3D arc by depth-from-apparent-size; the path descends as expected for a flighted off-break (release depth $1.41$\,m $\rightarrow $ arrival depth $2.39$\,m from the camera).}}{29}{figure.caption.11}%
-\contentsline {figure}{\numberline {4.3}{\ignorespaces The same delivery at release, mid-flight, and arrival, with the detected ball circled in each frame.}}{30}{figure.caption.12}%
-\contentsline {figure}{\numberline {4.4}{\ignorespaces Left: the ball's pixel trajectory on \texttt {test3.mp4}, coloured by time from release. Right: the ball's apparent radius shrinking through the flight, the depth cue used by the monocular 3D lift.}}{31}{figure.caption.13}%
+\contentsline {figure}{\numberline {4.1}{\ignorespaces Frames from the real-world test clip.}}{23}{figure.caption.10}%
+\contentsline {figure}{\numberline {4.2}{\ignorespaces Left: full tracked ball path on \texttt {test3.mp4}, 25 positions recovered by YOLO + RANSAC at 60\,fps. Right: depth-from-apparent-size 3D arc; release depth $1.41$\,m to arrival depth $2.39$\,m from the camera.}}{25}{figure.caption.11}%
 \addvspace {10\p@ }
-\contentsline {figure}{\numberline {C.1}{\ignorespaces Pitch calibration on a real clip: the four tapped corners recover a valid above-ground camera pose.}}{41}{figure.caption.16}%
-\contentsline {figure}{\numberline {C.2}{\ignorespaces Result screen showing the reconstructed trajectory and an OUT verdict.}}{42}{figure.caption.17}%
+\contentsline {figure}{\numberline {B.1}{\ignorespaces Left: pitch calibration recovering a valid above-ground camera pose ($8.6$\,px reprojection error). Right: result screen with the reconstructed trajectory and an OUT verdict.}}{32}{figure.caption.14}%

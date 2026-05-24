@@ -140,177 +140,85 @@ def estimate_intrinsics(image_width: int, image_height: int, *, h_fov_deg: float
     return K
 
 
-def solve_camera_pose(
-    *,
-    image_size: tuple[int, int],   # (width, height)
-    pitch_corners_px: list[tuple[float, float]],
-    pitch_length_m: float,
-    pitch_width_m: float,
-    stump_bases_px: list[tuple[float, float]] | None = None,  # (striker, bowler)
-    stump_tops_px: list[tuple[float, float]] | None = None,   # (striker_top, bowler_top)
-    stump_height_m: float = DEFAULT_STUMP_HEIGHT_M,
-    h_fov_deg: float = 67.0,
-) -> CameraPose:
-    """Recover camera pose by PnP using 4 corners + optional stumps.
 
-    The pitch corner order is the same the calibration UI emits:
-        striker-left, striker-right, bowler-right, bowler-left
-    World frame: X along pitch (0 = striker crease, +pitch_length_m = bowler
-    crease), Y across pitch (positive = off side for right-hander, taken from
-    image right when looking from striker toward bowler), Z up.
-    """
-    if cv2 is None:
-        raise CalibrationError("OpenCV required for camera pose")
-    if len(pitch_corners_px) != 4:
-        raise CalibrationError("Need exactly 4 pitch corners for PnP")
-
-    half_w = pitch_width_m / 2.0
-    object_pts: list[tuple[float, float, float]] = [
-        (0.0,             -half_w, 0.0),  # striker-left
-        (0.0,              half_w, 0.0),  # striker-right
-        (pitch_length_m,   half_w, 0.0),  # bowler-right
-        (pitch_length_m,  -half_w, 0.0),  # bowler-left
-    ]
-    image_pts: list[tuple[float, float]] = list(pitch_corners_px)
-
-    if stump_bases_px is not None and len(stump_bases_px) == 2:
-        object_pts.append((0.0,            0.0, 0.0))
-        object_pts.append((pitch_length_m, 0.0, 0.0))
-        image_pts.append(stump_bases_px[0])
-        image_pts.append(stump_bases_px[1])
-
-    if stump_tops_px is not None and len(stump_tops_px) == 2:
-        object_pts.append((0.0,            0.0, stump_height_m))
-        object_pts.append((pitch_length_m, 0.0, stump_height_m))
-        image_pts.append(stump_tops_px[0])
-        image_pts.append(stump_tops_px[1])
-
-    width, height = image_size
-    K = estimate_intrinsics(width, height, h_fov_deg=h_fov_deg)
-    dist = np.zeros((4, 1), dtype=np.float64)
-
-    obj_arr = np.array(object_pts, dtype=np.float64)
-    img_arr = np.array(image_pts, dtype=np.float64)
-
-    # Planar PnP has a twofold mirror ambiguity. solvePnPGeneric with IPPE
-    # returns both solutions; we pick the one whose camera centre lies above
-    # the pitch (Z > 0), breaking the underground-twin failure mode.
-    z_zero = np.allclose(obj_arr[:, 2], 0.0)
-    if z_zero and len(obj_arr) >= 4:
-        flag = cv2.SOLVEPNP_IPPE
-        n_sols, rvecs, tvecs, _ = cv2.solvePnPGeneric(obj_arr, img_arr, K, dist, flags=flag)
-        if n_sols == 0:
-            raise CalibrationError("solvePnP failed to converge")
-        candidates = list(zip(rvecs, tvecs))
-    else:
-        flag = cv2.SOLVEPNP_ITERATIVE
-        ok, rvec_it, tvec_it = cv2.solvePnP(obj_arr, img_arr, K, dist, flags=flag)
-        if not ok:
-            raise CalibrationError("solvePnP failed to converge")
-        candidates = [(rvec_it, tvec_it)]
-
-    best_rvec = best_tvec = None
-    best_R = best_R_inv = best_cam = None
-    best_reproj = float("inf")
-    above_found = False
-    for rv, tv in candidates:
-        R_i, _ = cv2.Rodrigues(rv)
-        R_inv_i = R_i.T
-        cam_i = -R_inv_i @ tv.reshape(3, 1)
-        proj_i, _ = cv2.projectPoints(obj_arr, rv, tv, K, dist)
-        proj_i = proj_i.reshape(-1, 2)
-        reproj_i = float(np.sqrt(np.mean(np.sum((proj_i - img_arr) ** 2, axis=1))))
-        above = float(cam_i[2, 0]) > 0.0
-        # Strict preference: any above-ground solution beats any below; within
-        # the same class, lower reprojection error wins.
-        if above and not above_found:
-            best_rvec, best_tvec = rv, tv
-            best_R, best_R_inv, best_cam = R_i, R_inv_i, cam_i
-            best_reproj = reproj_i
-            above_found = True
-        elif above == above_found and reproj_i < best_reproj:
-            best_rvec, best_tvec = rv, tv
-            best_R, best_R_inv, best_cam = R_i, R_inv_i, cam_i
-            best_reproj = reproj_i
-    if best_rvec is None:
-        # Every PnP candidate was non-finite (e.g. all four corners identical
-        # or collinear). Fail explicitly so the caller maps this to a
-        # calibration error rather than crashing downstream on None fields.
-        raise CalibrationError(
-            "PnP returned no finite solution — pitch corners are degenerate"
-        )
-
-    rvec, tvec = best_rvec, best_tvec
-    R, R_inv, cam_center = best_R, best_R_inv, best_cam
-    reproj = best_reproj
-
-    notes: list[str] = [
-        f"{len(obj_arr)}-point PnP",
-        f"flag={flag}",
-        f"sols={len(candidates)}",
-        f"cam_above_pitch={above_found}",
-    ]
-    return CameraPose(
-        K=K,
-        rvec=rvec,
-        tvec=tvec,
-        R=R,
-        R_inv=R_inv,
-        cam_center_world=cam_center,
-        fx=float(K[0, 0]),
-        fy=float(K[1, 1]),
-        cx=float(K[0, 2]),
-        cy=float(K[1, 2]),
-        reproj_error_px=reproj,
-        notes=notes,
-    )
+STUMP_LATERAL_DX_M = 0.114    # half-distance from middle stump to leg/off stump
+STUMP_HALF_WIDTH_M = 0.018    # half-thickness of a stump
+STUMP_OUTER_HALF_M = STUMP_LATERAL_DX_M + STUMP_HALF_WIDTH_M  # ≈0.132 m
 
 
 def solve_camera_pose_from_stumps(
     *,
-    image_size: tuple[int, int],            # (width, height)
-    stump_bases_px: list[tuple[float, float]],  # (striker, bowler)
-    stump_tops_px: list[tuple[float, float]],   # (striker, bowler)
+    image_size: tuple[int, int],                                 # (width, height)
+    stump_quads_px: list[tuple[float, float]],                   # 8: striker_TL..BL, bowler_TL..BL
+    pitch_corners_px: list[tuple[float, float]] | None = None,   # 4: SL, SR, BR, BL
+    pitch_width_m: float = 3.05,
     stump_height_m: float = DEFAULT_STUMP_HEIGHT_M,
-    h_fov_deg: float = 67.0,
+    h_fov_deg: float | None = None,
     known_length_m: float | None = None,
     length_min_m: float = 2.0,
     length_max_m: float = 26.0,
 ) -> tuple[CameraPose, float]:
-    """Recover the camera pose AND the pitch length from the two stump sets.
+    """Recover the camera pose AND the pitch length from the marked points.
 
-    The four stump marks lie in the Y=0 vertical plane (X varies, Z∈{0, h}).
-    With the stump height pinning the metric scale and the focal length fixed
-    by `h_fov_deg` applied to the image's long axis (see
-    ``estimate_intrinsics``), the stump-to-stump length is the single
-    remaining unknown. We grid-search it and pick the value with the smallest
-    PnP reprojection error.
+    Inputs:
+      * ``stump_quads_px`` — 8 image points, the bounding rectangle of each
+        end's three-stump cluster in tap order TL, TR, BR, BL: striker first,
+        bowler second. Two stumps' worth of corners over a known 0.711 m
+        height + ≈0.264 m width pins the metric scale.
+      * ``pitch_corners_px`` (optional but strongly recommended) — 4 turf
+        corners (striker-L, striker-R, bowler-R, bowler-L). They sit off
+        the stump plane so they break the (FOV × length) degeneracy that
+        stumps alone would have.
 
-    If the caller supplies ``known_length_m`` as a hint, the geometry-fitted
-    length is still trusted (the user's value is often a guess on practice
-    nets); a large mismatch is recorded in ``notes`` so callers can warn.
-
-    Returns ``(pose, derived_length_m)``.
+    Auto-fits camera FOV (28°–86°) and pitch length unless the caller pins
+    either. When the corners disagree with the stumps under any tried FOV
+    the corner fit is dropped and the stumps-only result is returned.
     """
     if cv2 is None:
         raise CalibrationError("OpenCV required for camera pose")
-    if len(stump_bases_px) != 2 or len(stump_tops_px) != 2:
-        raise CalibrationError("Need exactly 2 stump bases and 2 stump tops")
+    if len(stump_quads_px) != 8:
+        raise CalibrationError("Need exactly 8 stump quad points (4 per side)")
+    if pitch_corners_px is not None and len(pitch_corners_px) != 4:
+        raise CalibrationError("Need exactly 4 pitch corners (or none)")
 
     width, height = image_size
-    K = estimate_intrinsics(width, height, h_fov_deg=h_fov_deg)
     dist = np.zeros((4, 1), dtype=np.float64)
-    img = np.array(
-        [stump_bases_px[0], stump_tops_px[0], stump_bases_px[1], stump_tops_px[1]],
-        dtype=np.float64,
-    )
 
-    def _solve_one(length: float) -> tuple | None:
-        obj = np.array(
-            [(0.0, 0.0, 0.0), (0.0, 0.0, stump_height_m),
-             (float(length), 0.0, 0.0), (float(length), 0.0, stump_height_m)],
-            dtype=np.float64,
-        )
+    stump_img = np.array(stump_quads_px, dtype=np.float64)
+    # Per-side object template applied at X=0 (striker) and X=L (bowler).
+    # OUTER half-width includes the stump radius so the rectangle hugs the
+    # real outer edge the user tapped.
+    OUTER = STUMP_OUTER_HALF_M
+    side_template = [
+        (-OUTER, stump_height_m),  # TL
+        (+OUTER, stump_height_m),  # TR
+        (+OUTER, 0.0),             # BR
+        (-OUTER, 0.0),             # BL
+    ]
+    corner_img = (
+        np.array(pitch_corners_px, dtype=np.float64)
+        if pitch_corners_px is not None else None
+    )
+    half_w = float(pitch_width_m) / 2.0
+
+    def _solve_at(K: np.ndarray, length: float, use_corners: bool) -> tuple | None:
+        L = float(length)
+        striker_obj = [(0.0, dy, dz) for (dy, dz) in side_template]
+        bowler_obj = [(L, dy, dz) for (dy, dz) in side_template]
+        stump_obj = np.array(striker_obj + bowler_obj, dtype=np.float64)
+        if use_corners and corner_img is not None:
+            # Pitch corners: striker-left, striker-right, bowler-right, bowler-left.
+            # Y sign matches the calibration UI's tap convention.
+            corner_obj = np.array(
+                [(0.0, -half_w, 0.0), (0.0,  half_w, 0.0),
+                 (L,    half_w, 0.0), (L,   -half_w, 0.0)],
+                dtype=np.float64,
+            )
+            obj = np.concatenate([stump_obj, corner_obj], axis=0)
+            img = np.concatenate([stump_img, corner_img], axis=0)
+        else:
+            obj = stump_obj
+            img = stump_img
         ok, rvec, tvec = cv2.solvePnP(obj, img, K, dist, flags=cv2.SOLVEPNP_SQPNP)
         if not ok:
             return None
@@ -324,38 +232,92 @@ def solve_camera_pose_from_stumps(
         reproj = float(np.sqrt(np.mean(np.sum((proj - img) ** 2, axis=1))))
         if not math.isfinite(reproj):
             return None
-        return (reproj, float(length), rvec, tvec, R, R_inv, cam)
+        return (reproj, L, rvec, tvec, R, R_inv, cam, K)
 
-    best = None
-    # 0.05 m steps give length to about half a stump width — finer than the
-    # reprojection minimum is meaningful at this noise level.
-    n_steps = max(2, int(round((length_max_m - length_min_m) / 0.05)) + 1)
-    for length in np.linspace(length_min_m, length_max_m, n_steps):
-        cand = _solve_one(float(length))
-        if cand is None:
-            continue
-        if best is None or cand[0] < best[0]:
-            best = cand
+    fov_candidates: list[float]
+    if h_fov_deg is not None:
+        fov_candidates = [float(h_fov_deg)]
+    else:
+        # Covers phone telephoto (~28°) through ultra-wide (~86°) at ~6°
+        # steps. Reprojection error is smooth in FOV at this scale, so 10
+        # samples land us within 2-3° of the true focal length — fine
+        # enough for downstream PnP and bundle adjustment.
+        fov_candidates = [28.0, 34.0, 40.0, 46.0, 52.0, 58.0, 64.0, 70.0, 78.0, 86.0]
+
+    length_locked = (
+        known_length_m is not None
+        and length_min_m <= float(known_length_m) <= length_max_m
+    )
+    if length_locked:
+        length_candidates = [float(known_length_m)]
+    else:
+        # 0.05 m steps give length to about half a stump width — finer than
+        # the reprojection minimum is meaningful at this noise level.
+        n_steps = max(2, int(round((length_max_m - length_min_m) / 0.05)) + 1)
+        length_candidates = [float(v) for v in np.linspace(length_min_m, length_max_m, n_steps)]
+
+    def _sweep(use_corners: bool) -> tuple | None:
+        best_local = None
+        best_fov_local = None
+        for fov in fov_candidates:
+            K_local = estimate_intrinsics(width, height, h_fov_deg=fov)
+            for length in length_candidates:
+                cand = _solve_at(K_local, length, use_corners=use_corners)
+                if cand is None:
+                    continue
+                if best_local is None or cand[0] < best_local[0]:
+                    best_local = cand
+                    best_fov_local = fov
+        return (best_local, best_fov_local) if best_local is not None else None
+
+    # Primary: fuse stumps + pitch corners — the corners sit off the stump
+    # plane, so they break the (FOV × length) degeneracy stumps-only has.
+    primary = _sweep(use_corners=corner_img is not None) if corner_img is not None else None
+
+    # Fallback: stumps-only. Used both as a consistency check for the primary
+    # solve and as the answer when the corner taps disagree with the stump
+    # geometry (which means the corner taps are off — the stumps anchor the
+    # metric scale via their known height, so we trust them).
+    stumps_only = _sweep(use_corners=False)
+
+    used_corners = False
+    if primary is not None and stumps_only is not None:
+        prim_best, prim_fov = primary
+        so_best, so_fov = stumps_only
+        # Tolerance scales with frame width — at 1080p, 6 px is the noise
+        # floor of a precise tap. The corners disambiguate only if they
+        # don't blow the joint reprojection wide open relative to the
+        # stumps-only fit at the same (or any) FOV.
+        joint_acceptable_px = max(6.0, 0.012 * width)
+        if prim_best[0] <= max(joint_acceptable_px, so_best[0] * 2.0 + 3.0):
+            best = prim_best
+            best_fov = prim_fov
+            used_corners = True
+        else:
+            best = so_best
+            best_fov = so_fov
+    elif primary is not None:
+        best, best_fov = primary
+        used_corners = True
+    elif stumps_only is not None:
+        best, best_fov = stumps_only
+    else:
+        best, best_fov = None, None
+
     if best is None:
         raise CalibrationError(
             "Stump calibration is degenerate — re-mark the stump bases and tops."
         )
 
-    reproj, length, rvec, tvec, R, R_inv, cam = best
+    reproj, length, rvec, tvec, R, R_inv, cam, K = best
+    source = "user-supplied" if length_locked else "geometry-fit"
     notes = [
-        "stump-anchored pose",
-        f"length={length:.2f} m (geometry-fit)",
+        "stump-anchored pose" if not used_corners else "stump+corner pose",
+        f"length={length:.2f} m ({source})",
         f"reproj={reproj:.2f} px",
+        f"fov={best_fov:.0f} deg ({'user-supplied' if h_fov_deg is not None else 'auto-fit'})",
         f"cam_height={float(cam[2, 0]):.2f} m",
     ]
-    if known_length_m is not None and known_length_m > 0.0:
-        delta = abs(length - float(known_length_m)) / float(known_length_m)
-        if delta > 0.25:
-            notes.append(
-                f"entered length {known_length_m:.2f} m disagrees with "
-                f"geometry-fit {length:.2f} m by {delta * 100:.0f}% — "
-                "using the geometry-fit value"
-            )
     return (
         CameraPose(
             K=K,
@@ -1155,20 +1117,35 @@ def reconstruct_trajectory(
 
     # Image-space bounce anchor: back-project the bounce-frame pixel onto the
     # calibrated ground plane (z=0) for an exact world bounce position, then
-    # re-anchor the trajectory. This is more robust than depth-from-size
-    # because the bounce z is known to be zero.
-    # (Skipped for the linear route — its arc already comes from the geometry.)
-    if not used_linear and detections and len(detections) >= 8:
+    # re-anchor the trajectory. The image v-peak (largest pixel y) is the
+    # only event that flips the ball's vertical image motion downward →
+    # upward, so it pin-points the pitch-contact frame even when the
+    # bounce-aware linear solver has too few post-bounce points to fit (a
+    # bounce in the last ~10% of the tracked arc, common on short clips).
+    # We override the fit only when it does not already commit to a bounce.
+    needs_bounce_anchor = (
+        detections and len(detections) >= 8
+        and (fit is None or fit.bounce_t_ms is None)
+    )
+    if needs_bounce_anchor:
         sorted_dets = sorted(detections, key=lambda d: d[0])
         vs = np.array([d[2] for d in sorted_dets], dtype=float)
         ts = np.array([d[0] for d in sorted_dets], dtype=float)
-        smooth = np.copy(vs)
+        # Bounce frame = the strict local maximum of v (image y grows
+        # downward, so peak v is the closest the ball gets to the pitch).
+        # Operate on raw v, not a smoothed copy: a 3-tap smoothing flattens
+        # the peak and tends to push neighbour values within a pixel of the
+        # peak, defeating a strict ">" comparison. We require the very next
+        # frame to lift off again so an isolated detection drop-out does not
+        # masquerade as a bounce, and keep the latest qualifying peak so a
+        # bounce that lands near the end of the tracked arc is preferred
+        # over an earlier ambiguous dip.
+        bounce_local_idx: int | None = None
+        v_jitter_px = 2.0
         for i in range(1, len(vs) - 1):
-            smooth[i] = (vs[i - 1] + vs[i] + vs[i + 1]) / 3.0
-        lo = int(0.15 * len(smooth))
-        hi = int(0.85 * len(smooth))
-        if hi > lo + 1:
-            bounce_local_idx = int(lo + int(np.argmin(smooth[lo:hi])))
+            if vs[i] > vs[i - 1] + v_jitter_px and vs[i] > vs[i + 1] + v_jitter_px:
+                bounce_local_idx = i
+        if bounce_local_idx is not None:
             t_bounce_ms = float(ts[bounce_local_idx])
             u_b = float(sorted_dets[bounce_local_idx][1])
             v_b = float(sorted_dets[bounce_local_idx][2])
@@ -1188,18 +1165,27 @@ def reconstruct_trajectory(
                     )
                 t0_ms = sorted_dets[0][0]
                 t_b_s = (t_bounce_ms - t0_ms) / 1000.0
-                # Release-height anchor: back-project the first detection at an
-                # assumed release height (z ~ 2 m). With the exact ground
-                # bounce anchor this yields vx and vy from world geometry.
+                # Release-height anchor: back-project the first detection at
+                # an assumed release height. 1.8 m is the typical bowling-
+                # arm release for slow / medium / spin deliveries; using the
+                # earlier 2.0 m guess placed the release world-point a metre
+                # in FRONT of the bowler crease for short indoor-net clips,
+                # which collapsed the geometric vx to ~6 m/s and produced
+                # the under-reported 22 km/h "ball speed".
                 u0, v0 = float(sorted_dets[0][1]), float(sorted_dets[0][2])
-                rel = backproject_to_ground(pose, u0, v0, z_target=2.0)
+                rel = backproject_to_ground(pose, u0, v0, z_target=1.8)
                 new_y0 = float(anchor[1]) - fit.vy * t_b_s
                 new_vx = fit.vx
                 new_vy = fit.vy
+                # Accept the geometric vx if it lies in a plausible cricket
+                # range. The lower bound was 10 m/s, which rejected spin /
+                # net-bowling speeds (28-35 km/h) and silently left vx at
+                # the linear solver's miscalibrated guess. 5 m/s ≈ 18 km/h
+                # is the floor for any deliberate delivery.
                 if rel is not None and t_b_s > 0.05:
                     cand_vx = (float(anchor[0]) - float(rel[0])) / t_b_s
                     cand_vy = (float(anchor[1]) - float(rel[1])) / t_b_s
-                    if 10.0 < abs(cand_vx) < 50.0:
+                    if 5.0 < abs(cand_vx) < 50.0:
                         new_vx = cand_vx
                         new_vy = cand_vy
                         new_y0 = float(rel[1])
@@ -1215,6 +1201,7 @@ def reconstruct_trajectory(
                         f"world=({anchor[0]:.2f},{anchor[1]:.2f})"
                     ],
                 )
+
 
     bounce_index: int | None = None
     impact_index: int | None = None
@@ -1278,17 +1265,17 @@ def predict_path_to_stumps(
 ) -> list[tuple[float, float, float, float]]:
     """Forward-extrapolate the projectile from impact to the stump plane.
 
-    Returns a list of (t_ms_relative_to_fit_origin, x, y, z) — useful for
-    drawing the predicted continuation of the trajectory in the 3D viewer.
+    Uses the bounce-aware projectile fit: pre-bounce dynamics if the impact
+    falls before the bounce, otherwise the post-bounce branch with vz reset
+    by the coefficient of restitution. Returns ``(t_ms_rel_to_fit_origin,
+    x, y, z)`` tuples — the overlay builder's contract.
     """
     impact_s = impact_t_ms / 1000.0
 
-    # Determine velocities at the impact moment (after bounce if applicable).
     if fit.bounce_t_ms is not None and impact_s > fit.bounce_t_ms / 1000.0:
         t_b = fit.bounce_t_ms / 1000.0
         vz_at_b = fit.vz - GRAVITY_MS2 * t_b
         vz_post_at_bounce = -COEFFICIENT_OF_RESTITUTION_Z * vz_at_b
-        # State at impact:
         tp_at_impact = impact_s - t_b
         x_imp = (fit.x0 + fit.vx * t_b) + fit.vx * tp_at_impact
         y_imp = (fit.y0 + fit.vy * t_b) + fit.vy * tp_at_impact
@@ -1300,13 +1287,16 @@ def predict_path_to_stumps(
         z_imp = max(0.0, fit.z0 + fit.vz * impact_s - 0.5 * GRAVITY_MS2 * impact_s ** 2)
         vz_at_imp = fit.vz - GRAVITY_MS2 * impact_s
 
-    # Time from impact to target_x, assuming vx unchanged.
     if abs(fit.vx) < 1e-3:
         return []
     dt_to_stumps = (target_x_m - x_imp) / fit.vx
-    if dt_to_stumps < 0 or dt_to_stumps > 2.0:
-        # Stumps are behind the ball or far away; skip.
+    if dt_to_stumps > 2.0:
         return []
+    # If the ball has already crossed the stump plane at impact (DRS late
+    # interception cases), show a short forward continuation so the user
+    # still sees the predicted direction past the bat.
+    if dt_to_stumps < 0:
+        dt_to_stumps = 0.2
 
     out: list[tuple[float, float, float, float]] = []
     for i in range(1, n_steps + 1):

@@ -180,6 +180,15 @@ def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], ar
 
     last_stage: str | None = None
     last_pct: int | None = None
+    # The pipeline calls `progress(pct, stage)` per decoded frame; writing the
+    # status JSON to disk on every call serialises the worker on a hot atomic
+    # rename and visibly stalls the client at the first decode checkpoint
+    # (typically ~6%) when the file is on slow storage. Coalesce updates: only
+    # flush to disk when the integer percent moves or the stage label changes.
+    # Internal frame-level updates still call this; the worker just batches
+    # them between the meaningful boundaries the client polls for.
+    last_written_pct: int | None = None
+    last_written_stage: str | None = None
 
     with job_log_context(job_id=job_id, artifacts_dir=artifacts_dir) as job_log:
         job_log.info(
@@ -191,13 +200,16 @@ def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], ar
         )
 
         def progress(pct: int, stage: str) -> None:
-            nonlocal last_stage, last_pct
-            _store.write_status(
-                paths,
-                status=JobStatus.running,
-                progress=ProgressInfo(pct=pct, stage=stage),
-                error=None,
-            )
+            nonlocal last_stage, last_pct, last_written_pct, last_written_stage
+            if pct != last_written_pct or stage != last_written_stage:
+                _store.write_status(
+                    paths,
+                    status=JobStatus.running,
+                    progress=ProgressInfo(pct=pct, stage=stage),
+                    error=None,
+                )
+                last_written_pct = pct
+                last_written_stage = stage
 
             if stage != last_stage or last_pct is None or abs(pct - last_pct) >= 10:
                 job_log.info("Progress: %d%% - %s", pct, stage)
@@ -343,6 +355,30 @@ def get_job_result(job_id: str, authorization: str | None = Header(None)) -> Job
 
     result = _store.read_result(paths)
     return JobResultResponse(job_id=job_id, status=status, result=result, error=None)
+
+
+@app.get("/v1/jobs/{job_id}/three-d", response_class=Response)
+def get_job_three_d(job_id: str, token: str | None = None, authorization: str | None = Header(None)):
+    """Render the Three.js Hawk-Eye viewer as a self-contained HTML page.
+
+    Auth is accepted via the standard ``Authorization: Bearer`` header OR a
+    ``?token=`` query string, since the app opens the URL in a new browser
+    tab where custom headers are awkward to attach. The token is the same
+    Firebase ID token the app uses for ``/v1/jobs`` calls.
+    """
+    bearer = authorization or (f"Bearer {token}" if token else None)
+    user_id = _require_user_id(bearer)
+    if not _store.exists(job_id):
+        raise HTTPException(status_code=404, detail="Job not found")
+    paths = _store.job_paths(job_id)
+    if _store.read_owner_user_id(paths) != user_id:
+        raise HTTPException(status_code=404, detail="Job not found")
+    status_raw = _store.read_status(paths)
+    if JobStatus(status_raw["status"]) != JobStatus.succeeded:
+        raise HTTPException(status_code=409, detail="Job not finished")
+    result = _store.read_result(paths)
+    from .three_d_viewer import render_html
+    return Response(content=render_html(result), media_type="text/html")
 
 
 @app.get("/v1/jobs/{job_id}/artifacts/{name}")

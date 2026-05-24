@@ -3,6 +3,7 @@ import 'package:video_player/video_player.dart';
 
 import '../api/analysis_result.dart';
 import '../theme/app_colors.dart';
+import '../utils/app_settings.dart';
 import '../utils/video_controller_factory.dart';
 
 /// Broadcast-style result view: the source clip with the Hawk-Eye overlay drawn
@@ -30,6 +31,7 @@ class TrajectoryVideoView extends StatefulWidget {
 class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
   VideoPlayerController? _controller;
   String? _error;
+  SpeedUnit _speedUnit = SpeedUnit.kmh;
 
   int _windowStartMs = 0;
   int _windowEndMs = 1 << 30;
@@ -38,6 +40,12 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
   void initState() {
     super.initState();
     _initVideo();
+    _loadSpeedUnit();
+  }
+
+  Future<void> _loadSpeedUnit() async {
+    final u = await AppSettings.getSpeedUnit();
+    if (mounted && u != _speedUnit) setState(() => _speedUnit = u);
   }
 
   Future<void> _initVideo() async {
@@ -138,7 +146,11 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
               Positioned(
                 top: 14,
                 left: 12,
-                child: _MetricStack(metrics: metrics, decision: widget.decision),
+                child: _MetricStack(
+                  metrics: metrics,
+                  decision: widget.decision,
+                  speedUnit: _speedUnit,
+                ),
               ),
             Positioned(
               right: 8,
@@ -177,6 +189,7 @@ class _OverlayPainter extends CustomPainter {
   final int nowMs;
 
   static const _gold = Color(0xFFEAC785);
+  static const _predictedYellow = Color(0xFFFFD166);
   static const _corridorFill = Color(0x553C74E0);
   static const _corridorEdge = Color(0xAA6E9BF0);
 
@@ -186,20 +199,9 @@ class _OverlayPainter extends CustomPainter {
     final sy = size.height / imageHeight;
     Offset map(Offset p) => Offset(p.dx * sx, p.dy * sy);
 
-    // Pitch corridor on the ground (drawn first, under everything).
-    if (overlay.corridor.length >= 3) {
-      final path = Path()..moveTo(map(overlay.corridor.first).dx, map(overlay.corridor.first).dy);
-      for (final p in overlay.corridor.skip(1)) {
-        final o = map(p);
-        path.lineTo(o.dx, o.dy);
-      }
-      path.close();
-      canvas.drawPath(path, Paint()..color = _corridorFill);
-      canvas.drawPath(path, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0
-        ..color = _corridorEdge);
-    }
+    // Corridor / pitching-area strip intentionally omitted from the live
+    // overlay — the user wanted a clean ball trajectory with no
+    // competing geometry. The verdict chip carries the LBW result.
 
     // Stumps: bowler end faint, striker (batsman) end prominent gold.
     if (overlay.bowlerStumps != null) {
@@ -211,18 +213,20 @@ class _OverlayPainter extends CustomPainter {
           color: _gold, width: 5.0, prominent: true);
     }
 
-    // Ball path — one continuous red line (release → bounce → impact), with the
-    // predicted continuation to the stumps dashed. Matches the FullTrack red arc.
+    // Tracked path = solid red (release → bounce → bat impact).
+    // Predicted path = dashed yellow (post-impact continuation to stumps).
+    // Two distinct colours so the eye separates "what the ball did" from
+    // "what the ball would have done if no bat".
     final flight = [for (final p in overlay.path) if (!p.predicted) map(p.px)];
     final predicted = <Offset>[
       if (overlay.impact != null) map(overlay.impact!.px),
       for (final p in overlay.path) if (p.predicted) map(p.px),
     ];
-    _drawDashed(canvas, predicted, AppColors.signalRed.withValues(alpha: 0.8), 3.0);
+    _drawDashed(canvas, predicted, _predictedYellow, 3.5);
     _drawPolyline(canvas, flight, AppColors.signalRed, 4.5, glow: true);
 
     if (overlay.bounce != null) {
-      _drawPitchMarker(canvas, map(overlay.bounce!.px));
+      _drawBouncePin(canvas, map(overlay.bounce!.px));
     }
     if (overlay.impact != null) {
       _drawDot(canvas, map(overlay.impact!.px), _gold, 5.0);
@@ -317,13 +321,10 @@ class _OverlayPainter extends CustomPainter {
     }
   }
 
-  void _drawPitchMarker(Canvas canvas, Offset c) {
-    canvas.drawCircle(c, 10.0, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
-      ..color = AppColors.signalRed);
+  /// Bounce point — a solid red dot, no label.
+  void _drawBouncePin(Canvas canvas, Offset c) {
+    canvas.drawCircle(c, 6.0, Paint()..color = AppColors.signalRed.withValues(alpha: 0.30));
     canvas.drawCircle(c, 4.0, Paint()..color = AppColors.signalRed);
-    _label(canvas, c + const Offset(13, -8), 'PITCH', AppColors.signalRed);
   }
 
   void _drawDot(Canvas canvas, Offset c, Color color, double r) {
@@ -348,37 +349,31 @@ class _OverlayPainter extends CustomPainter {
 }
 
 class _MetricStack extends StatelessWidget {
-  const _MetricStack({required this.metrics, required this.decision});
+  const _MetricStack({
+    required this.metrics,
+    required this.decision,
+    required this.speedUnit,
+  });
   final DeliveryMetrics metrics;
   final String? decision;
+  final SpeedUnit speedUnit;
 
   @override
   Widget build(BuildContext context) {
+    final speedValue = speedUnit == SpeedUnit.mph
+        ? metrics.speedMph
+        : metrics.speedKmh;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _MetricCard(
           icon: Icons.speed_rounded,
           label: 'Speed',
-          value: metrics.speedMph.toStringAsFixed(0),
-          unit: 'mph',
-        ),
-        const SizedBox(height: 8),
-        _MetricCard(
-          icon: Icons.rotate_right_rounded,
-          label: 'Spin',
-          value: metrics.spinDeg.toStringAsFixed(1),
-          unit: '°',
-        ),
-        const SizedBox(height: 8),
-        _MetricCard(
-          icon: Icons.air_rounded,
-          label: 'Swing',
-          value: metrics.swingSf.toStringAsFixed(1),
-          unit: 'sf',
+          value: speedValue.toStringAsFixed(0),
+          unit: speedUnit.label,
         ),
         if (decision != null) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           _DecisionChip(decision: decision!),
         ],
       ],
@@ -401,11 +396,11 @@ class _MetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 124,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      width: 96,
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xCC101012),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0x22FFFFFF)),
       ),
       child: Column(
@@ -419,15 +414,15 @@ class _MetricCard extends StatelessWidget {
                 label.toUpperCase(),
                 style: const TextStyle(
                   color: AppColors.ash,
-                  fontSize: 10,
+                  fontSize: 8.5,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: 1.2,
+                  letterSpacing: 1.1,
                 ),
               ),
-              Icon(icon, size: 15, color: AppColors.ash),
+              Icon(icon, size: 12, color: AppColors.ash),
             ],
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 2),
           Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
@@ -436,17 +431,17 @@ class _MetricCard extends StatelessWidget {
                 value,
                 style: const TextStyle(
                   color: AppColors.bone,
-                  fontSize: 22,
+                  fontSize: 16,
                   fontWeight: FontWeight.w800,
                   height: 1.0,
                 ),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 3),
               Text(
                 unit,
                 style: const TextStyle(
                   color: AppColors.bone,
-                  fontSize: 12,
+                  fontSize: 9.5,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -471,17 +466,17 @@ class _DecisionChip extends StatelessWidget {
       _ => (decision.toUpperCase(), AppColors.bone),
     };
     return Container(
-      width: 124,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      width: 96,
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xCC101012),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color, width: 1.4),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color, width: 1.2),
       ),
       child: Text(
         label,
         textAlign: TextAlign.center,
-        style: TextStyle(color: color, fontSize: 14, fontWeight: FontWeight.w800, letterSpacing: 1.4),
+        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.2),
       ),
     );
   }
