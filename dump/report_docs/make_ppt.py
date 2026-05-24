@@ -1,15 +1,12 @@
-"""Build the PocketDRS final-defense presentation.
+"""Build the PocketDRS final-defense presentation on top of the BIT template.
 
-Modern, minimal, dark-themed deck for a final-year project defense.
-Design system:
-  - 16:9 (13.33in x 7.5in), background #0d1117 (deep charcoal)
-  - Accents: #fbbf24 gold (highlight), #22c55e green (pass), #ef4444 red (fail)
-  - Body text #f5f5f5 white, captions #9ca3af muted grey
-  - Single sans-serif family (Inter; falls back to Calibri).
-  - Title 36pt, body 22pt, caption 16pt. Never below 14pt.
-  - 8% inner margin. One concept per slide. <= 4 bullets, <= 10 words each.
+The official Lincoln-University / Phoenix-College BIT project deck
+(`dump/BIT Project PPT Sample.pptx`) carries the approved master, theme,
+fonts, and 16:9 slide size (10.00 x 5.625 in). We open it, strip its two
+sample slides, and rebuild 18 defense slides using the master's named
+layouts so the theme styling travels with every slide.
 
-Reproducible: re-run to regenerate dump/report_docs/pocketdrs_presentation.pptx.
+Re-run to regenerate `dump/report_docs/pocketdrs_presentation.pptx`.
 Requires python-pptx (server venv).
 """
 
@@ -18,614 +15,397 @@ from __future__ import annotations
 from pathlib import Path
 
 from pptx import Presentation
-from pptx.dml.color import RGBColor
-from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.util import Emu, Inches, Pt
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 
 BASE = Path(__file__).resolve().parent
+TEMPLATE = BASE.parent / "BIT Project PPT Sample.pptx"
 FIG = BASE / "figures"
 OUT = BASE / "pocketdrs_presentation.pptx"
 
-# --- Design tokens ----------------------------------------------------------
-BG       = RGBColor(0x0D, 0x11, 0x17)   # deep charcoal
-SURFACE  = RGBColor(0x16, 0x1B, 0x22)   # slightly lifted card
-BORDER   = RGBColor(0x30, 0x36, 0x3D)   # hairline divider
-TEXT     = RGBColor(0xF5, 0xF5, 0xF5)   # primary white
-MUTED    = RGBColor(0x9C, 0xA3, 0xAF)   # caption grey
-GOLD     = RGBColor(0xFB, 0xBF, 0x24)   # highlight / accent
-GREEN    = RGBColor(0x22, 0xC5, 0x5E)   # pass
-RED      = RGBColor(0xEF, 0x44, 0x44)   # fail
-
-FONT = "Inter"   # PowerPoint falls back to Calibri if Inter not installed.
-
-# --- Layout grid (16:9) -----------------------------------------------------
-SLIDE_W = Inches(13.33)
-SLIDE_H = Inches(7.5)
-MARGIN  = Inches(1.07)              # ~8% of width
-TITLE_TOP = Inches(0.65)
-TITLE_H   = Inches(0.85)
-RULE_Y    = Inches(1.55)            # gold underline below title
-BODY_TOP  = Inches(1.95)
-BODY_H    = SLIDE_H - BODY_TOP - Inches(0.80)
-CONTENT_W = SLIDE_W - 2 * MARGIN
-
-# --- Presentation -----------------------------------------------------------
-prs = Presentation()
-prs.slide_width = SLIDE_W
-prs.slide_height = SLIDE_H
-BLANK = prs.slide_layouts[6]
+MUTED = RGBColor(0x60, 0x60, 0x60)
 
 
 # ---------------------------------------------------------------------------
-# Primitives
+# Template helpers
 # ---------------------------------------------------------------------------
-def _new_slide():
-    slide = prs.slides.add_slide(BLANK)
-    bg = slide.background
-    bg.fill.solid()
-    bg.fill.fore_color.rgb = BG
-    return slide
+def open_template() -> Presentation:
+    prs = Presentation(str(TEMPLATE))
+    # Drop the two sample slides cleanly. Removing entries from
+    # `_sldIdLst` alone leaves orphan slide parts in the zip and produces
+    # duplicate-name warnings when we add fresh slides; we also have to
+    # drop the part + its presentation-level relationship.
+    pres_part = prs.part
+    sld_id_lst = prs.slides._sldIdLst
+    for sld_id in list(sld_id_lst):
+        rId = sld_id.get(
+            "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+        )
+        slide_part = pres_part.related_part(rId)
+        # Drop the relationship so the part is no longer referenced.
+        pres_part.drop_rel(rId)
+        # Also drop the part from the package so it isn't re-serialised.
+        try:
+            del prs.part.package._parts[slide_part.partname]
+        except (AttributeError, KeyError):
+            pass
+        sld_id_lst.remove(sld_id)
+    return prs
 
 
-def _text(slide, x, y, w, h, text, *, size=22, bold=False, color=TEXT,
-          align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP, italic=False):
-    tb = slide.shapes.add_textbox(x, y, w, h)
+def layout(prs: Presentation, name: str):
+    for lay in prs.slide_masters[0].slide_layouts:
+        if lay.name == name:
+            return lay
+    raise KeyError(f"layout {name!r} not in template")
+
+
+def set_placeholder_text(ph, lines: list[tuple[str, dict]]):
+    """Write multi-paragraph text into a placeholder.
+
+    `lines` is a list of (text, opts) where opts may set `bold`, `size`,
+    `align`. The layout-defined font family is preserved.
+    """
+    tf = ph.text_frame
+    tf.word_wrap = True
+    for i, (text, opts) in enumerate(lines):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        # Clear default runs on first paragraph.
+        for r in list(p.runs):
+            r.text = ""
+        align = opts.get("align")
+        if align is not None:
+            p.alignment = align
+        run = p.add_run()
+        run.text = text
+        if "bold" in opts:
+            run.font.bold = opts["bold"]
+        if "size" in opts:
+            run.font.size = Pt(opts["size"])
+        if "color" in opts:
+            run.font.color.rgb = opts["color"]
+
+
+def set_bullets(ph, bullets: list[str], *, size: int | None = None):
+    """Write plain bullet text into a body placeholder.
+
+    The body placeholder already carries the bullet styling from the
+    master (Arial / Calibri, 18 pt, dot bullets). We just feed it text.
+    """
+    tf = ph.text_frame
+    tf.word_wrap = True
+    for i, line in enumerate(bullets):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        for r in list(p.runs):
+            r.text = ""
+        run = p.add_run()
+        run.text = line
+        if size is not None:
+            run.font.size = Pt(size)
+
+
+# ---------------------------------------------------------------------------
+# Image helpers
+# ---------------------------------------------------------------------------
+def _fit_dims(img: Path, max_w_emu: int, max_h_emu: int) -> tuple[int, int]:
+    from PIL import Image
+    with Image.open(img) as im:
+        iw, ih = im.size
+    ar = iw / ih
+    w = max_w_emu
+    h = int(w / ar)
+    if h > max_h_emu:
+        h = max_h_emu
+        w = int(h * ar)
+    return w, h
+
+
+def add_image_in_box(slide, img: Path, left: int, top: int, width: int, height: int):
+    """Center-fit `img` inside the given EMU box. No-op if image missing."""
+    if not img.exists():
+        return None
+    w, h = _fit_dims(img, width, height)
+    x = left + (width - w) // 2
+    y = top + (height - h) // 2
+    return slide.shapes.add_picture(str(img), x, y, width=w, height=h)
+
+
+def add_caption(slide, text: str, left: int, top: int, width: int, height: int):
+    tb = slide.shapes.add_textbox(left, top, width, height)
     tf = tb.text_frame
     tf.word_wrap = True
-    tf.auto_size = MSO_AUTO_SIZE.NONE
-    tf.vertical_anchor = anchor
     tf.margin_left = tf.margin_right = Emu(0)
-    tf.margin_top = tf.margin_bottom = Emu(0)
     p = tf.paragraphs[0]
-    p.alignment = align
+    p.alignment = PP_ALIGN.CENTER
     run = p.add_run()
     run.text = text
-    run.font.name = FONT
-    run.font.size = Pt(size)
-    run.font.bold = bold
-    run.font.italic = italic
-    run.font.color.rgb = color
+    run.font.size = Pt(12)
+    run.font.italic = True
+    run.font.color.rgb = MUTED
     return tb
 
 
-def _rect(slide, x, y, w, h, fill=SURFACE, line=None):
-    shp = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, h)
-    shp.fill.solid()
-    shp.fill.fore_color.rgb = fill
-    if line is None:
-        shp.line.fill.background()
-    else:
-        shp.line.color.rgb = line
-        shp.line.width = Pt(0.75)
-    shp.shadow.inherit = False
-    return shp
-
-
-def _title_block(slide, title, eyebrow=None):
-    if eyebrow:
-        _text(slide, MARGIN, Inches(0.40), CONTENT_W, Inches(0.30),
-              eyebrow.upper(), size=12, bold=True, color=GOLD)
-    _text(slide, MARGIN, TITLE_TOP, CONTENT_W, TITLE_H,
-          title, size=32, bold=True, color=TEXT, anchor=MSO_ANCHOR.MIDDLE)
-    # Gold accent rule.
-    _rect(slide, MARGIN, RULE_Y, Inches(0.6), Pt(3), fill=GOLD)
-
-
-def _bullets(slide, x, y, w, h, items, *, size=22, line_spacing=1.25,
-             space_after=10, color=TEXT):
-    """Clean bullet list, one bullet per line, generous spacing."""
-    tb = slide.shapes.add_textbox(x, y, w, h)
-    tf = tb.text_frame
-    tf.word_wrap = True
-    tf.auto_size = MSO_AUTO_SIZE.NONE
-    tf.vertical_anchor = MSO_ANCHOR.TOP
-    tf.margin_left = tf.margin_right = Emu(0)
-    tf.margin_top = tf.margin_bottom = Emu(0)
-    for i, item in enumerate(items):
-        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-        p.alignment = PP_ALIGN.LEFT
-        p.line_spacing = line_spacing
-        p.space_after = Pt(space_after)
-        # Gold dot
-        r1 = p.add_run()
-        r1.text = "•   "
-        r1.font.name = FONT
-        r1.font.size = Pt(size)
-        r1.font.bold = True
-        r1.font.color.rgb = GOLD
-        # Body
-        r2 = p.add_run()
-        r2.text = item
-        r2.font.name = FONT
-        r2.font.size = Pt(size)
-        r2.font.color.rgb = color
-
-
-def _fit_image(img: Path, max_w: int, max_h: int) -> tuple[int, int]:
-    """Aspect-correct fit using Pillow (avoids OpenCV dep)."""
-    from PIL import Image
-    with Image.open(img) as im:
-        w, h = im.size
-    ar = w / h
-    width, height = max_w, int(max_w / ar)
-    if height > max_h:
-        height, width = max_h, int(max_h * ar)
-    return width, height
-
-
-def _add_image_or_placeholder(slide, img: Path, x, y, w, h, *, caption=None):
-    """Center-fits image into the (x,y,w,h) box. Placeholder card if missing."""
-    if not img.exists():
-        _rect(slide, x, y, w, h, fill=SURFACE, line=BORDER)
-        _text(slide, x, y, w, h, f"[ {img.name} ]",
-              size=14, color=MUTED, align=PP_ALIGN.CENTER,
-              anchor=MSO_ANCHOR.MIDDLE, italic=True)
-    else:
-        iw, ih = _fit_image(img, int(w), int(h))
-        left = int(x) + (int(w) - iw) // 2
-        top  = int(y) + (int(h) - ih) // 2
-        slide.shapes.add_picture(str(img), left, top, width=iw, height=ih)
-    if caption:
-        _text(slide, x, y + h + Inches(0.10), w, Inches(0.30),
-              caption, size=14, color=MUTED, align=PP_ALIGN.CENTER)
-
-
-def _page_footer(slide, n, total):
-    _text(slide, MARGIN, SLIDE_H - Inches(0.45),
-          CONTENT_W, Inches(0.25),
-          f"PocketDRS  |  Niraj Kafle  |  {n:02d} / {total:02d}",
-          size=11, color=MUTED, align=PP_ALIGN.LEFT)
-
-
 # ---------------------------------------------------------------------------
-# Slide templates
+# Slide builders
 # ---------------------------------------------------------------------------
-def slide_title():
-    slide = _new_slide()
-    # Big brand mark
-    _text(slide, MARGIN, Inches(2.10), CONTENT_W, Inches(1.40),
-          "PocketDRS", size=84, bold=True, color=TEXT,
-          align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.MIDDLE)
-    # Gold rule
-    _rect(slide, MARGIN, Inches(3.55), Inches(0.9), Pt(4), fill=GOLD)
-    # Subtitle
-    _text(slide, MARGIN, Inches(3.85), CONTENT_W, Inches(0.55),
-          "Phone-Based Hawk-Eye LBW Decision Review System",
-          size=24, color=MUTED, align=PP_ALIGN.LEFT)
+def s_title(prs):
+    slide = prs.slides.add_slide(layout(prs, "TITLE"))
+    title = slide.placeholders[0]
+    subtitle = slide.placeholders[1]
 
-    # Author block bottom-right
-    box_w, box_h = Inches(5.0), Inches(1.6)
-    box_x = SLIDE_W - MARGIN - box_w
-    box_y = SLIDE_H - Inches(0.8) - box_h
-    lines = [
-        ("Niraj Kafle", 16, True, TEXT),
-        ("BIT, 7th Semester", 14, False, MUTED),
-        ("Lincoln University / Phoenix College, Kathmandu", 14, False, MUTED),
-        ("Student ID: LC0003001674", 14, False, MUTED),
-        ("2026-05-24", 14, False, GOLD),
-    ]
-    tb = slide.shapes.add_textbox(box_x, box_y, box_w, box_h)
-    tf = tb.text_frame
+    title.text = ""
+    tf = title.text_frame
     tf.word_wrap = True
-    tf.margin_left = tf.margin_right = Emu(0)
-    for i, (txt, sz, bold, col) in enumerate(lines):
-        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-        p.alignment = PP_ALIGN.RIGHT
-        p.space_after = Pt(2)
-        r = p.add_run()
-        r.text = txt
-        r.font.name = FONT
-        r.font.size = Pt(sz)
-        r.font.bold = bold
-        r.font.color.rgb = col
-
-
-def slide_problem():
-    slide = _new_slide()
-    _title_block(slide, "The Problem", eyebrow="01  /  Motivation")
-    # Two-column statement. Left big quote, right supporting line.
-    quote_w = int(CONTENT_W * 0.62)
-    _text(slide, MARGIN, BODY_TOP + Inches(0.30),
-          quote_w, Inches(3.5),
-          "Cricket umpires get LBW decisions wrong.",
-          size=38, bold=True, color=TEXT, anchor=MSO_ANCHOR.TOP)
-    _text(slide, MARGIN, BODY_TOP + Inches(1.70),
-          quote_w, Inches(2.0),
-          "Real Hawk-Eye costs $250,000+ and needs six synchronised high-speed cameras.",
-          size=22, color=MUTED, anchor=MSO_ANCHOR.TOP)
-
-    # Right side: stat card
-    card_x = MARGIN + quote_w + Inches(0.4)
-    card_w = CONTENT_W - quote_w - Inches(0.4)
-    _rect(slide, card_x, BODY_TOP + Inches(0.30),
-          card_w, Inches(3.6), fill=SURFACE, line=BORDER)
-    _text(slide, card_x, BODY_TOP + Inches(0.55),
-          card_w, Inches(0.6),
-          "HAWK-EYE TODAY", size=12, bold=True,
-          color=GOLD, align=PP_ALIGN.CENTER)
-    _text(slide, card_x, BODY_TOP + Inches(1.10),
-          card_w, Inches(1.2),
-          "6", size=96, bold=True, color=TEXT,
-          align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
-    _text(slide, card_x, BODY_TOP + Inches(2.40),
-          card_w, Inches(0.5),
-          "synchronised cameras",
-          size=18, color=MUTED, align=PP_ALIGN.CENTER)
-    _text(slide, card_x, BODY_TOP + Inches(3.05),
-          card_w, Inches(0.5),
-          "$250,000+ per ground",
-          size=16, color=MUTED, align=PP_ALIGN.CENTER, italic=True)
-
-
-def slide_what_it_does():
-    slide = _new_slide()
-    _title_block(slide, "What PocketDRS Does", eyebrow="02  /  Overview")
-    cards = [
-        ("01", "Record one phone video", GOLD),
-        ("02", "Tap pitch corners + stumps", GOLD),
-        ("03", "Get OUT / NOT OUT verdict", GOLD),
-    ]
-    gap = Inches(0.35)
-    cw = int((CONTENT_W - gap * 2) / 3)
-    ch = Inches(3.6)
-    cy = BODY_TOP + Inches(0.40)
-    for i, (num, label, accent) in enumerate(cards):
-        cx = MARGIN + i * (cw + gap)
-        _rect(slide, cx, cy, cw, ch, fill=SURFACE, line=BORDER)
-        _text(slide, cx, cy + Inches(0.40), cw, Inches(0.6),
-              num, size=14, bold=True, color=accent,
-              align=PP_ALIGN.CENTER)
-        _text(slide, cx + Inches(0.40), cy + Inches(1.20),
-              cw - Inches(0.80), Inches(2.0),
-              label, size=26, bold=True, color=TEXT,
-              align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
-    _text(slide, MARGIN, cy + ch + Inches(0.30),
-          CONTENT_W, Inches(0.45),
-          "Output includes an interactive 3D Hawk-Eye view.",
-          size=16, color=MUTED, align=PP_ALIGN.CENTER, italic=True)
-
-
-def slide_architecture():
-    slide = _new_slide()
-    _title_block(slide, "System Architecture", eyebrow="03  /  Architecture")
-    img_w = int(CONTENT_W)
-    img_h = int(BODY_H - Inches(0.6))
-    _add_image_or_placeholder(slide, FIG / "architecture.png",
-                              MARGIN, BODY_TOP + Inches(0.10),
-                              img_w, img_h)
-    _text(slide, MARGIN, BODY_TOP + img_h + Inches(0.25),
-          CONTENT_W, Inches(0.35),
-          "Flutter app  →  FastAPI backend  →  CV pipeline  →  Three.js viewer",
-          size=16, color=MUTED, align=PP_ALIGN.CENTER, italic=True)
-
-
-def slide_pipeline_overview():
-    slide = _new_slide()
-    _title_block(slide, "The Pipeline — 5 Steps",
-                 eyebrow="04  /  Algorithm")
-    steps = [
-        ("1", "Calibrate camera from taps (PnP)"),
-        ("2", "Detect ball each frame (motion + colour + YOLO)"),
-        ("3", "Link detections into one path (RANSAC)"),
-        ("4", "Lift 2D path to 3D (depth from size + gravity)"),
-        ("5", "Apply ICC Rule 36 (pitched / impact / hitting)"),
-    ]
-    row_h = Inches(0.78)
-    gap_y = Inches(0.12)
-    total_h = len(steps) * row_h + (len(steps) - 1) * gap_y
-    y = BODY_TOP + (BODY_H - total_h) // 2
-    for i, (num, label) in enumerate(steps):
-        ry = y + i * (row_h + gap_y)
-        # number disc
-        _rect(slide, MARGIN, ry, Inches(0.78), row_h, fill=GOLD)
-        _text(slide, MARGIN, ry, Inches(0.78), row_h,
-              num, size=28, bold=True, color=BG,
-              align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
-        # label
-        _text(slide, MARGIN + Inches(1.10), ry,
-              CONTENT_W - Inches(1.10), row_h,
-              label, size=22, color=TEXT,
-              anchor=MSO_ANCHOR.MIDDLE)
-
-
-def slide_split_bullets(eyebrow, title, image: Path, bullets, caption=None):
-    """Image left (55% of content), bullets right; optional caption strip."""
-    slide = _new_slide()
-    _title_block(slide, title, eyebrow=eyebrow)
-    img_w = int(CONTENT_W * 0.55)
-    txt_x = MARGIN + img_w + Inches(0.40)
-    txt_w = CONTENT_W - img_w - Inches(0.40)
-
-    cap_h = Inches(0.40) if caption else Inches(0.0)
-    img_box_h = int(BODY_H - cap_h - (Inches(0.10) if caption else 0))
-    _add_image_or_placeholder(slide, image,
-                              MARGIN, BODY_TOP,
-                              img_w, img_box_h)
-    _bullets(slide, txt_x, BODY_TOP + Inches(0.20),
-             txt_w, BODY_H,
-             bullets, size=20, line_spacing=1.25, space_after=14)
-    if caption:
-        _text(slide, MARGIN, BODY_TOP + img_box_h + Inches(0.10),
-              img_w, cap_h,
-              caption, size=14, color=MUTED,
-              align=PP_ALIGN.CENTER, italic=True)
-
-
-def slide_lbw_logic():
-    slide = _new_slide()
-    _title_block(slide, "Step 5 — LBW Decision (ICC Rule 36)",
-                 eyebrow="09  /  Decision logic")
-    checks = [
-        ("Pitched in line?", "Bounce inside leg-stump line"),
-        ("Impact in line?", "Pad strike inside stump corridor"),
-        ("Hitting stumps?", "Predicted path intersects stumps"),
-    ]
-    gap = Inches(0.30)
-    cw = int((CONTENT_W - gap * 2) / 3)
-    ch = Inches(2.4)
-    cy = BODY_TOP + Inches(0.15)
-    for i, (q, sub) in enumerate(checks):
-        cx = MARGIN + i * (cw + gap)
-        _rect(slide, cx, cy, cw, ch, fill=SURFACE, line=BORDER)
-        _text(slide, cx, cy + Inches(0.35), cw, Inches(0.5),
-              f"CHECK {i+1}", size=12, bold=True, color=GOLD,
-              align=PP_ALIGN.CENTER)
-        _text(slide, cx + Inches(0.30), cy + Inches(0.90),
-              cw - Inches(0.60), Inches(0.7),
-              q, size=22, bold=True, color=TEXT,
-              align=PP_ALIGN.CENTER)
-        _text(slide, cx + Inches(0.30), cy + Inches(1.60),
-              cw - Inches(0.60), Inches(0.6),
-              sub, size=14, color=MUTED, align=PP_ALIGN.CENTER, italic=True)
-
-    # Verdict strip
-    strip_y = cy + ch + Inches(0.40)
-    strip_h = Inches(1.0)
-    _rect(slide, MARGIN, strip_y, CONTENT_W, strip_h,
-          fill=SURFACE, line=BORDER)
-    # Three coloured tokens inline
-    tb = slide.shapes.add_textbox(MARGIN, strip_y, CONTENT_W, strip_h)
-    tf = tb.text_frame
-    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-    tf.margin_left = Emu(0); tf.margin_right = Emu(0)
     p = tf.paragraphs[0]
     p.alignment = PP_ALIGN.CENTER
+    r = p.add_run()
+    r.text = "PocketDRS"
+    r.font.bold = True
+    r.font.size = Pt(43)
+    p2 = tf.add_paragraph()
+    p2.alignment = PP_ALIGN.CENTER
+    r2 = p2.add_run()
+    r2.text = "Phone-Based Hawk-Eye LBW Decision Review System"
+    r2.font.bold = True
+    r2.font.size = Pt(24)
 
-    def _seg(text, color, bold=True, size=20):
-        r = p.add_run()
-        r.text = text
-        r.font.name = FONT
-        r.font.size = Pt(size)
-        r.font.bold = bold
-        r.font.color.rgb = color
-
-    _seg("All three YES → ", TEXT, bold=False)
-    _seg("OUT", GREEN)
-    _seg("     Hairline → ", TEXT, bold=False)
-    _seg("UMPIRES CALL", GOLD)
-    _seg("     Any NO → ", TEXT, bold=False)
-    _seg("NOT OUT", RED)
-
-
-def slide_decisions_grid():
-    slide = _new_slide()
-    _title_block(slide, "Live App — Three Verdicts",
-                 eyebrow="10  /  Output")
-    imgs = [
-        (FIG / "case_out.png", "OUT", GREEN),
-        (FIG / "case_not_out.png", "NOT OUT", RED),
-        (FIG / "case_umpires_call.png", "UMPIRES CALL", GOLD),
+    # Subtitle: author block in the BIT "Name, BIT [tab]ID" style.
+    subtitle.text = ""
+    stf = subtitle.text_frame
+    stf.word_wrap = True
+    lines = [
+        "Niraj Kafle, BIT 7th sem",
+        "Lincoln University / Phoenix College, Kathmandu",
+        "LC0003001674  •  2026-05-24",
     ]
-    gap = Inches(0.30)
-    cw = int((CONTENT_W - gap * 2) / 3)
-    cap_h = Inches(0.55)
-    img_h = int(BODY_H - cap_h - Inches(0.15))
-    for i, (img, label, col) in enumerate(imgs):
-        cx = MARGIN + i * (cw + gap)
-        _add_image_or_placeholder(slide, img, cx, BODY_TOP, cw, img_h)
-        _text(slide, cx, BODY_TOP + img_h + Inches(0.15),
-              cw, cap_h,
-              label, size=20, bold=True, color=col,
-              align=PP_ALIGN.CENTER)
+    for i, line in enumerate(lines):
+        p = stf.paragraphs[0] if i == 0 else stf.add_paragraph()
+        p.alignment = PP_ALIGN.CENTER
+        for r in list(p.runs):
+            r.text = ""
+        run = p.add_run()
+        run.text = line
+        run.font.size = Pt(18)
 
 
-def slide_3d_view():
-    slide = _new_slide()
-    _title_block(slide, "3D Hawk-Eye View", eyebrow="13  /  Visualisation")
-    img_w = int(CONTENT_W * 0.82)
-    img_x = MARGIN + (int(CONTENT_W) - img_w) // 2
-    img_h = int(BODY_H - Inches(0.55))
-    _add_image_or_placeholder(slide, FIG / "test3_3d_path.png",
-                              img_x, BODY_TOP, img_w, img_h)
-    _text(slide, MARGIN, BODY_TOP + img_h + Inches(0.20),
-          CONTENT_W, Inches(0.35),
-          "Tracked path (solid red)  +  predicted continuation (dashed gold)  +  LBW corridor",
-          size=14, color=MUTED, align=PP_ALIGN.CENTER, italic=True)
+def s_body(prs, title: str, bullets: list[str]):
+    slide = prs.slides.add_slide(layout(prs, "TITLE_AND_BODY"))
+    slide.placeholders[0].text = title
+    set_bullets(slide.placeholders[1], bullets)
+    return slide
 
 
-def slide_hardened():
-    slide = _new_slide()
-    _title_block(slide, "What’s Hardened", eyebrow="15  /  Robustness")
-    items = [
-        ("01", "Video truncation guard for real phone HEVCs"),
-        ("02", "Calibration rejection if reprojection > 8 px"),
-        ("03", "3D fit rejection if RMS > 1.0 m"),
-        ("04", "Frame-index seeking for sparse HEVC keyframes"),
-        ("05", "Never produces a confident-wrong decision"),
-    ]
-    row_h = Inches(0.68)
-    gap_y = Inches(0.12)
-    total_h = len(items) * row_h + (len(items) - 1) * gap_y
-    y = BODY_TOP + (BODY_H - total_h) // 2
-    for i, (num, label) in enumerate(items):
-        ry = y + i * (row_h + gap_y)
-        _text(slide, MARGIN, ry, Inches(0.9), row_h,
-              num, size=20, bold=True, color=GOLD,
-              anchor=MSO_ANCHOR.MIDDLE)
-        _text(slide, MARGIN + Inches(1.05), ry,
-              CONTENT_W - Inches(1.05), row_h,
-              label, size=20, color=TEXT, anchor=MSO_ANCHOR.MIDDLE)
+def s_title_only_with_image(prs, title: str, img_name: str, caption: str | None = None):
+    slide = prs.slides.add_slide(layout(prs, "TITLE_ONLY"))
+    slide.placeholders[0].text = title
+
+    # Slide is 10 x 5.625 in. Title occupies T=0.461..1.087. Use 1.20..5.20 in
+    # for content with 0.5 in side margins.
+    left = Inches(0.5)
+    top = Inches(1.20)
+    width = Inches(9.0)
+    if caption:
+        height = Inches(3.55)
+    else:
+        height = Inches(4.00)
+    add_image_in_box(slide, FIG / img_name, left, top, width, height)
+    if caption:
+        add_caption(slide, caption,
+                    left, top + height + Inches(0.05),
+                    width, Inches(0.35))
+    return slide
 
 
-def slide_stack():
-    slide = _new_slide()
-    _title_block(slide, "Stack", eyebrow="16  /  Technology")
-    rows = [
-        ("Mobile",     "Flutter"),
-        ("Backend",    "FastAPI  +  Python"),
-        ("Computer Vision", "OpenCV  +  NumPy  +  SciPy"),
-        ("Detector",   "Ultralytics YOLO"),
-        ("3D Viewer",  "Three.js"),
-        ("Cloud",      "Firebase  ·  Cloud Run"),
-    ]
-    row_h = Inches(0.55)
-    gap_y = Inches(0.10)
-    total_h = len(rows) * row_h + (len(rows) - 1) * gap_y
-    y = BODY_TOP + (BODY_H - total_h - Inches(0.6)) // 2
-    label_w = Inches(3.6)
-    for i, (label, value) in enumerate(rows):
-        ry = y + i * (row_h + gap_y)
-        _text(slide, MARGIN, ry, label_w, row_h,
-              label.upper(), size=14, bold=True, color=GOLD,
-              anchor=MSO_ANCHOR.MIDDLE)
-        _text(slide, MARGIN + label_w, ry,
-              CONTENT_W - label_w, row_h,
-              value, size=22, color=TEXT, anchor=MSO_ANCHOR.MIDDLE)
-    _text(slide, MARGIN, y + total_h + Inches(0.35),
-          CONTENT_W, Inches(0.35),
-          "All free-tier friendly. A single phone is the only hardware.",
-          size=16, color=MUTED, align=PP_ALIGN.CENTER, italic=True)
+def s_two_columns_image_left(prs, title: str, img_name: str, bullets: list[str]):
+    slide = prs.slides.add_slide(layout(prs, "TITLE_AND_TWO_COLUMNS"))
+    slide.placeholders[0].text = title
 
+    # Left placeholder bounds (from master): L=0.341 T=1.26 W=4.374 H=3.736
+    left_ph = slide.placeholders[1]
+    box_left = left_ph.left
+    box_top = left_ph.top
+    box_w = left_ph.width
+    box_h = left_ph.height
+    # Clear left placeholder text (we will fill it with a picture).
+    left_ph.text = ""
+    add_image_in_box(slide, FIG / img_name, box_left, box_top, box_w, box_h)
 
-def slide_thank_you():
-    slide = _new_slide()
-    _text(slide, MARGIN, Inches(2.30), CONTENT_W, Inches(1.6),
-          "Thank You", size=80, bold=True, color=TEXT,
-          align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
-    _rect(slide, (SLIDE_W - Inches(0.9)) // 2, Inches(4.05),
-          Inches(0.9), Pt(4), fill=GOLD)
-    _text(slide, MARGIN, Inches(4.30), CONTENT_W, Inches(0.6),
-          "Questions?", size=28, color=GOLD,
-          align=PP_ALIGN.CENTER)
-    _text(slide, MARGIN, Inches(5.30), CONTENT_W, Inches(0.4),
-          "contact.me.kafle@gmail.com",
-          size=16, color=TEXT, align=PP_ALIGN.CENTER)
-    _text(slide, MARGIN, Inches(5.75), CONTENT_W, Inches(0.4),
-          "github.com/kafle1/pocket-drs",
-          size=14, color=MUTED, align=PP_ALIGN.CENTER, italic=True)
+    # Right placeholder gets the bullets.
+    right_ph = slide.placeholders[2]
+    set_bullets(right_ph, bullets)
+    return slide
 
 
 # ---------------------------------------------------------------------------
-# Build deck (18 slides)
+# Build deck
 # ---------------------------------------------------------------------------
-slide_title()                                                              # 1
-slide_problem()                                                            # 2
-slide_what_it_does()                                                       # 3
-slide_architecture()                                                       # 4
-slide_pipeline_overview()                                                  # 5
+def build():
+    prs = open_template()
 
-slide_split_bullets(                                                       # 6
-    "05  /  Step 1",
-    "Calibration",
-    FIG / "app_calibration.png",
-    [
-        "4 pitch corners + 8 stump points → solvePnP",
-        "Auto-fits camera FOV (28–86°) and pitch length",
-        "Rejects calibration if reprojection > 8 px",
-    ],
-)
+    # 1
+    s_title(prs)
 
-slide_split_bullets(                                                       # 7
-    "06  /  Step 2",
-    "Ball Detection",
-    FIG / "test3_pixel_track.png",
-    [
-        "MOG2 background subtraction + HSV colour mask",
-        "YOLO cricket-ball detector as fallback",
-        "Confidence + radius reported per frame",
-    ],
-)
+    # 2 Introduction
+    s_body(prs, "Introduction", [
+        "Amateur cricket has no review system for LBW decisions.",
+        "Real Hawk-Eye needs 6 calibrated cameras and costs > USD 250,000.",
+        "PocketDRS reconstructs the same decision from one phone video.",
+        "Goal: bring DRS-style review to clubs, schools, and net practice.",
+    ])
 
-slide_split_bullets(                                                       # 8
-    "07  /  Step 3",
-    "Trajectory Linking",
-    FIG / "test3_path_overlay.png",
-    [
-        "RANSAC over a constant-acceleration motion model",
-        "Survives detection dropouts mid-flight",
-        "Outputs a smooth (u, v) path with timestamps",
-    ],
-)
+    # 3 Problem Statement
+    s_body(prs, "Problem Statement", [
+        "Umpires must judge LBW in real time, with no replay.",
+        "Mistakes change match outcomes, especially at amateur level.",
+        "Existing alternatives need stadium-grade hardware.",
+        "No tool today turns a single phone recording into a DRS decision.",
+    ])
 
-slide_split_bullets(                                                       # 9
-    "08  /  Step 4",
-    "3D Reconstruction",
-    FIG / "test3_3d_path.png",
-    [
-        "Depth from ball size:  d = fₓ · R / r",
-        "Projectile-motion least-squares fit",
-        "Bounce reflection via Ribnick (2009) linear solve",
-        "Outputs (x, y, z) trajectory in metres",
-    ],
-)
+    # 4 Objectives
+    s_body(prs, "Objectives", [
+        "General: Build a phone-only system that decides LBW from one video.",
+        "Specific (a): Calibrate from 4 + 8 taps.",
+        "Specific (b): Detect and track the ball each frame.",
+        "Specific (c): Reconstruct the 3D trajectory.",
+        "Specific (d): Apply ICC Rule 36.",
+        "Specific (e): Render a Hawk-Eye 3D view.",
+    ])
 
-slide_lbw_logic()                                                          # 10
-slide_decisions_grid()                                                     # 11
+    # 5 Scope and Limitations
+    s_body(prs, "Scope and Limitations", [
+        "Scope: Net / amateur cricket, single phone, red ball, daylight or net lighting.",
+        "Limit: Monocular depth from ball-size cue (noisier than multi-camera).",
+        "Limit: Day / night camera-noise differences are not modelled.",
+    ])
 
-slide_split_bullets(                                                       # 12
-    "11  /  Real-world test",
-    "Real Video — test3.mp4",
-    FIG / "test3_overlay.png",
-    [
-        "Indoor net, zoomed phone (37° FOV)",
-        "29 detections, 28 RANSAC inliers",
-        "Measured speed: 64.1 km/h",
-        "Decision: NOT OUT — missing stumps",
-    ],
-    caption="Reprojection 16.6 px  ·  Length auto-fit 12.7 m",
-)
+    # 6 Methodology
+    s_body(prs, "Methodology", [
+        "Iterative incremental development across five sprints.",
+        "Each sprint adds one pipeline stage end-to-end.",
+        "Real-video regression test on every change.",
+        "Synthetic sweep documents accuracy bounds.",
+    ])
 
-slide_split_bullets(                                                       # 13
-    "12  /  Real-world test",
-    "Real Video — test4.mp4",
-    FIG / "test4_overlay.png",
-    [
-        "Indoor net, normal-FOV phone (45° pinned)",
-        "37 detections, 36 RANSAC inliers",
-        "Measured speed: 37.4 km/h",
-        "Decision: UMPIRES CALL — 0.1 cm margin",
-    ],
-    caption="Reprojection 4.1 px  ·  Length auto-fit 9.45 m",
-)
+    # 7 Literature Review
+    s_body(prs, "Literature Review (Key References)", [
+        "Owens et al. (2003) — original Hawk-Eye, 6-camera reconstruction.",
+        "Zhang (2000) — flexible checkerboard calibration.",
+        "Fischler & Bolles (1981) — RANSAC robust estimator.",
+        "Hartley & Zisserman (2004) — multi-view geometry textbook.",
+        "Ponglertnapakorn & Suwajanakorn (2025) — monocular 3D ball tracking.",
+    ])
 
-slide_3d_view()                                                            # 14
+    # 8 System Architecture (image)
+    s_title_only_with_image(prs, "System Architecture", "architecture.png")
 
-slide_split_bullets(                                                       # 15
-    "14  /  Synthetic sweep",
-    "Synthetic Validation",
-    FIG / "synth_summary.png",
-    [
-        "8 scenarios sweep speed, line and length",
-        "Pipeline tracks the ball across all 8",
-        "Speed accuracy: best 0.8 km/h, worst 8.3 km/h",
-        "Pass bar set to monocular-realistic bounds",
-    ],
-    caption="Monocular depth-from-radius cannot match six-camera Hawk-Eye — limit documented honestly",
-)
+    # 9 Data Flow Level 0
+    slide = prs.slides.add_slide(layout(prs, "TITLE_ONLY"))
+    slide.placeholders[0].text = "Data Flow — Level 0"
+    # One-line caption above image.
+    add_caption(slide,
+                "User → App → Backend → CV Pipeline → Result + 3D Viewer",
+                Inches(0.5), Inches(1.15), Inches(9.0), Inches(0.35))
+    add_image_in_box(slide, FIG / "dfd_level0.png",
+                     Inches(0.5), Inches(1.55), Inches(9.0), Inches(3.70))
 
-slide_hardened()                                                           # 16
-slide_stack()                                                              # 17
-slide_thank_you()                                                          # 18
+    # 10 ER diagram
+    s_title_only_with_image(prs, "Entity-Relationship Diagram", "er_diagram.png")
 
-# ---------------------------------------------------------------------------
-# Footers (skip title and thank-you)
-# ---------------------------------------------------------------------------
-total = len(prs.slides)
-for i, sl in enumerate(prs.slides, start=1):
-    if i in (1, total):
-        continue
-    _page_footer(sl, i, total)
+    # 11 Use-case
+    s_title_only_with_image(prs, "Use-Case Diagram", "use_case_diagram.png")
 
-prs.save(str(OUT))
-print(f"Wrote {OUT}  ({len(prs.slides)} slides)")
+    # 12 Pipeline 5 steps
+    s_body(prs, "Pipeline — 5 Steps", [
+        "1. Calibrate — solvePnP on 4 pitch corners + 8 stump-quad pts; auto-fits FOV.",
+        "2. Detect — MOG2 motion + HSV colour + ROI; YOLO fallback.",
+        "3. Link — RANSAC over constant-acceleration model; outputs (u, v, t) track.",
+        "4. Reconstruct 3D — depth = fx · R / r_px; gravity-fit + bounce reflection.",
+        "5. Decide — ICC Rule 36 (pitched / impact / hitting) + 25 mm umpire band.",
+    ])
+
+    # 13 test3.mp4
+    s_two_columns_image_left(prs, "Real-Video Test — test3.mp4",
+        "test3_overlay.png", [
+            "Indoor net, zoomed phone (37° FOV pinned).",
+            "29 detections, 28 RANSAC inliers.",
+            "Speed: 64.1 km/h",
+            "Decision: NOT OUT — missing stumps.",
+            "Reproj 16.6 px, length auto-fit 12.7 m.",
+        ])
+
+    # 14 test4.mp4
+    s_two_columns_image_left(prs, "Real-Video Test — test4.mp4",
+        "test4_overlay.png", [
+            "Indoor net, normal-FOV phone (45° pinned).",
+            "37 detections, 36 RANSAC inliers.",
+            "Speed: 37.4 km/h",
+            "Decision: UMPIRES CALL — 0.1 cm margin.",
+            "Reproj 4.1 px, length auto-fit 9.45 m.",
+        ])
+
+    # 15 3D reconstruction
+    s_title_only_with_image(prs,
+        "3D Hawk-Eye Reconstruction",
+        "test3_3d_path.png",
+        caption="Tracked path (red) + predicted continuation (gold dashed) + LBW corridor (yellow band).")
+
+    # 16 Synthetic Validation
+    s_body(prs, "Synthetic Validation", [
+        "8 scenarios swept: speed (85–140 km/h), line (off/middle/leg), length (yorker/good/short).",
+        "Best speed error 0.8 km/h. Worst 83 km/h. Median bounce error ~3 m.",
+        "0 / 8 pass the strict monocular bound (±25 km/h speed, ±100 cm position).",
+        "Monocular depth from ball-radius cannot match 6-camera Hawk-Eye.",
+        "Pipeline rejects untrustworthy fits — never returns a confident-wrong decision.",
+    ])
+
+    # 17 Conclusion
+    s_body(prs, "Conclusion", [
+        "Built end-to-end phone-only LBW DRS pipeline.",
+        "Real-video clips (test3, test4) both pass with overlay + 3D view.",
+        "Monocular accuracy is bounded; the system is honest about it.",
+        "Future: stereo phone, learned depth, real-time on-device.",
+    ])
+
+    # 18 Thank You
+    slide = prs.slides.add_slide(layout(prs, "TITLE"))
+    title = slide.placeholders[0]
+    sub = slide.placeholders[1]
+    title.text = ""
+    p = title.text_frame.paragraphs[0]
+    p.alignment = PP_ALIGN.CENTER
+    r = p.add_run()
+    r.text = "Thank You — Questions?"
+    r.font.bold = True
+    r.font.size = Pt(43)
+    sub.text = ""
+    sp = sub.text_frame.paragraphs[0]
+    sp.alignment = PP_ALIGN.CENTER
+    sr = sp.add_run()
+    sr.text = "contact.me.kafle@gmail.com"
+    sr.font.size = Pt(18)
+
+    prs.save(str(OUT))
+    return OUT
+
+
+def verify(path: Path):
+    prs = Presentation(str(path))
+    print(f"Wrote {path}")
+    print(f"Slides: {len(prs.slides)}")
+    print(f"Slide size: {prs.slide_width/914400:.2f} x {prs.slide_height/914400:.3f} in")
+    print()
+    print("Slide-by-slide:")
+    for i, sl in enumerate(prs.slides, start=1):
+        title = ""
+        for ph in sl.placeholders:
+            if ph.placeholder_format.idx == 0:
+                title = ph.text_frame.text.replace("\n", " | ")
+                break
+        n_pics = sum(1 for s in sl.shapes if s.shape_type == 13)  # PICTURE
+        print(f"  {i:02d}. layout={sl.slide_layout.name:<28} pics={n_pics}  title={title!r}")
+
+
+if __name__ == "__main__":
+    out = build()
+    verify(out)

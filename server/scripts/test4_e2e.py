@@ -229,6 +229,19 @@ def _anchored_prediction_px(raw_pts, overlay_predicted):
     return [(int(round(float(p["u"]) + du)), int(round(float(p["v"]) + dv))) for p in overlay_predicted]
 
 
+def _impact_cutoff_ms(result: dict) -> int | None:
+    """Time (ms) at which the ball loses its projectile identity — i.e. it
+    contacts the batsman, bat, pad or stumps and direction-changes. After
+    this point the detector may still latch on to the deflected ball, but
+    those samples belong to a new trajectory; the Hawk-Eye overlay should
+    stop drawing the *measured* arc here and let the dashed prediction
+    carry the line on to the stumps instead.
+    """
+    impact = ((result.get("events") or {}).get("impact") or {})
+    t = impact.get("t_ms")
+    return int(t) if t is not None else None
+
+
 def render(result: dict) -> None:
     ov = result.get("overlay") or {}
     path = ov.get("path_px") or []
@@ -239,7 +252,9 @@ def render(result: dict) -> None:
     corridor = ov.get("corridor_px") or []
     stumps = ov.get("stumps_px") or {}
 
-    raw_pts = sorted(result.get("track", {}).get("image_points") or [], key=lambda p: p["t_ms"])
+    raw_pts_all = sorted(result.get("track", {}).get("image_points") or [], key=lambda p: p["t_ms"])
+    impact_t = _impact_cutoff_ms(result)
+    raw_pts = [p for p in raw_pts_all if impact_t is None or p["t_ms"] <= impact_t]
     flight = [(p["u"], p["v"]) for p in raw_pts]
     flight_t = [p["t_ms"] for p in raw_pts]
     overlay_predicted = [pp for pp in path if pp.get("phase") == "predicted"]
@@ -250,8 +265,9 @@ def render(result: dict) -> None:
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)); H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    t_lo = flight_t[0] if flight_t else path[0]["t_ms"]
-    t_hi = flight_t[-1] if flight_t else path[-1]["t_ms"]
+    full_t = [p["t_ms"] for p in raw_pts_all]
+    t_lo = full_t[0] if full_t else path[0]["t_ms"]
+    t_hi = full_t[-1] if full_t else path[-1]["t_ms"]
     f_lo = max(0, int(t_lo / 1000.0 * fps) - 6)
     f_hi = min(total - 1, int(t_hi / 1000.0 * fps) + 6)
 
@@ -294,7 +310,10 @@ def render(result: dict) -> None:
             for a, b in zip(chain, chain[1:]):
                 _dashed(frame, a, b, RED, thick=4, dash=14, gap=10)
 
-        ball = min(raw_pts, key=lambda p: abs(p["t_ms"] - t_now))
+        # Ball marker tracks every detected position (including post-impact
+        # deflection frames) so the moving dot still follows the ball; the
+        # static red flight line above is the one that stops at impact.
+        ball = min(raw_pts_all, key=lambda p: abs(p["t_ms"] - t_now))
         cv2.circle(frame, (int(ball["u"]), int(ball["v"])), 11, WHITE, -1, cv2.LINE_AA)
         cv2.circle(frame, (int(ball["u"]), int(ball["v"])), 11, RED, 2, cv2.LINE_AA)
 

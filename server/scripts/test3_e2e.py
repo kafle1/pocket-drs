@@ -376,18 +376,15 @@ def render(result: dict) -> None:
     corridor = ov.get("corridor_px") or []
     stumps = ov.get("stumps_px") or {}
 
-    # Solid flight is the raw image-space track — the literal positions the
-    # detector saw the ball. The smooth projectile fit (path_px[phase=flight])
-    # hides the bounce because it is a single parabola, but the raw points
-    # carry the v-reversal so the user sees the ball go down to the pitch and
-    # rise again. The dashed continuation extends the visible curve in pixel
-    # space; the world-space LBW prediction is in the 3D side panel.
+    # Solid red = smooth projectile fit projected to pixels by the server
+    # (path_px[phase=flight]) — one continuous curve from release through
+    # bounce to bat impact, free of per-frame detector jitter. Dashed red
+    # = the same fit extrapolated past impact to the stump plane.
+    flight = [(p["u"], p["v"]) for p in path if p.get("phase") == "flight"]
+    predicted = [(p["u"], p["v"]) for p in path if p.get("phase") == "predicted"]
     raw_pts = sorted(result.get("track", {}).get("image_points") or [],
                      key=lambda p: p["t_ms"])
-    flight = [(p["u"], p["v"]) for p in raw_pts]
     flight_t = [p["t_ms"] for p in raw_pts]
-    overlay_predicted = [pp for pp in path if pp.get("phase") == "predicted"]
-    predicted = _anchored_prediction_px(raw_pts, overlay_predicted)
 
     cap = cv2.VideoCapture(str(VIDEO))
     fps = cap.get(cv2.CAP_PROP_FPS) or 60.0
@@ -457,8 +454,8 @@ def render(result: dict) -> None:
             poly = np.array([(int(x), int(y)) for x, y in flight], np.int32)
             cv2.polylines(frame, [poly], False, RED, 5, cv2.LINE_AA)
         if predicted:
-            tail = (int(flight[-1][0]), int(flight[-1][1])) if flight else predicted[0]
-            chain = [tail, *predicted]
+            tail = (int(flight[-1][0]), int(flight[-1][1])) if flight else (int(predicted[0][0]), int(predicted[0][1]))
+            chain = [tail] + [(int(x), int(y)) for x, y in predicted]
             for a, b in zip(chain, chain[1:]):
                 _dashed(frame, a, b, RED, thick=4, dash=14, gap=10)
 
