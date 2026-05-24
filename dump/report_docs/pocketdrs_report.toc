@@ -49,21 +49,27 @@
 \contentsline {subsection}{\numberline {4.2.1}Test Cases for Unit Testing}{19}{subsection.4.2.1}%
 \contentsline {subsection}{\numberline {4.2.2}Test Cases for System Testing}{20}{subsection.4.2.2}%
 \contentsline {subsection}{\numberline {4.2.3}Synthetic Validation}{21}{subsection.4.2.3}%
-\contentsline {paragraph}{Per-stage results.}{21}{subsection.4.2.3}%
-\contentsline {paragraph}{Sample rendered decisions.}{22}{subsection.4.2.3}%
-\contentsline {paragraph}{Where accuracy degrades.}{22}{subsection.4.2.3}%
-\contentsline {subsection}{\numberline {4.2.4}Real-World Validation}{22}{subsection.4.2.4}%
-\contentsline {paragraph}{What went wrong, in plain terms.}{23}{figure.caption.10}%
-\contentsline {paragraph}{Why this is a good result, not a failure.}{24}{Item.22}%
-\contentsline {paragraph}{What a good test video looks like.}{24}{Item.22}%
-\contentsline {subsection}{\numberline {4.2.5}Real-World Validation: A Successfully Tracked Delivery}{24}{subsection.4.2.5}%
-\contentsline {paragraph}{Tracking result.}{24}{subsection.4.2.5}%
-\contentsline {paragraph}{3D reconstruction and its honest limit.}{25}{figure.caption.11}%
-\contentsline {paragraph}{Why this clip matters.}{26}{figure.caption.11}%
-\contentsline {chapter}{\numberline {5}Conclusion and Future Recommendations}{27}{chapter.5}%
-\contentsline {section}{\numberline {5.1}Conclusion}{27}{section.5.1}%
-\contentsline {section}{\numberline {5.2}Lesson Learnt/Outcome}{27}{section.5.2}%
-\contentsline {section}{\numberline {5.3}Future Recommendations}{28}{section.5.3}%
-\contentsline {chapter}{References}{28}{Item.36}%
-\contentsline {chapter}{Appendices}{31}{chapter*.13}%
-\contentsline {chapter}{Project Log Book}{34}{lstnumber.-1.23}%
+\contentsline {paragraph}{What was swept.}{22}{figure.caption.10}%
+\contentsline {paragraph}{Per-stage results.}{22}{figure.caption.10}%
+\contentsline {paragraph}{Per-scene errors (reconstructed scenes).}{23}{figure.caption.10}%
+\contentsline {paragraph}{Why the failures happen.}{24}{figure.caption.12}%
+\contentsline {subsection}{\numberline {4.2.4}Real-World Validation}{24}{subsection.4.2.4}%
+\contentsline {paragraph}{What went wrong, in plain terms.}{25}{figure.caption.13}%
+\contentsline {paragraph}{Why this is a good result, not a failure.}{26}{Item.20}%
+\contentsline {paragraph}{What a good test video looks like.}{26}{Item.20}%
+\contentsline {subsection}{\numberline {4.2.5}Real-World Validation: A Successfully Tracked Delivery (test3)}{26}{subsection.4.2.5}%
+\contentsline {paragraph}{Calibration.}{26}{subsection.4.2.5}%
+\contentsline {paragraph}{Tracking result.}{26}{subsection.4.2.5}%
+\contentsline {paragraph}{3D reconstruction, speed, and LBW verdict.}{27}{subsection.4.2.5}%
+\contentsline {paragraph}{Honest limit.}{29}{figure.caption.15}%
+\contentsline {subsection}{\numberline {4.2.6}Real-World Validation: A Second Net Delivery (test4)}{29}{subsection.4.2.6}%
+\contentsline {paragraph}{Calibration: the FOV-initialisation lesson.}{29}{subsection.4.2.6}%
+\contentsline {paragraph}{Tracking and verdict.}{30}{subsection.4.2.6}%
+\contentsline {paragraph}{Why this clip matters.}{31}{figure.caption.16}%
+\contentsline {chapter}{\numberline {5}Conclusion and Future Recommendations}{32}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Conclusion}{32}{section.5.1}%
+\contentsline {section}{\numberline {5.2}Lesson Learnt/Outcome}{32}{section.5.2}%
+\contentsline {section}{\numberline {5.3}Future Recommendations}{33}{section.5.3}%
+\contentsline {chapter}{References}{33}{Item.34}%
+\contentsline {chapter}{Appendices}{36}{chapter*.18}%
+\contentsline {chapter}{Project Log Book}{39}{lstnumber.-1.23}%

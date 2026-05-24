@@ -256,16 +256,65 @@ def solve_camera_pose_from_stumps(
         n_steps = max(2, int(round((length_max_m - length_min_m) / 0.05)) + 1)
         length_candidates = [float(v) for v in np.linspace(length_min_m, length_max_m, n_steps)]
 
+    fov_lo, fov_hi = fov_candidates[0], fov_candidates[-1]
+
+    def _physical_penalty(cand: tuple, fov: float) -> float:
+        """Reprojection-space penalty that demotes unphysical poses.
+
+        The (FOV × pitch_length × cam_height) search space has several local
+        minima that fit the pixel taps tightly but back out to nonsense
+        geometry (tele lens at +3 m, etc). When the caller mis-taps stumps
+        or corners by even ~50 px the global pixel minimum lands on one of
+        these — low pixel error, but the back-projected ball ends up at the
+        wrong depth and the downstream trajectory fit blows up. Adding a
+        soft penalty for poses outside the handheld-phone envelope steers
+        the sweep to the geometrically sensible answer when one exists,
+        without hard-failing on the rare valid edge case (tripod, ultra-tele
+        from the boundary, etc) — those just pay the penalty and still win
+        if no plausible alternative exists.
+        """
+        cam_h = float(cand[6][2, 0])
+        cand_len = float(cand[1])
+        p = 0.0
+        # Handheld phone or low tripod (0.4–3.0 m). Beyond 3 m is almost
+        # always a sign the solver mistook depth for height.
+        if cam_h < 0.4 or cam_h > 3.0:
+            p += 50.0 * max(0.0, max(0.4 - cam_h, cam_h - 3.0))
+        # Pitch length: indoor nets are 5–22 m, regulation 20.12 m. Reject
+        # absurd lengths unless the caller pinned them.
+        if not length_locked and (cand_len < 5.0 or cand_len > 25.0):
+            p += 50.0 * max(0.0, max(5.0 - cand_len, cand_len - 25.0))
+        # FOV prior: hand-held phone main lenses sit in 60–80° horizontal.
+        # Telephoto (≤45°) and ultra-wide (≥85°) are physically possible
+        # but vanishingly rare for cricket capture, and the (FOV × length
+        # × depth) global pixel minimum at those extremes is often a false
+        # one — it fits the tap residuals tightly but back-projects the
+        # ball depth so badly that the downstream trajectory fit rejects
+        # the reconstruction. Bias toward the lens the user almost
+        # certainly used, while still letting reproj win when the
+        # difference is large enough to dominate the penalty.
+        if h_fov_deg is None:
+            if fov <= fov_lo + 0.5 or fov >= fov_hi - 0.5:
+                p += 18.0
+            if fov < 55.0:
+                p += 4.0 * (55.0 - fov)
+            elif fov > 82.0:
+                p += 4.0 * (fov - 82.0)
+        return p
+
     def _sweep(use_corners: bool) -> tuple | None:
         best_local = None
         best_fov_local = None
+        best_score = None
         for fov in fov_candidates:
             K_local = estimate_intrinsics(width, height, h_fov_deg=fov)
             for length in length_candidates:
                 cand = _solve_at(K_local, length, use_corners=use_corners)
                 if cand is None:
                     continue
-                if best_local is None or cand[0] < best_local[0]:
+                score = float(cand[0]) + _physical_penalty(cand, fov)
+                if best_score is None or score < best_score:
+                    best_score = score
                     best_local = cand
                     best_fov_local = fov
         return (best_local, best_fov_local) if best_local is not None else None
@@ -577,7 +626,14 @@ def solve_bounce_trajectory_linear(
     best: ProjectileFit | None = None
     best_rms_px = float("inf")
 
-    for frac in np.linspace(0.25, 0.75, 11):
+    # Bounces vary from very early (full-toss-like flick) to very late
+    # (yorker that pitches just in front of the batsman). The previous
+    # [0.25, 0.75] window missed late-bounce deliveries entirely — for
+    # short indoor pitches with the camera behind the bowler the visual
+    # bounce often sits at 0.75–0.85 of the tracked span. Widen the
+    # search and finely sample so the grid never straddles the true
+    # split by more than ~0.03 of total_s.
+    for frac in np.linspace(0.15, 0.85, 29):
         t_b_s = frac * total_s
         t_b_ms = t0_ms + t_b_s * 1000.0
         pre = [d for d in dets if d[0] <= t_b_ms]
@@ -591,9 +647,13 @@ def solve_bounce_trajectory_linear(
         pre_fit, pre_rms = pre_res
         post_fit, post_rms = post_res
         # Combined reprojection RMS over all points (RMS, not sum, so it is
-        # directly comparable to the single-parabola fit's rms_px).
+        # directly comparable to the single-parabola fit's rms_px). The
+        # pre-arc usually has more samples and is the half that drives the
+        # downstream LBW prediction; weight it slightly so a clean pre-arc
+        # is preferred even if the post-bounce arc has 1-2 noisy detections.
         combined_rms = math.sqrt(
-            (pre_rms ** 2 * len(pre) + post_rms ** 2 * len(post)) / max(1, len(pre) + len(post))
+            (pre_rms ** 2 * len(pre) * 1.5 + post_rms ** 2 * len(post))
+            / max(1, len(pre) * 1.5 + len(post))
         )
         if combined_rms >= best_rms_px:
             continue

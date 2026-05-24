@@ -469,6 +469,26 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         _ => null,
       };
 
+  /// Which side of the frame the currently-selected stump cluster sits on,
+  /// derived from the already-tapped pitch corners. Returns null for steps
+  /// where there is no "active cluster" (pitch / upload / etc), in which
+  /// case the header falls back to its default left-aligned layout.
+  ///
+  /// The header (title + hint) is then aligned to that same side so it
+  /// never floats over the empty half of the screen while the user is
+  /// looking at — and tapping into — the loaded half.
+  bool? get _activeClusterIsRight {
+    final c = _corners;
+    if (c == null || c.length != 4) return null;
+    final double clusterX = switch (_step) {
+      _Step.stumpsStriker => (c[0].dx + c[1].dx) / 2.0,
+      _Step.stumpsBowler => (c[2].dx + c[3].dx) / 2.0,
+      _ => double.nan,
+    };
+    if (clusterX.isNaN) return null;
+    return clusterX >= 0.5;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -477,13 +497,24 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     final isProcessing = _step == _Step.processing;
     final hint = _hint;
     final showHeader = !isResults && !isProcessing;
+    final clusterRight = _activeClusterIsRight;
+    final alignRight = clusterRight == true;
+    final textAlign = alignRight ? TextAlign.right : TextAlign.left;
+    final colAlign =
+        alignRight ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    final titlePadding = alignRight
+        ? const EdgeInsets.only(right: AppSpacing.md)
+        : const EdgeInsets.only(left: AppSpacing.md);
 
     return Scaffold(
       backgroundColor: isResults ? AppColors.inkBlack : scheme.surface,
       appBar: showHeader
           ? PreferredSize(
+              // Title + step bar + 2-line hint comfortably fit in ~140 px;
+              // give a little headroom so 2-line ellipsis doesn't clip the
+              // bottom of the second line on dense locales/font scales.
               preferredSize: Size.fromHeight(
-                (hint != null ? 116 : 92) + MediaQuery.of(context).padding.top,
+                (hint != null ? 140 : 96) + MediaQuery.of(context).padding.top,
               ),
               child: SafeArea(
                 bottom: false,
@@ -495,7 +526,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
                     AppSpacing.md,
                   ),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: colAlign,
                     children: [
                       Row(
                         children: [
@@ -524,11 +555,12 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
                         ],
                       ),
                       Padding(
-                        padding: const EdgeInsets.only(left: AppSpacing.md),
+                        padding: titlePadding,
                         child: Text(
                           _labels[_step.index].toLowerCase().replaceFirstMapped(
                               RegExp(r'^.'), (m) => m.group(0)!.toUpperCase()),
                           style: theme.textTheme.headlineSmall,
+                          textAlign: textAlign,
                         ),
                       ),
                       const SizedBox(height: AppSpacing.md),
@@ -536,11 +568,12 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
                       if (hint != null) ...[
                         const SizedBox(height: AppSpacing.md),
                         Padding(
-                          padding: const EdgeInsets.only(left: AppSpacing.md),
+                          padding: titlePadding,
                           child: Text(
                             hint,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
+                            textAlign: textAlign,
                             style: theme.textTheme.bodySmall
                                 ?.copyWith(color: scheme.onSurfaceVariant),
                           ),

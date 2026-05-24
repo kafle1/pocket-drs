@@ -1,0 +1,160 @@
+\documentclass[9pt,a4paper]{extarticle}
+\usepackage[margin=0.5in]{geometry}
+\usepackage{multicol}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{parskip}
+
+\definecolor{amber}{HTML}{D97706}
+\definecolor{ink}{HTML}{1F2937}
+
+\pagestyle{empty}
+\setlength{\columnsep}{14pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2pt}
+
+% Tight list environments (no enumitem)
+\newenvironment{tightitemize}{%
+  \begin{list}{\textbullet}{%
+    \setlength{\leftmargin}{10pt}%
+    \setlength{\labelwidth}{6pt}%
+    \setlength{\labelsep}{3pt}%
+    \setlength{\itemsep}{0pt}%
+    \setlength{\parsep}{0pt}%
+    \setlength{\topsep}{1pt}%
+    \setlength{\partopsep}{0pt}%
+  }%
+}{\end{list}}
+
+\newcounter{tenum}
+\newenvironment{tightenum}{%
+  \setcounter{tenum}{0}%
+  \begin{list}{\arabic{tenum}.}{%
+    \usecounter{tenum}%
+    \setlength{\leftmargin}{14pt}%
+    \setlength{\labelwidth}{10pt}%
+    \setlength{\labelsep}{3pt}%
+    \setlength{\itemsep}{0pt}%
+    \setlength{\parsep}{0pt}%
+    \setlength{\topsep}{1pt}%
+    \setlength{\partopsep}{0pt}%
+  }%
+}{\end{list}}
+
+\renewcommand{\section}[1]{%
+  \vspace{3pt}%
+  {\color{amber}\bfseries\scshape\normalsize #1}\par
+  \vspace{1pt}%
+  \hrule height 0.4pt\relax
+  \vspace{2pt}%
+}
+
+\newcommand{\titlestrip}{%
+  \begin{center}
+  {\color{amber}\bfseries\Large PocketDRS} \;{\small ---}\; {\bfseries Phone-Based Hawk-Eye LBW DRS}\\[1pt]
+  {\footnotesize Niraj Kafle \,\textbullet\, BIT 7th sem \,\textbullet\, Lincoln University / Phoenix College, Kathmandu \,\textbullet\, ID LC0003001674 \,\textbullet\, 2026}
+  \end{center}
+  \vspace{-6pt}
+  \hrule height 0.6pt\relax
+  \vspace{2pt}%
+}
+
+\begin{document}
+\titlestrip
+
+\begin{multicols}{2}
+
+\section{What it does}
+A phone records a cricket delivery; user taps pitch corners and stump rectangles; system returns \textbf{OUT / NOT OUT / UMPIRES CALL} with a 3D Hawk-Eye trajectory.
+
+\section{Pipeline (5 stages)}
+\begin{tightenum}
+\item \textbf{Calibrate} --- \texttt{solvePnP} on 4 pitch corners + 8 stump-quad points; jointly auto-fits FOV (28--86\textdegree) and pitch length.
+\item \textbf{Detect} --- MOG2 motion + HSV colour + ROI mask, with Ultralytics YOLO cricket-ball fallback.
+\item \textbf{Link} --- RANSAC over constant-acceleration motion model; outputs $(u,v,t)$ image-space track.
+\item \textbf{Reconstruct 3D} --- depth from ball size $d = f_x \cdot R_{\text{real}} / r_{\text{px}}$ ($R_{\text{real}}=0.036$\,m); projectile-fit with $g=9.81$\,m/s$^2$ + bounce reflection (Ribnick 2009 linear solve).
+\item \textbf{Decide} --- ICC Rule 36: pitched in line + impact in line + hitting stumps; 25\,mm umpire's-call margin.
+\end{tightenum}
+
+\section{Key formulas}
+\begin{tightitemize}
+\item Pinhole: $u = f_x X/Z + c_x$, \; $v = f_y Y/Z + c_y$
+\item $f_x$ from FOV: $f_x = (\max(W,H)/2)/\tan(\text{FOV}/2)$
+\item Depth from ball: $d_{\text{m}} = f_x \cdot 0.036 / r_{\text{px}}$
+\item Projectile: $z(t) = z_0 + v_z t - \tfrac{1}{2} g t^2$ \; ($g=9.81$)
+\item Bounce reflection: $v_{z,\text{post}} = -e\, v_{z,\text{pre}}$ \; ($e\approx 0.55$)
+\end{tightitemize}
+
+\section{ICC pitch geometry}
+\begin{tightitemize}
+\item Pitch: 20.12\,m $\times$ 3.05\,m
+\item Stumps: 3 stumps, 0.711\,m tall, 0.114\,m apart (centre-to-centre); 0.018\,m thick $\Rightarrow$ outermost edge $\pm 0.132$\,m
+\item Bails: 0.012\,m above stumps
+\item LBW in-line corridor: outer edge $\pm 0.036$\,m (ball radius)
+\end{tightitemize}
+
+\section{Decision rules (Rule 36)}
+\begin{tightitemize}
+\item Pitched in line of stumps? (inside corridor)
+\item Impact in line of stumps? (offside-of-bat exception \emph{not} implemented)
+\item Hitting stumps? (path intersects stump volume + 25\,mm band)
+\item \textbf{OUT} only if all three pass with margin $> 25$\,mm
+\item Margin within 25\,mm $\Rightarrow$ \textbf{UMPIRES CALL}
+\item Any check fails $\Rightarrow$ \textbf{NOT OUT}
+\end{tightitemize}
+
+\section{Real-video results (2026-05-24)}
+\begin{tightitemize}
+\item \texttt{test3.mp4} (zoomed, FOV 37\textdegree): 64.1\,km/h, \textbf{NOT OUT} (misses stumps); reproj 16.6\,px, 28 inliers.
+\item \texttt{test4.mp4} (normal, FOV 45\textdegree): 37.4\,km/h, \textbf{UMPIRES CALL} (0.1\,cm clipping margin); reproj 4.1\,px, 36 inliers.
+\item Both clips show real-phone HEVC truncation (decoder lies about length); pipeline truncation-guard handles it.
+\end{tightitemize}
+
+\section{Synthetic validation (honesty)}
+\begin{tightitemize}
+\item 8 scenarios swept; 4 reconstruct, 4 rejected as untrustworthy.
+\item Best speed err 0.8\,km/h, worst 83\,km/h.
+\item Bounce err 144--620\,cm.
+\item Monocular depth-from-radius cannot match real Hawk-Eye (6 cameras, sub-cm).
+\item Pipeline \emph{never} returns a confident-wrong decision --- it rejects.
+\end{tightitemize}
+
+\section{Stack}
+\begin{tightitemize}
+\item Flutter 3.8 (Dart) mobile, FastAPI 0.104 + Python 3.11 backend.
+\item OpenCV 4.8, NumPy 1.24, SciPy 1.11, Ultralytics YOLO.
+\item Three.js for 3D viewer.
+\item Firebase Auth + Firestore + Storage + Cloud Run.
+\item Free-tier hostable; one phone is the only hardware.
+\end{tightitemize}
+
+\section{Hardening}
+\begin{tightitemize}
+\item Calibration rejected if reproj $> 8$\,px (large-error pose $=$ meaningless physics).
+\item 3D fit rejected if RMS $> 1.0$\,m (untrustworthy).
+\item VideoReader uses frame-index seeking (phone HEVC sparse keyframes).
+\item Truncation guard stops at last good frame (no stale-frame padding).
+\item Camera height $> 0$ invariant prevents physically impossible solves.
+\end{tightitemize}
+
+\section{Key references}
+{\footnotesize
+\begin{tightitemize}
+\item Owens et al.\ 2003 --- original Hawk-Eye (VIE).
+\item Zhang 2000 --- checkerboard calibration (IEEE TPAMI).
+\item Fischler \& Bolles 1981 --- RANSAC (CACM).
+\item Hartley \& Zisserman 2004 --- Multi-View Geometry (book).
+\item Ponglertnapakorn \& Suwajanakorn 2025 --- Monocular 3D ball tracking (CVPRW).
+\item ICC Rule 36 --- LBW.
+\end{tightitemize}}
+
+\section{Defense Q\&A}
+\begin{tightitemize}
+\item \textbf{How accurate?} $\sim$6\,cm bounce, $\sim$80\,cm impact, $\pm$25\,km/h speed monocular. Real Hawk-Eye $=$ sub-cm with 6 cameras.
+\item \textbf{Why not multi-camera?} Phone-only $=$ affordable for amateur cricket; trade accuracy for accessibility.
+\item \textbf{What if calibration is wrong?} Pipeline rejects (reproj $> 8$\,px $\Rightarrow$ error); no confident-wrong outputs.
+\end{tightitemize}
+
+\end{multicols}
+\end{document}

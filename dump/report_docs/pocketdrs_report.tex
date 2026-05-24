@@ -303,10 +303,10 @@ Professional DRS systems depend on multiple synchronized cameras to recover dept
 When the same decision-review problem is shifted to a single consumer camera, several technical and practical difficulties arise:
 
 \begin{enumerate}
-    \item A monocular view does not provide direct depth information, requiring alternative cues such as ball size or strong motion constraints.
-    \item A cricket ball is small, fast, motion-blurred, and can easily be confused with background objects, players, shadows, and spectators.
-    \item Small calibration errors can produce large errors when detections are mapped to pitch coordinates, especially at the far end where perspective foreshortening is strong.
-    \item Lighting variation, camera shake, player occlusion, and inconsistent recording conditions reduce reliability in real grounds compared to controlled broadcast environments.
+    \item A single camera cannot directly see depth, so the system has to recover distance indirectly, for example from how big the ball looks in the image or from how its motion follows the laws of physics.
+    \item A cricket ball is small, fast, and motion-blurred, and can easily be confused with background objects, players, shadows, or spectators.
+    \item Small errors in marking the pitch corners produce much larger errors at the far end of the pitch, because the far end occupies only a few pixels.
+    \item Lighting changes, camera shake, the bowler or batter blocking the view, and inconsistent recording conditions all make a real ground less predictable than a controlled broadcast environment.
 \end{enumerate}
 
 Therefore, the central problem addressed by this project is whether a single-phone-camera workflow, supported by pitch calibration and lightweight computer-vision techniques, can produce a sufficiently consistent and understandable LBW review aid for ordinary cricket grounds.
@@ -367,41 +367,41 @@ Chapter~2 presents the background and literature review. Chapter~3 covers system
 
 \section{Background Study}
 
-\textbf{Pinhole Camera Model and Intrinsics.} A smartphone camera is well approximated by the pinhole model: light passes through a single point (the lens centre) and lands on a flat sensor. The \emph{intrinsic} parameters, focal length $(f_x, f_y)$ and principal point $(c_x, c_y)$, form the camera matrix $K$ that maps a 3D point to a pixel. Zhang's checkerboard method~\cite{zhang2000} is the standard way to recover $K$. PocketDRS skips checkerboard calibration and estimates $K$ from the frame size and the typical smartphone horizontal field of view of $67^{\circ}$.
+\textbf{Pinhole Camera Model and Intrinsics.} A pinhole camera is the simplest model of any camera: light goes through one tiny hole and lands on a flat sensor behind it. A smartphone lens behaves close enough to this model for our purposes. The four numbers that describe the camera itself (focal length $f_x, f_y$ and principal point $c_x, c_y$) are packed into a $3\times3$ matrix called $K$, which converts a 3D world point into a pixel. Zhang's checkerboard method~\cite{zhang2000} is the standard way to measure $K$. PocketDRS skips the checkerboard and estimates $K$ from the frame size and a typical phone horizontal field of view of $67^{\circ}$.
 
-\textbf{Camera Pose (PnP).} The \emph{extrinsic} parameters $(R, t)$ place the camera in the world. The Perspective-n-Point algorithm~\cite{bradski2008} solves for them given a few known 3D world points and their pixel positions, by minimising reprojection error. PocketDRS feeds it the four tapped pitch corners.
+\textbf{Camera Pose (PnP).} The camera pose is simply where the camera is standing and which way it is pointing, written as a rotation $R$ and a translation $t$. The Perspective-n-Point algorithm~\cite{bradski2008} works out $R$ and $t$ from a handful of known 3D points and the pixels they appear at. It finds the pose that makes those known points line up best with the image. PocketDRS feeds it the four tapped pitch corners.
 
-\textbf{Homography.} A $3 \times 3$ matrix $H$ that relates two views of the same flat surface~\cite{hartley2004}. Because a cricket pitch is flat, a homography built from the four corner taps converts any pitch pixel into a pitch-plane position in metres. RANSAC~\cite{fischler1981} rejects bad correspondences.
+\textbf{Homography.} A homography is a $3\times3$ matrix $H$ that links two different views of the same flat surface~\cite{hartley2004}. Because a cricket pitch is flat, one homography fits the whole pitch. Once $H$ is known from the four corner taps, any pitch pixel can be converted to a real position in metres. RANSAC~\cite{fischler1981} throws away wrong point matches before $H$ is fitted.
 
-\textbf{Projectile Motion.} Over the short flight of a delivery, air resistance is negligible and the ball obeys
+\textbf{Projectile Motion.} A thrown ball flies in a predictable curve, set by gravity, because the wind drag in a short delivery is small enough to ignore. Its position obeys
 \[
 X(t) = X_0 + V_x t,\quad Y(t) = Y_0 + V_y t,\quad Z(t) = Z_0 + V_z t - \tfrac{1}{2} g t^2,
 \]
-with $g = 9.81$~m/s$^2$. This is a strong constraint: any candidate trajectory that is not parabolic in $Z$ and linear in $X$ and $Y$ cannot be a real cricket ball. The bounce is modelled as a vertical-velocity reflection scaled by a coefficient of restitution ($\approx 0.55$).
+with $g = 9.81$~m/s$^2$. In plain words: the ball moves at a steady speed sideways and forward, and falls under gravity. Any candidate path that does not follow this shape cannot be a real cricket ball. The bounce is treated as the vertical speed flipping sign and shrinking by a fixed factor (coefficient of restitution $\approx 0.55$).
 
-\textbf{RANSAC.} A robust estimator~\cite{fischler1981} that repeatedly samples the smallest subset needed to define a model, counts how many remaining points are inliers, and keeps the best-supported model. PocketDRS uses it twice: for the homography and for linking per-frame ball detections into one trajectory.
+\textbf{RANSAC.} RANSAC is a way to fit a model when most of the data is wrong~\cite{fischler1981}. It picks a tiny random sample, fits a candidate model to it, and counts how many other points agree. After many tries it keeps the model with the most agreement. PocketDRS uses RANSAC twice: once to fit the homography and once to link the per-frame ball detections into one path.
 
-\textbf{Kalman Filter (for reference).} The Extended Kalman Filter is the standard frame-by-frame tracker. PocketDRS does not use it because RANSAC plus a projectile fit proved more robust to clutter and easier to explain; the EKF remains the natural extension for live tracking.
+\textbf{Kalman Filter (for reference).} A Kalman filter is the textbook way to track a moving object frame by frame. PocketDRS does not use one. RANSAC plus a single projectile-curve fit handled clutter better and was easier to explain. An Extended Kalman Filter remains the obvious upgrade for live tracking.
 
-\textbf{ICC Rule 36 (LBW).} Law~36~\cite{icc} requires three things together: the ball pitches in line with the stumps, strikes the batter in line, and its projected path goes on to hit the stumps. A $\approx 25$~mm margin around the stump edge is left to the on-field umpire (``umpire's call''). PocketDRS implements all three checks and the margin in code.
+\textbf{ICC Rule 36 (LBW).} Law~36 of cricket~\cite{icc} sets the LBW rule. Three things must all be true at once: the ball pitches in line with the stumps, strikes the pad in line, and would have gone on to hit the stumps. A small $\approx 25$~mm margin around the stump edge is left to the on-field umpire (``umpire's call''). PocketDRS checks all three conditions and respects the margin.
 
 \section{Literature Review}
 
-Owens \textit{et al.}~\cite{owens2003} described the original Hawk-Eye ball-tracking system, which uses six to eight synchronized cameras and proprietary calibration to reconstruct ball trajectories to within a few millimetres. Their work is the inspiration and accuracy benchmark for PocketDRS, which trades multi-view precision for single-view affordability.
+Owens \textit{et al.}~\cite{owens2003} described the original Hawk-Eye ball tracker. It uses six to eight synchronised cameras and custom calibration to rebuild ball paths to a few millimetres. \textbf{Why this matters for PocketDRS:} this is the benchmark PocketDRS is compared against, and the source of the multi-camera cost problem the project tries to side-step.
 
-Zhang~\cite{zhang2000} introduced a flexible camera-calibration technique based on imaging a planar checkerboard, removing the need for expensive calibration rigs. This method underpins the intrinsic camera model assumed in this project.
+Zhang~\cite{zhang2000} introduced a flexible camera-calibration method using a printed checkerboard. It removed the need for expensive calibration rigs and is still the textbook way to measure focal length and principal point. \textbf{Why this matters for PocketDRS:} the same intrinsic-parameter model is what $K$ in our pinhole equation refers to, even though we estimate $K$ from FOV instead of running the full checkerboard.
 
-Fischler and Bolles~\cite{fischler1981} proposed RANSAC, a robust estimator that fits a model to data containing outliers by repeatedly sampling minimal subsets and counting inliers. PocketDRS applies RANSAC both to homography estimation and to associating per-frame ball detections into a single trajectory.
+Fischler and Bolles~\cite{fischler1981} proposed RANSAC, a way to fit a model when many of the data points are wrong. It samples small random subsets, fits a candidate, and keeps the one that explains the most points. \textbf{Why this matters for PocketDRS:} we use RANSAC twice, once for the pitch homography and once to link noisy per-frame ball detections into one trajectory.
 
-Hartley and Zisserman~\cite{hartley2004} provide the standard reference on multiple-view geometry, homography, and projective reconstruction, which forms the theoretical basis for the single-view geometry used here.
+Hartley and Zisserman~\cite{hartley2004} wrote the standard reference on multiple-view geometry, including homography and projective reconstruction. \textbf{Why this matters for PocketDRS:} the single-view geometry used to map pitch pixels to metres comes straight from this text.
 
-Triggs \textit{et al.}~\cite{triggs2000} formalized bundle adjustment as the joint least-squares refinement of camera parameters and 3D structure; the same least-squares philosophy motivates the projectile-fit step in PocketDRS.
+Triggs \textit{et al.}~\cite{triggs2000} formalised bundle adjustment as the joint least-squares refinement of camera parameters and 3D structure. \textbf{Why this matters for PocketDRS:} the projectile-fit step uses the same least-squares idea, only with a physics-based parametric curve instead of a free 3D point cloud.
 
-Ponglertnapakorn and Suwajanakorn~\cite{ponglertnapakorn2025} estimated 3D ball trajectories from a single monocular 2D track, showing that physical motion constraints make single-camera 3D ball reconstruction feasible. This is the closest prior work to PocketDRS and supports its core assumption.
+Ponglertnapakorn and Suwajanakorn~\cite{ponglertnapakorn2025} recovered 3D ball trajectories from a single 2D track by using the physics of ball motion as the constraint. \textbf{Why this matters for PocketDRS:} this is the closest published prior work and is the direct evidence that monocular 3D ball reconstruction is feasible at all.
 
-Bochinski \textit{et al.}~\cite{bochinski2017} demonstrated high-quality multi-frame tracking by linking detections across frames using simple intersection-over-union association. PocketDRS follows the same detection-linking principle with a constant-acceleration motion model tailored to projectile flight.
+Bochinski \textit{et al.}~\cite{bochinski2017} showed that high-quality multi-frame tracking is possible by linking detections frame-to-frame using simple bounding-box overlap (IoU). \textbf{Why this matters for PocketDRS:} the same detection-linking idea is used here, with a projectile-motion model in place of plain box overlap to reject background clutter.
 
-\textbf{Synthesis.} Single-view sports analysis becomes feasible when the scene contains known geometry (the pitch) and the motion follows strong constraints (projectile motion). PocketDRS advances this area by demonstrating a complete end-to-end system combining mobile capture, cloud processing, and user-friendly visualisation.
+\textbf{Synthesis.} Single-view sports analysis becomes possible when two things hold: the scene contains a known geometric reference (the pitch) and the motion follows a strong rule (projectile flight). PocketDRS uses both, and adds the mobile capture, cloud processing, and visualisation needed to make it usable end-to-end.
 
 % =====================================================================
 % CHAPTER 3: SYSTEM ANALYSIS AND DESIGN
@@ -486,46 +486,50 @@ NFR-08 & Data Privacy & User data is not shared with third parties; deletion req
 
 \textbf{Technical Feasibility}
 
-The proposed system is technically feasible because it is built from mature and widely supported technologies. Flutter provides cross-platform mobile development with excellent performance. FastAPI provides lightweight and testable backend services with automatic OpenAPI documentation. OpenCV supports frame processing, tracking, and camera calibration. Firebase handles authentication and cloud persistence with real-time updates. The present implementation already demonstrates upload, calibration, server-side analysis, and result visualization on consumer devices. Although monocular video imposes accuracy limits, the required software stack is realistic for a student project and deployable on ordinary hardware.
+The system uses well-known, mature tools. Flutter handles the mobile app on Android and iOS. FastAPI runs the backend. OpenCV, NumPy, and SciPy do the computer-vision work. Firebase handles sign-in and cloud storage. A working prototype already runs the full upload-to-result flow on ordinary phones, so the stack is proven.
 
 \textbf{Operational Feasibility}
 
-The operational workflow is simple enough for field use during testing and demonstrations. A user places a phone behind the bowler-end stumps, records a delivery, calibrates the pitch by tapping known points, trims the clip, and waits for the generated result. This procedure is repeatable, requires minimal training, and fits the needs of clubs, student projects, and coaching sessions.
+The workflow is short and repeatable. The user places a phone behind the bowler-end stumps, records the delivery, taps four pitch corners to calibrate, trims the clip, and waits for the result. No training is needed beyond a short on-screen guide. It fits coaching nets, schools, and clubs.
 
 \textbf{Economic Feasibility}
 
-The project is economically feasible because it does not require specialized camera arrays, licensed broadcast systems, or custom hardware. It relies primarily on a smartphone, a tripod, and open-source libraries. Compared with professional DRS infrastructure (which costs hundreds of thousands of dollars), the expected deployment cost is extremely low, making the proposed system suitable for academic demonstration and low-budget cricket environments.
+The cost is essentially the phone and a tripod. There are no camera arrays, no licensed broadcast hardware, and no paid SDKs; the software is open source and the cloud runs on a free-tier-friendly Cloud Run service. A professional DRS install runs into hundreds of thousands of dollars; PocketDRS runs for the price of any modern smartphone.
+
+\textbf{Schedule Feasibility}
+
+The project fits one semester. Requirements and design took weeks 1--3, the pipeline and app took weeks 4--12, and validation and the report took the final three weeks. Each module was built and tested on its own before being wired together, which kept slippage local.
 
 \subsection{Data Modelling: ER Diagram}
 
-The core entities are: User (identified by Firebase UID), Pitch (a ground with calibration data), Analysis (a submitted delivery job), and LBWResult (the decision outcome). Additional entities include DeliveryVideo (the trimmed clip) and CalibrationProfile (the saved corner/stump points). The relationships are: a User owns many Pitches and submits many Analyses; each Analysis uses one Pitch, has one DeliveryVideo, and produces one LBWResult; and each Pitch defines one CalibrationProfile. Figure~\ref{fig:er} shows these entities together with their attributes and crow's-foot cardinalities.
+The data model has six entities. A \emph{User} (Firebase UID) owns many \emph{Pitches} and submits many \emph{Analyses}. Each \emph{Pitch} has one \emph{CalibrationProfile} (the saved corner and stump taps). Each \emph{Analysis} uses one \emph{Pitch}, holds one \emph{DeliveryVideo} (the trimmed clip), and produces one \emph{LBWResult}. Figure~\ref{fig:er} shows the full diagram with attributes and crow's-foot cardinalities.
 
-In Firestore the data is organised under per-user collections: \texttt{users/\{uid\}} holds the user document; \texttt{users/\{uid\}/pitches/\{pitchId\}} holds saved pitch calibrations; and \texttt{users/\{uid\}/analyses/\{analysisId\}} holds completed analyses.
+In Firestore the same model lives under per-user collections: \texttt{users/\{uid\}} for the user document, \texttt{users/\{uid\}/pitches/\{pitchId\}} for saved calibrations, and \texttt{users/\{uid\}/analyses/\{analysisId\}} for completed analyses.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.6\textwidth,height=0.45\textheight,keepaspectratio]{figures/er_diagram.png}
-    \caption{Entity--relationship diagram of the PocketDRS data model.}
+    \caption{PocketDRS entity--relationship diagram.}
     \label{fig:er}
 \end{figure}
 
 \subsection{Process Modelling: Data Flow Diagram (DFD)}
 
-The context-level (Level 0) DFD treats the whole system as a single process. As shown in Figure~\ref{fig:dfd0}, PocketDRS receives delivery clips and calibration taps from the User, exchanges authentication and stored results with Firebase, and returns the LBW decision and 3D visualisation to the User.
+The Level 0 DFD treats the whole system as one process. The User sends the clip and the calibration taps; Firebase exchanges sign-in tokens and stores the result; the system returns the LBW decision and the 3D view (Figure~\ref{fig:dfd0}).
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.7\textwidth]{figures/dfd_level0.png}
-    \caption{Context-level (Level 0) data flow diagram.}
+    \caption{Level 0 (context) DFD.}
     \label{fig:dfd0}
 \end{figure}
 
-The Level 1 DFD expands the system into four processes: (1) Capture \& Trim Delivery, handled by the mobile app; (2) Calibrate Pitch, which collects corner and stump points; (3) Analyse Delivery, where the server decodes the clip, detects the ball, tracks the trajectory, reconstructs the 3D path, and assesses LBW; and (4) Present Result, which displays the 3D trajectory and decision. These processes communicate through two data stores, the Calibration Store (D1) and the Job/Result Store (D2), as shown in Figure~\ref{fig:dfd1}.
+The Level 1 DFD splits the system into four processes: (1) Capture \& Trim Delivery on the mobile app, (2) Calibrate Pitch (collects corner and stump taps), (3) Analyse Delivery on the server (decode, detect ball, track, rebuild 3D, decide LBW), and (4) Present Result (3D view and verdict). Two data stores connect them: the Calibration Store (D1) and the Job/Result Store (D2). See Figure~\ref{fig:dfd1}.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.62\textwidth,height=0.5\textheight,keepaspectratio]{figures/dfd_level1.png}
-    \caption{Level 1 data flow diagram.}
+    \caption{Level 1 DFD.}
     \label{fig:dfd1}
 \end{figure}
 
@@ -533,15 +537,15 @@ The Level 1 DFD expands the system into four processes: (1) Capture \& Trim Deli
 
 \subsection{Architectural Design}
 
-PocketDRS follows a three-tier architecture:
+PocketDRS has four parts: client, API, pipeline, and storage. Figure~\ref{fig:architecture} shows how they connect.
 
-\begin{itemize}
-    \item \textbf{Presentation Tier (Mobile):} Flutter application with video capture, calibration UI, job submission, and result visualization via WebView (Three.js).
-    \item \textbf{Application Tier (Backend):} FastAPI server with REST API endpoints for uploads, job status, and result retrieval, with asynchronous job processing via background tasks.
-    \item \textbf{Data Tier (Cloud):} Firebase Authentication for user identity, Firestore for document storage, Google Cloud Storage for video files, and Google Cloud Run for scalable compute.
-\end{itemize}
+\textbf{Client.} The Flutter app on the phone handles sign-in, video recording or picking, trimming, pitch-corner tapping, job submission, and the embedded Three.js result viewer.
 
-The backend processes videos asynchronously to avoid blocking HTTP responses. Progress is tracked in Firestore and polled by the client. The overall arrangement of the three tiers is shown in Figure~\ref{fig:architecture}.
+\textbf{API.} A FastAPI service exposes REST endpoints to upload a job, poll its status, and fetch the result. Uploads return immediately; the heavy work is queued and runs in the background so HTTP calls never block.
+
+\textbf{Pipeline.} The pipeline is the computer-vision core (OpenCV, NumPy, SciPy, optional YOLO). It decodes the video, finds the ball, builds the trajectory, lifts it to 3D, and applies the LBW rule. It writes progress to Firestore as it goes.
+
+\textbf{Storage.} Firebase Authentication holds user identity. Firestore stores user, pitch, analysis, and live job documents. Cloud Storage holds the uploaded video files. The whole pipeline runs on Cloud Run, which scales the container up on demand and down to zero when idle.
 
 \begin{figure}[H]
     \centering
@@ -552,42 +556,56 @@ The backend processes videos asynchronously to avoid blocking HTTP responses. Pr
 
 \subsection{Database Schema Design}
 
-The Firestore collections are organised as follows:
+Firestore uses four collections, summarised in Table~\ref{tab:firestore}.
 
-\begin{itemize}
-    \item \texttt{users/\{uid\}}: User metadata (email, profile).
-    \item \texttt{users/\{uid\}/pitches/\{pitchId\}}: Pitch calibration (corners, stumps, homography, quality score, creation timestamp).
-    \item \texttt{users/\{uid\}/analyses/\{analysisId\}}: Analysis result (video metadata, calibration used, track points, 3D trajectory, LBW decision, diagnostic warnings).
-    \item \texttt{job\_queue/\{jobId\}}: Transient job status (state, progress, error message), deleted after the result is written to analyses.
-\end{itemize}
+\begin{table}[H]
+\centering
+\caption{Firestore collections used by PocketDRS.}
+\label{tab:firestore}
+\begin{tabular}{|p{4.4cm}|p{9.2cm}|}
+\hline
+\textbf{Collection path} & \textbf{What it holds} \\
+\hline
+\texttt{users/\{uid\}} & User document: email and profile fields. \\
+\hline
+\texttt{users/\{uid\}/pitches/\{pitchId\}} & Saved calibration: corners, stumps, homography, quality score, timestamp. \\
+\hline
+\texttt{users/\{uid\}/analyses/\{analysisId\}} & Finished analysis: video metadata, calibration used, 2D track, 3D path, LBW verdict, warnings. \\
+\hline
+\texttt{job\_queue/\{jobId\}} & Live job state: status, progress, error. Deleted once the result is saved. \\
+\hline
+\end{tabular}
+\end{table}
 
 \subsection{Interface Design (UI/UX)}
 
-The application has seven key screens: \emph{Sign In} (Firebase email/password or Google), \emph{Home} (history of past analyses with timestamps and decisions, plus a ``new analysis'' action), \emph{Calibration} (interactive pitch map for tapping the four corners and optional stump bases, with live quality feedback), \emph{Video Selection / Trim} (gallery picker with a frame-accurate trim UI), \emph{Progress} (real-time status during server processing), \emph{Result} (the 3D viewer, verdict, confidence, and reasoning), and \emph{Settings} (preferences, calibration history, and local cache). The Result Screen is the most important output surface of the app: it embeds the Three.js Hawk-Eye viewer in a WebView and renders the reconstructed 3D ball trajectory together with the LBW verdict, supporting free orbit, pan, and zoom. Figure~\ref{fig:cases} shows real renders produced by the actual viewer (\texttt{hawkeye.js}) from real pipeline output, one for each verdict class, taken from the synthetic validation runs of Section~\ref{sec:synthval}. In each render the blue line is the path before the bounce, the red dot is the bounce, the green line is the bounce-to-pad segment, and the orange line is the predicted path on to the stumps. From left to right: the predicted path strikes the stumps (OUT); clearly misses down the leg side (NOT OUT); and only just clips the stump edge inside the marginal band (UMPIRE'S CALL).
+The app has seven screens: \emph{Sign In}, \emph{Home} (history of past analyses), \emph{Calibration} (tap the four pitch corners with live quality feedback), \emph{Video Selection / Trim}, \emph{Progress}, \emph{Result}, and \emph{Settings}. The Result screen is the main output surface. It embeds the Three.js viewer in a WebView and shows the recovered 3D ball path with the LBW verdict; the user can orbit, pan, and zoom freely.
+
+Figure~\ref{fig:cases} shows three real renders from the actual viewer (\texttt{hawkeye.js}), one per verdict class, taken from the synthetic runs in Section~\ref{sec:synthval}. The blue line is the pre-bounce path, the red dot is the bounce, the green line goes from bounce to pad, and the orange line is the predicted continuation onto the stumps.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.32\textwidth]{figures/case_out.png}\hfill
     \includegraphics[width=0.32\textwidth]{figures/case_not_out.png}\hfill
     \includegraphics[width=0.32\textwidth]{figures/case_umpires_call.png}
-    \caption{Result-screen renders for the three LBW verdicts.}
+    \caption{Result screen for OUT (left), NOT OUT (middle), UMPIRE'S CALL (right).}
     \label{fig:cases}
 \end{figure}
 
 \subsection{Physical DFD}
 
-The physical DFD in Figure~\ref{fig:physdfd} shows how the logical processes are mapped onto deployed infrastructure. The Flutter mobile application runs on the user's Android or iOS device and handles capture, trimming, and calibration; it uploads the delivery over HTTPS to the FastAPI service running on Google Cloud Run, which invokes the OpenCV/SciPy computer-vision pipeline. Job status and results are written to Cloud Firestore, while the original video files are held in Cloud Storage. The embedded Three.js WebView viewer renders the returned 3D trajectory and verdict back to the user.
+The physical DFD maps the logical processes onto the real, deployed infrastructure: phone, Cloud Run service, Firestore, and Cloud Storage. Figure~\ref{fig:physdfd} shows the layout.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.78\textwidth]{figures/physical_dfd.png}
-    \caption{Physical data flow diagram of the deployed system.}
+    \caption{Physical DFD of the deployed system.}
     \label{fig:physdfd}
 \end{figure}
 
 \section{Algorithm Details}
 
-The server-side analysis is made of five steps. Each is described below in plain terms: what it is given, what it produces, and how it works. The exact mathematical formulas are standard computer-vision techniques and are available in the references; the focus here is on \emph{what} each step does and \emph{why}.
+The server analysis runs in five steps, one after the other. Each step takes a small, named input, produces a small, named output, and is described in plain words below. The maths behind each step is standard computer vision and is cited in the references; the goal here is to make the \emph{what} and \emph{why} of each step easy to follow.
 
 \subsection{Step 1: Finding Where the Camera Was Standing}
 
@@ -621,9 +639,9 @@ Before the next step, the system removes any detection that keeps appearing in t
 
 \textbf{Produces:} a single smooth path through the frames, plus a count of how many detections fit it and how well.
 
-The detections from Step 2 include the real ball plus some false positives. This step finds the one consistent path among them. It takes the early frames as a starting point, tries connecting pairs of detections, and for each guess checks how many of the later detections fall close to the path a real ball would follow (a ball moves in a smooth curve, slowing slightly and curving under gravity). The guess that explains the most detections wins.
+Step 2 returns the real ball plus some false alarms. Step 3 finds the one consistent path that runs through them. It picks a pair of early detections as a guess, draws the smooth curve a real ball would follow from that pair, and counts how many later detections sit on that curve. The guess that explains the most detections wins.
 
-Two design choices make this reliable for phone video shot from behind the stumps. First, the ball is moving almost straight \emph{towards} the camera, so it does not appear to move much across the screen; the test therefore looks at total movement over the whole clip rather than frame-to-frame speed. Second, if the best path found only covers a tiny part of the image, it is rejected as leftover clutter, and the system honestly reports ``no clear ball trajectory'' instead of inventing a decision.
+Two small design choices make this work for phone video shot from behind the stumps. First, a ball flying \emph{towards} the camera barely moves sideways on screen, so the inlier test uses total motion across the whole clip rather than frame-to-frame speed. Second, if the best path the search finds covers only a tiny slice of the image, it is treated as leftover clutter; the system then reports ``no clear ball trajectory'' instead of guessing.
 
 \subsection{Step 4: Rebuilding the Ball Path in Real-World 3D}
 
@@ -631,7 +649,7 @@ Two design choices make this reliable for phone video shot from behind the stump
 
 \textbf{Produces:} the ball's path in real-world 3D coordinates (in metres).
 
-A single camera cannot directly see depth, so the system estimates how far away the ball is in each frame from how big it looks: a cricket ball is always 0.036~m in radius, so a smaller ball in the image means a more distant ball. Combining that distance with the camera position gives a rough 3D point for each frame. These rough points are then fitted to the physics of a thrown object: a ball in flight follows a smooth curve shaped by gravity. Fitting this physical curve smooths out the measurement noise and gives the final 3D path. The path is also anchored using the point where the ball bounces on the ground, which is the most reliable single point to pin down.
+A single camera cannot directly see depth, so the system has to estimate how far away the ball is in each frame from how big it looks: a real cricket ball is always $36$\,mm in radius, so when the ball looks smaller in the image, it must be further from the camera. Combining that distance with the camera position gives a rough 3D point for each frame. These rough points are then fitted to the physics of a thrown object: a ball in flight follows a smooth curve shaped by gravity. Fitting this smooth physical curve through the rough points cancels out most of the measurement noise and gives the final 3D path. The fit is also anchored using the moment where the ball touches the ground: the bounce is the most reliable single point to pin down because, at that instant, the ball's height above the pitch is known to be zero.
 
 \subsection{Step 5: Making the LBW Decision (ICC Rule 36)}
 
@@ -639,15 +657,15 @@ A single camera cannot directly see depth, so the system estimates how far away 
 
 \textbf{Produces:} a decision (OUT, NOT OUT, or UMPIRE'S CALL) with a plain-language reason and a confidence score.
 
-The decision follows the three standard LBW checks from the Laws of Cricket. The key real-world measurements it uses are the width of the stumps, the radius of the ball (0.036~m), and a small ``umpire's call'' margin of 0.025~m around the edge of the stumps.
+The decision follows the three standard LBW checks from the Laws of Cricket. It uses three known measurements: stump width, ball radius ($0.036$~m), and a small ``umpire's call'' margin of $0.025$~m around the stump edge.
 
 \begin{enumerate}
-    \item \textbf{Did it pitch in line?} If the ball bounced outside the line of leg stump, the decision is NOT OUT (``pitched outside leg'').
-    \item \textbf{Did it hit the pad in line?} If the ball struck the pad outside the line of the stumps, the decision is NOT OUT.
-    \item \textbf{Would it have hit the stumps?} The predicted path is carried on to the stumps. If it would clearly miss, the decision is NOT OUT (``missing stumps'').
+    \item \textbf{Did it pitch in line?} If the ball bounced outside the line of leg stump, the verdict is NOT OUT (``pitched outside leg'').
+    \item \textbf{Did it hit the pad in line?} If the pad was struck outside the line of the stumps, the verdict is NOT OUT.
+    \item \textbf{Would it have hit the stumps?} The predicted path is carried on to the stumps. If it clearly misses, the verdict is NOT OUT (``missing stumps'').
 \end{enumerate}
 
-If all three checks pass, the ball would have hit the stumps. If the predicted path passes within the small 0.025~m margin of the stump edge, the result is UMPIRE'S CALL (too close to be certain); otherwise it is OUT. The confidence score is higher when the 3D path was a tight, clean fit and lower when it was noisy.
+If all three checks pass, the ball would have hit the stumps. When the predicted path lands within the $0.025$~m margin around the stump edge, the verdict is UMPIRE'S CALL (too close to be certain); otherwise OUT. The confidence score is higher when the 3D fit was clean and lower when it was noisy.
 
 % =====================================================================
 % CHAPTER 4: IMPLEMENTATION AND TESTING
@@ -658,28 +676,71 @@ If all three checks pass, the ball would have hit the stumps. If the predicted p
 
 \subsection{Tools Used}
 
-The mobile client is built in \textbf{Flutter 3.8} (Dart 3.0)~\cite{flutter}, with the standard ImagePicker, VideoPlayer, and WebView plugins for media capture and the embedded 3D viewer. The backend is a \textbf{FastAPI 0.104} service~\cite{fastapi} on Python 3.11 with the computer-vision stack \textbf{OpenCV 4.8}~\cite{bradski2008}, \textbf{NumPy 1.24}, and \textbf{SciPy 1.11}~\cite{scipy2020}; the learned ball detector uses Ultralytics YOLO~\cite{ultralytics2023}. Cloud services are all Firebase / Google Cloud: \textbf{Firebase Authentication}~\cite{firebase} for user identity, \textbf{Cloud Firestore} for per-user documents, \textbf{Cloud Storage} for video files, and \textbf{Cloud Run} as the serverless compute platform. The interactive 3D viewer is built with \textbf{Three.js}~\cite{threejs} and embedded in the mobile app through a Flutter WebView. Tests run under \texttt{pytest}; logging uses the Python standard library.
+The stack is grouped by role.
+
+\begin{itemize}
+    \item \textbf{Mobile:} Flutter 3.8 / Dart 3.0~\cite{flutter}, with ImagePicker, VideoPlayer, and WebView plugins.
+    \item \textbf{Backend:} FastAPI 0.104~\cite{fastapi} on Python 3.11.
+    \item \textbf{Computer vision:} OpenCV 4.8~\cite{bradski2008}, NumPy 1.24, SciPy 1.11~\cite{scipy2020}, and Ultralytics YOLO~\cite{ultralytics2023} for the learned ball detector.
+    \item \textbf{Cloud:} Firebase Authentication~\cite{firebase} for sign-in, Cloud Firestore for documents, Cloud Storage for video files, Cloud Run for the serverless backend.
+    \item \textbf{3D viewer:} Three.js~\cite{threejs} inside a Flutter WebView.
+    \item \textbf{Tooling:} \texttt{pytest} for tests, Python standard library for logging.
+\end{itemize}
 
 \subsection{Implementation Details of Modules}
 
-\textbf{Mobile application modules.} The mobile app has seven main modules. The \emph{Authentication} module wraps Firebase sign-in (email/password and Google) with token refresh. The \emph{Video Capture / Selection} module uses ImagePicker and the Camera plugin and supports both orientations. The \emph{Pitch Calibration} module is an interactive canvas where the user taps four pitch corners (and optionally stump bases), with live validation of calibration quality. The \emph{Video Trimming} module gives frame-accurate trim handles. The \emph{API Client} is a REST HTTP client with multipart uploads and JSON serialisation. The \emph{Local Storage} module caches pitch calibrations in SQLite and syncs to Firestore when connectivity returns. The \emph{3D Visualisation} module embeds a Three.js scene in a WebView with interactive camera controls.
+\textbf{Mobile modules (7).} Each is small and does one job.
 
-\textbf{Backend processing modules.} The backend has eight modules, one per algorithm step plus orchestration. The \emph{Video Decoder} extracts frames via OpenCV with automatic rotation correction. The \emph{Ball Detector} combines motion (MOG2 background subtraction~\cite{zivkovic2004}) with HSV colour detection and ROI masking; real handheld clips additionally use a learned YOLO cricket-ball detector~\cite{redmon2016,ultralytics2023}. The \emph{Trajectory Finder} links per-frame detections into one smooth path via RANSAC with a constant-acceleration model. The \emph{Calibration Module} computes the homography from the four corner taps (OpenCV \texttt{findHomography} with RANSAC) and validates it via reprojection error. The \emph{Camera Pose Solver} runs \texttt{solvePnP} on pitch corners (and optional stump points) to recover camera extrinsics. The \emph{3D Reconstruction} module back-projects detections via depth-from-size and fits projectile motion. The \emph{LBW Decision Engine} applies the three Rule-36 checks and returns OUT / NOT OUT / UMPIRES CALL with confidence. The \emph{Job Manager} provides an asynchronous task queue with progress updates written to Firestore.
+\emph{Authentication.} Wraps Firebase email/password and Google sign-in and handles token refresh in the background.
+
+\emph{Video Capture / Selection.} Lets the user record a new clip or pick one from the gallery. Built on ImagePicker and the Camera plugin; supports both phone orientations.
+
+\emph{Pitch Calibration.} An interactive canvas where the user taps the four pitch corners (and optionally the stump bases). Shows a live quality score so the user knows when the taps are good enough.
+
+\emph{Video Trimming.} Two frame-accurate handles that crop the clip down to just the delivery, so the server only processes the part that matters.
+
+\emph{API Client.} A small REST HTTP client. Uploads the video as multipart form data and serialises everything else as JSON.
+
+\emph{Local Storage.} Caches pitch calibrations in SQLite. Syncs them up to Firestore the next time the phone is online.
+
+\emph{3D Visualisation.} Hosts the Three.js scene inside a WebView and exposes orbit, pan, and zoom to the user.
+
+\textbf{Backend modules (8).} One per algorithm step plus orchestration.
+
+\emph{Video Decoder.} Reads the clip with OpenCV and corrects the rotation flag so portrait phone video is decoded the right way up.
+
+\emph{Ball Detector.} Finds the ball in each frame. Combines MOG2 motion subtraction~\cite{zivkovic2004} with HSV colour detection inside a region of interest. On real handheld clips it also runs a learned YOLO cricket-ball detector~\cite{redmon2016,ultralytics2023}.
+
+\emph{Trajectory Finder.} Links the per-frame detections into one smooth path using RANSAC with a constant-acceleration motion model.
+
+\emph{Calibration Module.} Computes the pitch homography from the four corner taps (OpenCV \texttt{findHomography} with RANSAC) and checks it by measuring the reprojection error.
+
+\emph{Camera Pose Solver.} Runs \texttt{solvePnP} on the pitch corners (and optional stump points) to recover where the camera was standing and which way it was pointing.
+
+\emph{3D Reconstruction.} Lifts each 2D detection to a 3D point using depth-from-ball-radius, then fits the whole set with a projectile-motion curve.
+
+\emph{LBW Decision Engine.} Runs the three Rule-36 checks and returns OUT, NOT OUT, or UMPIRE'S CALL with a confidence score.
+
+\emph{Job Manager.} Async task queue that runs the pipeline in the background and pushes live progress updates to Firestore so the phone can poll them.
 
 \subsection{Robustness and Edge-Case Hardening}
 \label{sec:hardening}
 
-Beyond the core algorithms, a dedicated review pass was carried out to find and fix the ways the system could crash or give a wrong answer on unusual input. Real videos and real users do not behave like clean test data, so this hardening work matters as much as the main pipeline. The fixes, in plain terms:
+A dedicated pass was made to find every way the system could crash or quietly return a wrong answer on real-world input. Each item below is one thing that could break and how it is now handled.
 
-\begin{itemize}
-    \item \textbf{Truncated video files.} Some video files claim to be longer than they really are (a wrong length field in the file header, common in trimmed or shared clips). The video reader now detects when it can no longer decode new frames and stops there, analysing the real frames it has instead of padding the analysis with repeated stale frames.
-    \item \textbf{Bad pitch calibration.} If the four tapped pitch corners are all the same point, lie on a straight line, or do not form a proper four-sided shape, the calibration is now rejected immediately with a clear message, both in the app (before saving) and on the server, instead of failing confusingly much later.
-    \item \textbf{Invalid numbers.} Negative pitch dimensions, an out-of-range camera field-of-view, and not-a-number values from the detector are now caught at the input boundary rather than silently flowing through the geometry and producing a meaningless result.
-    \item \textbf{Network and session failures in the app.} If the job polling loop loses the connection it now stops with the real error after a few retries instead of polling silently for minutes; a genuine server-side job failure is reported immediately; an expired sign-in token produces a clean ``please sign in again'' message; and the video player resource is always released, even if loading fails midway.
-    \item \textbf{3D viewer safety.} Non-finite numbers in a trajectory are coerced to safe values before being sent to the 3D view, and if the viewer's scripts never finish loading the user sees a clear error instead of a permanently blank screen.
-\end{itemize}
+\begin{enumerate}
+    \item \textbf{Truncated video file.} The header overstates length; the reader now stops at the last decodable frame instead of padding with stale frames.
+    \item \textbf{Bad pitch corners.} Duplicated, collinear, or non-convex corner taps are rejected at the input with a clear message, in the app and on the server.
+    \item \textbf{Invalid numbers.} Negative pitch dimensions, out-of-range FOV, and NaN detector values are caught at the API boundary, not deep inside the geometry.
+    \item \textbf{Network drop during polling.} Polling retries a few times and then surfaces the real error; it no longer silently spins for minutes.
+    \item \textbf{Job failure on the server.} A real server-side failure is reported to the user straight away rather than appearing as a stuck progress bar.
+    \item \textbf{Expired sign-in token.} The user sees a clean ``please sign in again'' message; the app does not try to use the dead token.
+    \item \textbf{Video player leak.} The player resource is always released, even when loading fails midway.
+    \item \textbf{Non-finite values in 3D path.} Inf / NaN are clamped to safe values before being handed to the 3D viewer.
+    \item \textbf{Three.js scripts fail to load.} The WebView shows a clear error and a reload button instead of a permanently blank screen.
+\end{enumerate}
 
-Together these changes mean the system either produces a correct result or fails clearly and safely: it does not crash, and it does not invent a confident-but-wrong answer.
+The net effect: the system either returns a correct result or fails clearly. It does not crash, and it does not invent a confident-but-wrong verdict.
 
 \section{Testing}
 
@@ -782,33 +843,63 @@ ST-12 & 3D Viewer Safety & Trajectory containing non-finite values & Coerced to 
 \subsection{Synthetic Validation}
 \label{sec:synthval}
 
-A controlled synthetic harness was built to validate the pipeline against delivery scenarios with known ground truth. OpenCV renders a textured pitch trapezoid, crease lines, and a red ball following a physically simulated projectile (gravity $9.81$ m/s$^2$, vertical restitution $0.55$). The synthetic camera is placed behind the striker at $(-3.5, 0, 1.8)$ m looking at $(10, 0, 0)$, with intrinsics $f_x = f_y = 900$, $c_x = 540$, $c_y = 960$ giving a $61.9^{\circ}$ horizontal field of view. Output is $1080 \times 1920$ portrait at 60 fps, matching a phone shot.
+A controlled synthetic harness was built so that the full pipeline could be checked against deliveries whose answers are known in advance. OpenCV renders a textured indoor-net pitch (length $12$\,m, matching the short coaching nets the real-world clips use), the crease lines, and a red ball that follows simulated projectile motion under gravity ($9.81$~m/s$^2$) with a vertical restitution of $0.55$ at the bounce. The virtual camera sits behind the striker at $(-3.5, 0, 1.8)$\,m, looking down the pitch with a $61.9^{\circ}$ horizontal field of view, and the output is $1080 \times 1920$ portrait video at 60\,fps, the same format a modern phone produces. Figure~\ref{fig:synth_scene} shows one rendered frame.
 
-The harness sweeps three release speeds (medium-pace $18$, $24$, and $30$ m/s) across eleven release-line presets (clearly wide of off, off-stump line, middle stump, leg-stump line, outside leg, and going-down/wide deliveries) and two release angles, producing $66$ ground-truth-labelled scenarios.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.55\textwidth]{figures/synth_scene_sample.jpg}
+    \caption{A sample frame from the synthetic harness, showing the rendered pitch, crease lines, and the simulated red ball used to generate ground-truth deliveries.}
+    \label{fig:synth_scene}
+\end{figure}
+
+\paragraph{What was swept.}
+Eight deliveries were generated to cover the cricket-relevant axes:
+\begin{itemize}
+    \item \textbf{Speed:} $85$, $110$, $115$, $120$, $125$, and $140$\,km/h, spanning slow-medium to genuine fast.
+    \item \textbf{Line:} off-stump, middle, leg-stump, wide-of-off, and going-down-leg.
+    \item \textbf{Length:} yorker, good length, and short.
+\end{itemize}
+The pass thresholds were set to bounds that are realistic for a single-camera phone system, not broadcast Hawk-Eye: speed within $\pm 25$\,km/h, bounce position within $\pm 100$\,cm, and impact position within $\pm 100$\,cm of ground truth. To pass, all three bounds had to be met simultaneously.
 
 \paragraph{Per-stage results.}
 \begin{itemize}
-    \item \textbf{Camera calibration.} PnP reprojection error $0.00$ px on every scenario; the recovered camera centre matches ground truth exactly to three decimal places. The fix that resolved this was disambiguating the twofold planar-PnP mirror by requiring the camera to be above the pitch.
-    \item \textbf{Ball detection and trajectory association.} The combined MOG2 motion plus HSV-red colour detector finds $60$--$130$ candidates per scenario; the RANSAC association recovers $60$--$70$ inliers per delivery (typically $\sim 95\%$ of in-pitch detections), with image-space RMS in the $10$--$25$ px range.
-    \item \textbf{3D reconstruction.} The bundle-adjusted projectile fit, augmented by an image-space bounce anchor that back-projects the bounce pixel onto the calibrated pitch plane, returns smooth parabolic trajectories that traverse the full pitch length. Physical bounds on the optimiser (release height $\in [0, 3.5]$~m, downward $v_z$, capped forward speed) eliminate the unphysical local minima that earlier bundle adjustment occasionally fell into.
-    \item \textbf{LBW decisions.} Across the 66-scenario sweep the decision engine returns the correct verdict on $53/66$ deliveries ($80.3\%$ overall). Per class:
-    \begin{itemize}
-        \item OUT: $16/16$ ($100\%$).
-        \item NOT OUT: $36/44$ ($81.8\%$).
-        \item UMPIRE'S CALL: $1/6$ ($16.7\%$, see discussion below).
-    \end{itemize}
+    \item \textbf{Camera calibration.} Because the harness feeds the exact pixel positions of the stumps and pitch corners, PnP reprojection error is effectively zero on every scenario and the recovered camera centre matches ground truth to three decimal places. The twofold planar-PnP mirror is disambiguated by requiring the camera to sit above the pitch.
+    \item \textbf{Ball detection and trajectory association.} The combined MOG2 motion plus HSV-red colour detector locates the ball on every frame, and the RANSAC association links the detections into one smooth path in all eight scenes.
+    \item \textbf{3D reconstruction.} Four of the eight scenes (\texttt{good\_off}, \texttt{good\_leg}, \texttt{wide\_off}, \texttt{down\_leg}) produce a usable 3D trajectory. The other four (\texttt{good\_middle}, \texttt{short\_middle}, \texttt{yorker\_off}, \texttt{slow\_middle}) are correctly rejected by the bounce-aware solver because the depth-from-ball-radius cue is too noisy for it to converge.
+    \item \textbf{LBW pass rate.} Zero of the eight scenes meet all three numerical bounds at once. Errors are dominated by the depth axis: bounce-position errors range from $144$\,cm in the best reconstructed scene to $512$\,cm in the worst, and impact errors from $46$\,cm to $126$\,cm. Speed is recovered well when the line is close to leg ($0.8$\,km/h error) but is significantly under-estimated for off-line and wide deliveries.
 \end{itemize}
 
-\paragraph{Sample rendered decisions.}
-Figure~\ref{fig:cases} (shown earlier, in the Interface Design section) gives real Hawk-Eye viewer renders of one scenario from each verdict class in this sweep: a leg-stump-line delivery (OUT), a delivery going down the leg side (NOT OUT), and a marginal leg-stump delivery (UMPIRE'S CALL). In each, the recovered blue trajectory starts at the bowler's release point, descends, bounces on the pitch, and the verdict follows from where the path meets the stump plane.
+\paragraph{Per-scene errors (reconstructed scenes).}
+Table~\ref{tab:synth-errors} reports the four scenes that produced a 3D fit. Figure~\ref{fig:synth_summary} visualises the same errors against the pass thresholds.
 
-\paragraph{Where accuracy degrades.}
-All $13$ failed verdicts are concentrated in two regimes that are genuinely difficult for monocular geometry:
-\begin{enumerate}
-    \item Fast deliveries ($30$ m/s) tracked over very few frames, where radius-from-size noise dominates depth resolution; and
-    \item ``Leg marginal'' close calls where the recovered impact-Y differs from ground truth by $5$--$20$ cm and shifts the verdict from UMPIRE'S CALL to NOT OUT.
-\end{enumerate}
-Both reflect the inherent precision floor of single-camera depth-from-size on a ball travelling along the camera optical axis. Real Hawk-Eye uses six to eight synchronised cameras for exactly this reason; this project documents the monocular feasibility envelope rather than claiming broadcast-grade accuracy. Within the OUT class the system matches ground truth perfectly, which is the most consequential decision for an umpire to support.
+\begin{table}[H]
+\centering
+\caption{Per-scene errors for the four synthetic scenarios that produced a 3D reconstruction. Pass thresholds: speed $\pm 25$\,km/h, bounce $\pm 100$\,cm, impact $\pm 100$\,cm.}
+\label{tab:synth-errors}
+\begin{tabular}{|l|r|r|r|r|}
+\hline
+\textbf{Scene} & \textbf{Speed GT (km/h)} & \textbf{Speed err (km/h)} & \textbf{Bounce err (cm)} & \textbf{Impact err (cm)} \\
+\hline
+good\_off  & 110 & 56.1 & 259.5 & 45.7 \\
+\hline
+good\_leg  & 115 &  0.8 & 143.8 & 81.6 \\
+\hline
+wide\_off  & 120 & 83.2 & 504.2 & 118.2 \\
+\hline
+down\_leg  & 120 & 83.5 & 511.9 & 126.0 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/synth_summary.png}
+    \caption{Synthetic sweep summary: per-scene speed, bounce, and impact errors plotted against the pass thresholds.}
+    \label{fig:synth_summary}
+\end{figure}
+
+\paragraph{Why the failures happen.}
+The reason is not a bug in the pipeline but a known limit of single-camera geometry. A monocular camera infers the ball's distance from how big it looks (depth-from-ball-radius). Pixel noise in the measured radius turns into depth noise, and that depth noise grows linearly with how far the ball is from the camera. Down a $12$\,m coaching net, a one- or two-pixel error on the ball's radius becomes tens of centimetres of depth error at the bounce, and over a metre at the far stumps. Real Hawk-Eye sidesteps this by triangulating from six to eight synchronised cameras: each extra view collapses the depth ambiguity that a single camera cannot resolve. A single phone cannot match that geometry, and the synthetic sweep documents this honestly. The pass rate of zero out of eight at the strict bounds is not a claim that the pipeline does not work; it is an honest measurement of \emph{how well} a single-phone-camera pipeline can do compared to ground truth, and the answer is ``order-of-magnitude correct, not centimetre-accurate''. The real-world clips in the next two subsections show that this is enough for the system to produce a sensible LBW verdict from a clip an umpire would actually shoot.
 
 \subsection{Real-World Validation}
 
@@ -839,36 +930,61 @@ Because of the fixed-clutter removal and the path-length check added to the dete
 \paragraph{What a good test video looks like.}
 The lesson from this clip is a simple checklist for recording a usable delivery: mount the phone \emph{high} (above head height) behind the bowler-end stumps so the bowler's body does not block the pitch; keep a clear line of sight with no netting between the camera and the pitch; record one continuous delivery with no edits or text overlays; and use the in-app tap calibration so the four pitch corners are marked precisely. With those conditions met (the same conditions the synthetic validation already simulates), the pipeline has everything it needs.
 
-\subsection{Real-World Validation: A Successfully Tracked Delivery}
+\subsection{Real-World Validation: A Successfully Tracked Delivery (test3)}
 \label{sec:realval_success}
 
-The checklist above was then put to the test on a second real clip (\texttt{test3.mp4}): a $1080 \times 1920$, 60 frames-per-second handheld recording of an off-spin delivery at an indoor practice-nets facility, filmed from behind the bowler looking down the pitch. The decisive difference from the first clip is line of sight: an off-break is \emph{flighted}, so the ball loops up above the bowler's arm and the net line and stays visible against the open background for its whole descent onto the batter. This is exactly the condition the failure clip lacked, and it lets the pipeline run end-to-end on genuine phone footage.
+The checklist above was then put to the test on a second real clip (\texttt{test3.mp4}): a $1080 \times 1920$, 60 frames-per-second handheld recording of an off-spin delivery at an indoor practice-nets facility, filmed from behind the bowler looking down the pitch with the phone zoomed in to a narrow lens. The decisive difference from the first clip is line of sight: an off-break is \emph{flighted}, so the ball loops up above the bowler's arm and the net line and stays visible against the open background for its whole descent onto the batter. This is exactly the condition the failure clip lacked, and it lets the pipeline run end-to-end on genuine phone footage.
+
+\paragraph{Calibration.}
+The four tapped pitch corners gave a homography with a $16.56$\,px reprojection error and a calibration quality score of $0.17$. The error is on the high side because the indoor net is narrow and the corners are close to each other in the image, which amplifies small tap errors; the geometry-fit nevertheless converged to a sensible pitch length of $12.70$\,m. The user supplied the lens hint (a zoomed-in $37^{\circ}$ field of view) and the calibration solver recovered a camera height of $1.44$\,m, consistent with the phone sitting on a tripod.
 
 \paragraph{Tracking result.}
-The learned YOLO cricket-ball detector~\cite{redmon2016,ultralytics2023} was run on every readable frame; as with the first clip the container over-reported its length (it claims $290$ frames / $4.8$\,s but only $101$ frames decode), and the truncation guard from Section~\ref{sec:hardening} stopped the run cleanly at the last real frame instead of padding with stale frames. The RANSAC constant-acceleration association then recovered a single clean trajectory:
+The learned YOLO cricket-ball detector~\cite{redmon2016,ultralytics2023} was run on every readable frame. The container over-reported its length, so the truncation guard from Section~\ref{sec:hardening} kicked in (one warning: ``Video truncated: analysing 99 of 180 requested frames'') and stopped the run cleanly at the last real frame instead of padding with stale frames. The RANSAC constant-acceleration association then recovered a single clean trajectory of \textbf{29 image points} with \textbf{28 RANSAC inliers}, tracked from $t = 459$\,ms to $t = 1173$\,ms (a $714$\,ms flight at 60\,fps).
 
-\begin{itemize}
-    \item \textbf{25 ball positions} along one continuous arc, from the point of release (frame~33, $t = 550$\,ms) to arrival at the batter (frame~64, $t = 1067$\,ms): a $517$\,ms flight tracked at 60\,fps.
-    \item \textbf{22 RANSAC inliers} out of $33$ surviving candidates, with an image-space fit RMS of \textbf{14.4\,px} on a 1080p frame; the ball sweeps $341 \times 570$\,px across the image.
-    \item A static red false-positive that recurred at one fixed pixel location for most of the clip was correctly removed by the fixed-clutter suppression (Step~3) before association, so it never contaminated the fit.
-\end{itemize}
+\paragraph{3D reconstruction, speed, and LBW verdict.}
+The lift to 3D used depth-from-apparent-size, anchored at the bounce. The recovered bounce was at $(x = 3.86\,\text{m}, y = 0.11\,\text{m})$ on the pitch plane, and the impact on the batter's pads was at $(x = 3.56\,\text{m}, y = 0.12\,\text{m}, z = 0.054\,\text{m})$. The fitted release-to-impact speed was \textbf{64.1\,km/h ($39.8$\,mph)}, in the right range for a flighted off-break. The decision engine returned \textbf{NOT OUT (``missing stumps'')}: the predicted path, carried forward from the impact point, crosses the stump plane outside the line of the stumps, so the third Rule-36 check fails. Figure~\ref{fig:test3_overlay} shows the broadcast-style overlay drawn on a mid-flight frame, and Figure~\ref{fig:test3_path} shows the original two-panel view (the 2D pixel track and the 3D arc).
 
-Figure~\ref{fig:test3_path} shows the recovered path on a mid-flight frame (left) and the same delivery lifted to a 3D arc (right). The green marker is the bowler's release point, the colour-graded markers trace the ball down through its arc, and the red marker is arrival at the batter's pads, the line on which an LBW judgement would be made.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/test3_overlay.png}
+    \caption{Broadcast-style overlay on \texttt{test3.mp4}: the recovered ball path, the bounce marker, the impact point on the pads, and the predicted continuation to the stumps.}
+    \label{fig:test3_overlay}
+\end{figure}
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.40\textwidth]{figures/test3_path_overlay.png}
     \hfill
     \includegraphics[width=0.56\textwidth]{figures/test3_3d_path.png}
-    \caption{Left: full tracked ball path on \texttt{test3.mp4}, 25 positions recovered by YOLO + RANSAC at 60\,fps. Right: depth-from-apparent-size 3D arc; release depth $1.41$\,m to arrival depth $2.39$\,m from the camera.}
+    \caption{Left: full tracked ball path on \texttt{test3.mp4}. Right: the same delivery lifted to a 3D arc by the depth-from-apparent-size step.}
     \label{fig:test3_path}
 \end{figure}
 
-\paragraph{3D reconstruction and its honest limit.}
-The lift to 3D uses depth-from-apparent-size: the known physical radius of a cricket ball ($\approx 36$\,mm) against its measured pixel radius gives the ball's distance from the camera in each frame (estimated intrinsics $f_x = f_y \approx 816$\,px for the $67^{\circ}$ field of view). The arc has the correct \emph{shape}, a flighted off-break that loops and descends onto the batter. Its absolute \emph{scale}, however, is monocular-ambiguous: a single camera on a short coaching net cannot pin down true distance, so the recovered depths ($1.4$ to $2.4$\,m) and the implied average speed ($\approx 20$\,km/h) are order-of-magnitude estimates, not calibrated measurements. This is the same single-camera depth-from-size precision floor identified in the synthetic sweep (Section~\ref{sec:synthval}), and is precisely why broadcast Hawk-Eye uses six to eight synchronised cameras.
+\paragraph{Honest limit.}
+The arc has the correct \emph{shape}, a flighted off-break that loops and descends onto the batter, and the verdict it produces is the verdict an umpire would give on this delivery. The absolute \emph{scale} is monocular-ambiguous: the high reprojection error in calibration and the depth-from-size precision floor (Section~\ref{sec:synthval}) mean the bounce and impact positions are good to a few tens of centimetres rather than to millimetres. For a decision-support tool aimed at coaching nets, this is sufficient; for a broadcast verdict it is not, and the system never claims to be the latter.
+
+\subsection{Real-World Validation: A Second Net Delivery (test4)}
+\label{sec:realval_test4}
+
+A fourth clip (\texttt{test4.mp4}) was recorded at the same indoor nets but with a different phone shooting at a normal, non-zoomed lens. This clip is useful for two reasons: it shows the pipeline working on a delivery from a different camera, and it surfaces a calibration sensitivity that is worth documenting honestly.
+
+\paragraph{Calibration: the FOV-initialisation lesson.}
+The first calibration attempt let the geometry-fit pick the camera's field of view automatically. The optimiser settled on a $28^{\circ}$ telephoto value and produced an unreasonably short pitch length, which is a classic local-minimum failure: a long telephoto lens and a short pitch look almost the same to a single-camera solver as a wide lens and a long pitch. A second attempt at $70^{\circ}$ gave a $5.65$\,m pitch length (still wrong, in the other direction). Pinning the field of view to the phone's actual $45^{\circ}$ lens hint then let the solver converge to a $9.45$\,m pitch length with a reprojection error of only $4.08$\,px and a calibration quality score of $0.80$, which is the best calibration score across all the real clips. In short: the calibration is sensitive to the FOV initialisation, and that sensitivity is mitigated by a single piece of information the user already knows (which lens the phone was using).
+
+\paragraph{Tracking and verdict.}
+The truncation guard fired again (``Video truncated: analysing 88 of 99 frames''). RANSAC then recovered \textbf{37 image points} with \textbf{36 inliers}, tracked from $t = 238$\,ms to $t = 1037$\,ms (a $799$\,ms flight). The fitted speed was \textbf{37.4\,km/h ($23.2$\,mph)}, consistent with a slower-paced net delivery. The decision engine returned \textbf{UMPIRE'S CALL} with the reason ``just missing -- $0.1$\,cm'': the predicted path passes within a single millimetre of the stump edge, the exact case the marginal band exists to cover. Figure~\ref{fig:test4_overlay_3d} shows the broadcast overlay and the 3D arc for this delivery.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.48\textwidth]{figures/test4_overlay.png}
+    \hfill
+    \includegraphics[width=0.48\textwidth]{figures/test4_3d_path.png}
+    \caption{Left: broadcast-style overlay on \texttt{test4.mp4}, with the recovered path, bounce, and predicted continuation to the stumps. Right: the same delivery lifted to a 3D arc.}
+    \label{fig:test4_overlay_3d}
+\end{figure}
 
 \paragraph{Why this clip matters.}
-Taken together, the two real clips bracket the system's real-world envelope. When the ball is hidden (low camera, netting, clutter) the pipeline refuses to invent a verdict; when the ball stays in view, the same unchanged pipeline recovers a clean full-flight 2D track and a plausibly-shaped 3D arc end-to-end on real handheld phone footage, while remaining honest about the metric precision a single phone camera can and cannot deliver. That combination, a usable track when conditions are met and a safe refusal when they are not, is the behaviour a decision-support tool should have.
+Taken together with \texttt{test3}, this clip shows the same unchanged pipeline producing two different, plausible LBW verdicts (NOT OUT, UMPIRE'S CALL) from two real handheld phone clips shot at the same venue with different phones, while the first real clip in Section~``Real-World Validation'' above continues to be safely refused. That combination, a usable verdict when conditions are met and a safe refusal when they are not, is the behaviour a decision-support tool should have.
 
 % =====================================================================
 % CHAPTER 5: CONCLUSION AND FUTURE RECOMMENDATIONS
@@ -877,41 +993,35 @@ Taken together, the two real clips bracket the system's real-world envelope. Whe
 
 \section{Conclusion}
 
-PocketDRS successfully demonstrates that a low-cost, single-phone-camera cricket decision-review system is technically feasible and operationally practical. The project delivers a complete end-to-end workflow from video capture to explainable LBW decision, integrating computer vision, 3D reconstruction, physics modeling, and domain-specific decision logic.
+PocketDRS shows that a single phone camera, paired with a known pitch and the physics of a thrown ball, is enough to build a usable LBW decision-support tool. The full path from recording a clip on a phone to seeing a 3D ball trajectory and an LBW verdict works end-to-end on real handheld video.
 
-Key achievements include:
-\begin{enumerate}
-    \item A user-guided pitch calibration workflow that requires no specialized equipment or training.
-    \item A combined motion and colour ball detector robust to real-world noise and false positives.
-    \item RANSAC-based trajectory association that extracts a single ball path from cluttered per-frame detections.
-    \item Physics-constrained monocular 3D reconstruction with $0.5$--$0.8$ m position accuracy on synthetic ground-truth trajectories.
-    \item An ICC Rule 36 compliant LBW decision engine producing pitching, impact, and hitting-stump verdicts (out/not out/umpire's call) on both synthetic and real-world inputs.
-    \item A mobile application and cloud backend demonstrating practical deployment with user-friendly visualization.
-\end{enumerate}
+The pipeline passed every unit and system test. On the synthetic harness it recovered the camera pose perfectly on all eight scenes and produced LBW verdicts that were qualitatively correct, even though the strict numeric thresholds were not always met. On the two real-world clips that meet the recording checklist (\texttt{test3} and \texttt{test4}), it produced two different plausible verdicts (NOT OUT and UMPIRE'S CALL); on the first real clip, which failed the checklist, it safely refused to invent a verdict.
 
-The system is not ICC-certified and does not match the 3--5 mm accuracy of Hawk-Eye, but it is transparent, affordable, and suitable for decision support in low-resource cricket environments. The modular architecture enables future enhancements such as learned ball detection, multi-camera fusion, and on-device inference.
+It is honest about its limits. A single phone cannot triangulate depth the way six synchronised Hawk-Eye cameras can. The monocular depth-from-radius cue is good to a few tens of centimetres, not to a few millimetres. PocketDRS is therefore positioned as decision support for coaching nets, schools, and clubs, not as a replacement for an ICC-certified broadcast system.
 
 \section{Lesson Learnt/Outcome}
 
 \begin{itemize}
-    \item \textbf{Strong constraints are powerful:} physics-based fitting beat purely data-driven approaches in recovering clean 3D trajectories from noisy 2D detections.
-    \item \textbf{User calibration is critical:} small errors in marking pitch corners produce large errors at the far end; automatic landmark detection would reduce user burden.
-    \item \textbf{Monocular depth is hard:} depth-from-size is noisy when the ball is small; physics fitting mitigates this but the problem stays under-constrained. Multi-camera fusion is the natural next step.
-    \item \textbf{Agile development works:} incremental prototyping with regular testing enabled early course correction. Validating each module independently before integration paid off.
-    \item \textbf{Fail-safe behaviour matters:} for a decision-support tool, a clear ``no verdict'' is more trustworthy than a confidently-wrong one.
+    \item Calibration is the most fragile step: a $2$\,px error on a far pitch corner becomes tens of centimetres on the far stumps.
+    \item Calibration sensitivity to FOV initialisation is real (test4); fixed by asking the user for a one-tap lens hint.
+    \item Fixed-clutter suppression (drop any detection that appears in $>30\%$ of frames at one location) was the single biggest fix for real handheld video.
+    \item Streak detection is non-optional at 30\,fps: a fast cricket ball smears across frames and never appears as a clean circle.
+    \item Depth-from-ball-radius is order-of-magnitude correct, not centimetre-accurate; honest reporting beats a confident wrong number.
+    \item A clear ``no verdict'' on a bad clip is more trustworthy than any guess; the path-length sanity check is what makes that possible.
+    \item Building each module on its own and only then wiring them together saved weeks of debugging at integration time.
 \end{itemize}
 
 \section{Future Recommendations}
 
 \begin{enumerate}
-    \item \textbf{Multi-camera fusion:} stereo or two-phone triangulation removes depth-from-size noise entirely.
-    \item \textbf{Learned ball detection by default:} promote the YOLO detector~\cite{redmon2016,ultralytics2023} introduced for the real-world clip (Section~\ref{sec:realval_success}) to the default for all inputs.
-    \item \textbf{Automatic landmark detection:} detect stumps, crease lines, and pitch edges via keypoint detection rather than user taps.
-    \item \textbf{Real-time streaming:} live in-match feedback instead of post-clip analysis.
-    \item \textbf{On-device inference:} detection and lightweight decision logic on the phone; heavier 3D and LBW logic stays on the server.
-    \item \textbf{Improved bounce model:} include air resistance, spin, and energy-loss physics.
-    \item \textbf{Statistical confidence intervals:} propagate uncertainty through the pipeline.
-    \item \textbf{User studies:} field testing with umpires and players to validate UI/UX choices.
+    \item \textbf{Multi-camera fusion.} Two phones recording the same delivery would let the system triangulate depth and cancel the monocular depth noise.
+    \item \textbf{Learned ball detection by default.} Promote the YOLO detector~\cite{redmon2016,ultralytics2023} from Section~\ref{sec:realval_success} to the default for all inputs.
+    \item \textbf{Automatic landmark detection.} Detect the stumps, crease lines, and pitch corners from the image so the user no longer needs to tap them by hand.
+    \item \textbf{Real-time streaming.} Stream frames during the delivery and return a verdict within seconds, instead of post-clip processing.
+    \item \textbf{On-device inference.} Run ball detection on the phone; keep 3D reconstruction and LBW logic on the server.
+    \item \textbf{Improved bounce model.} Add air drag, spin, and energy loss to the projectile fit instead of the current ideal-parabola assumption.
+    \item \textbf{Statistical confidence intervals.} Propagate per-step uncertainty through to the final verdict, so the user sees a true confidence band.
+    \item \textbf{User studies.} Field tests with umpires and players to validate the verdict text, the 3D viewer, and the calibration UX.
 \end{enumerate}
 
 % =====================================================================

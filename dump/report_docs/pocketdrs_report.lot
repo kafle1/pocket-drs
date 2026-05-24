@@ -6,4 +6,5 @@
 \addvspace {10\p@ }
 \contentsline {table}{\numberline {4.1}{\ignorespaces Unit test cases covering the calibration, tracking, trajectory, reconstruction, LBW, hardening, and API modules.}}{19}{table.4.1}%
 \contentsline {table}{\numberline {4.2}{\ignorespaces System (end-to-end) test cases.}}{20}{table.4.2}%
+\contentsline {table}{\numberline {4.3}{\ignorespaces Per-scene errors for the four synthetic scenarios that produced a 3D reconstruction. Pass thresholds: speed $\pm 25$\,km/h, bounce $\pm 100$\,cm, impact $\pm 100$\,cm.}}{23}{table.caption.11}%
 \addvspace {10\p@ }
