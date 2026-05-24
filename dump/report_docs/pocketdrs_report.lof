@@ -1,18 +1,18 @@
 \addvspace {10\p@ }
 \addvspace {10\p@ }
 \addvspace {10\p@ }
-\contentsline {figure}{\numberline {3.1}{\ignorespaces PocketDRS entity--relationship diagram.}}{10}{figure.caption.4}%
-\contentsline {figure}{\numberline {3.2}{\ignorespaces Level 0 (context) DFD.}}{11}{figure.caption.5}%
-\contentsline {figure}{\numberline {3.3}{\ignorespaces Level 1 DFD.}}{11}{figure.caption.6}%
-\contentsline {figure}{\numberline {3.4}{\ignorespaces Three-tier system architecture of PocketDRS.}}{12}{figure.caption.7}%
-\contentsline {figure}{\numberline {3.5}{\ignorespaces Result screen for OUT (left), NOT OUT (middle), UMPIRE'S CALL (right).}}{14}{figure.caption.9}%
-\contentsline {figure}{\numberline {3.6}{\ignorespaces Physical DFD of the deployed system.}}{14}{figure.caption.10}%
+\contentsline {figure}{\numberline {3.1}{\ignorespaces Use-case diagram showing the actors (User, System) and primary actions (capture video, tap calibration, view 3D result).}}{9}{figure.caption.4}%
+\contentsline {figure}{\numberline {3.2}{\ignorespaces PocketDRS entity--relationship diagram.}}{11}{figure.caption.5}%
+\contentsline {figure}{\numberline {3.3}{\ignorespaces Level 0 (context) DFD.}}{11}{figure.caption.6}%
+\contentsline {figure}{\numberline {3.4}{\ignorespaces Level 1 DFD.}}{12}{figure.caption.7}%
+\contentsline {figure}{\numberline {3.5}{\ignorespaces Three-tier system architecture of PocketDRS.}}{13}{figure.caption.8}%
+\contentsline {figure}{\numberline {3.6}{\ignorespaces Result screen for OUT (left), NOT OUT (middle), UMPIRE'S CALL (right).}}{14}{figure.caption.10}%
+\contentsline {figure}{\numberline {3.7}{\ignorespaces Physical DFD of the deployed system.}}{15}{figure.caption.11}%
 \addvspace {10\p@ }
-\contentsline {figure}{\numberline {4.1}{\ignorespaces A sample frame from the synthetic harness, showing the rendered pitch, crease lines, and the simulated red ball used to generate ground-truth deliveries.}}{23}{figure.caption.11}%
-\contentsline {figure}{\numberline {4.2}{\ignorespaces Synthetic sweep summary: per-scene speed, bounce, and impact errors plotted against the pass thresholds.}}{25}{figure.caption.13}%
-\contentsline {figure}{\numberline {4.3}{\ignorespaces Frames from the real-world test clip.}}{26}{figure.caption.14}%
-\contentsline {figure}{\numberline {4.4}{\ignorespaces Broadcast-style overlay on \texttt {test3.mp4}: the recovered ball path, the bounce marker, the impact point on the pads, and the predicted continuation to the stumps.}}{29}{figure.caption.15}%
-\contentsline {figure}{\numberline {4.5}{\ignorespaces Left: full tracked ball path on \texttt {test3.mp4}. Right: the same delivery lifted to a 3D arc by the depth-from-apparent-size step.}}{30}{figure.caption.16}%
-\contentsline {figure}{\numberline {4.6}{\ignorespaces Left: broadcast-style overlay on \texttt {test4.mp4}, with the recovered path, bounce, and predicted continuation to the stumps. Right: the same delivery lifted to a 3D arc.}}{31}{figure.caption.17}%
+\contentsline {figure}{\numberline {4.1}{\ignorespaces A sample frame from the retuned synthetic harness: full ICC pitch, crease lines, and the simulated red ball used to generate ground-truth deliveries.}}{23}{figure.caption.12}%
+\contentsline {figure}{\numberline {4.2}{\ignorespaces Synthetic sweep summary: per-scene speed, bounce, and impact errors plotted against the monocular pass thresholds.}}{25}{figure.caption.14}%
+\contentsline {figure}{\numberline {4.3}{\ignorespaces Frames from the real-world test clip.}}{26}{figure.caption.15}%
+\contentsline {figure}{\numberline {4.4}{\ignorespaces Broadcast-style overlay on \texttt {test3.mp4}: the recovered ball path, the bounce marker, the impact point on the pads, and the predicted continuation to the stumps.}}{29}{figure.caption.16}%
+\contentsline {figure}{\numberline {4.5}{\ignorespaces Left: full tracked ball path on \texttt {test3.mp4}. Right: the same delivery lifted to a 3D arc by the depth-from-apparent-size step.}}{30}{figure.caption.17}%
 \addvspace {10\p@ }
-\contentsline {figure}{\numberline {B.1}{\ignorespaces Left: pitch calibration recovering a valid above-ground camera pose ($8.6$\,px reprojection error). Right: result screen with the reconstructed trajectory and an OUT verdict.}}{38}{figure.caption.20}%
+\contentsline {figure}{\numberline {B.1}{\ignorespaces Left: pitch calibration recovering a valid above-ground camera pose ($8.6$\,px reprojection error). Right: result screen with the reconstructed trajectory and an OUT verdict.}}{44}{figure.caption.21}%

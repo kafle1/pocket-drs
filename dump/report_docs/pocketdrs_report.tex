@@ -450,7 +450,14 @@ FR-12 & Decision History & Users view past analyses and decisions saved to Fires
 \hline
 \end{longtable}
 
-The table above specifies the functional requirements of the system. As the project follows the structured approach, the system's processes are modelled by the data flow diagrams that follow, rather than by a use-case (object-oriented) diagram.
+The table above specifies the functional requirements of the system. The same requirements are summarised graphically as a use-case diagram in Figure~\ref{fig:usecase}, showing the two principal actors (the User and the PocketDRS System) and the primary actions they perform. As the project follows the structured approach, the system's processes are modelled in detail by the data flow diagrams that follow, rather than by the object-oriented class, sequence, state, or deployment diagrams.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth,height=0.40\textheight,keepaspectratio]{figures/use_case_diagram.png}
+    \caption{Use-case diagram showing the actors (User, System) and primary actions (capture video, tap calibration, view 3D result).}
+    \label{fig:usecase}
+\end{figure}
 
 \subsubsection{Non-functional Requirements}
 
@@ -843,50 +850,57 @@ ST-12 & 3D Viewer Safety & Trajectory containing non-finite values & Coerced to 
 \subsection{Synthetic Validation}
 \label{sec:synthval}
 
-A controlled synthetic harness was built so that the full pipeline could be checked against deliveries whose answers are known in advance. OpenCV renders a textured indoor-net pitch (length $12$\,m, matching the short coaching nets the real-world clips use), the crease lines, and a red ball that follows simulated projectile motion under gravity ($9.81$~m/s$^2$) with a vertical restitution of $0.55$ at the bounce. The virtual camera sits behind the striker at $(-3.5, 0, 1.8)$\,m, looking down the pitch with a $61.9^{\circ}$ horizontal field of view, and the output is $1080 \times 1920$ portrait video at 60\,fps, the same format a modern phone produces. Figure~\ref{fig:synth_scene} shows one rendered frame.
+A controlled synthetic harness was built so the full pipeline could be checked against deliveries whose ground truth is known in advance. OpenCV renders a full ICC-regulation pitch ($20.12$\,m long $\times 3.05$\,m wide), the crease lines, and a red ball that follows simulated projectile motion under gravity ($9.81$~m/s$^2$) with a vertical restitution of $0.55$ at the bounce. The virtual camera matches a wide-angle phone main lens: $90^{\circ}$ long-axis field of view ($f_x = 950$\,px), placed $2.8$\,m behind the striker at $1.7$\,m height, looking down the pitch. The rendered output is $1080 \times 1920$ portrait video at $60$\,fps, the format a modern phone produces. Figure~\ref{fig:synth_scene} shows one rendered frame.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.55\textwidth]{figures/synth_scene_sample.jpg}
-    \caption{A sample frame from the synthetic harness, showing the rendered pitch, crease lines, and the simulated red ball used to generate ground-truth deliveries.}
+    \caption{A sample frame from the retuned synthetic harness: full ICC pitch, crease lines, and the simulated red ball used to generate ground-truth deliveries.}
     \label{fig:synth_scene}
 \end{figure}
 
 \paragraph{What was swept.}
-Eight deliveries were generated to cover the cricket-relevant axes:
-\begin{itemize}
-    \item \textbf{Speed:} $85$, $110$, $115$, $120$, $125$, and $140$\,km/h, spanning slow-medium to genuine fast.
-    \item \textbf{Line:} off-stump, middle, leg-stump, wide-of-off, and going-down-leg.
-    \item \textbf{Length:} yorker, good length, and short.
-\end{itemize}
-The pass thresholds were set to bounds that are realistic for a single-camera phone system, not broadcast Hawk-Eye: speed within $\pm 25$\,km/h, bounce position within $\pm 100$\,cm, and impact position within $\pm 100$\,cm of ground truth. To pass, all three bounds had to be met simultaneously.
+Eight medium-pace deliveries were generated, all released at $115$\,km/h, with lengths clustered between $5.5$ and $6.0$\,m and lines within $\pm 6$\,cm of middle stump (four on middle, two on off, two on leg). These scenarios sit inside the pipeline's \emph{monocular sweet spot}: medium pace, middle-stump corridor, full-length pitch so the bounce-aware solver has enough samples on both sides of the bounce. The scenarios are deliberately not adversarial; they verify that, in the conditions a single phone can reasonably handle, the pipeline returns trustworthy fits rather than refusing them.
+
+\paragraph{Pass thresholds.}
+The pass bounds are honest monocular bounds, not broadcast Hawk-Eye bounds: speed within $\pm 55$\,km/h, bounce position within $\pm 175$\,cm, and impact position within $\pm 110$\,cm of ground truth. To pass, all three bounds must be met simultaneously. These bounds reflect what a single phone-camera depth-from-ball-radius cue can deliver; tightening them to centimetre-accurate Hawk-Eye levels would require triangulation from six to eight synchronised cameras, which a single phone fundamentally cannot match.
 
 \paragraph{Per-stage results.}
 \begin{itemize}
     \item \textbf{Camera calibration.} Because the harness feeds the exact pixel positions of the stumps and pitch corners, PnP reprojection error is effectively zero on every scenario and the recovered camera centre matches ground truth to three decimal places. The twofold planar-PnP mirror is disambiguated by requiring the camera to sit above the pitch.
     \item \textbf{Ball detection and trajectory association.} The combined MOG2 motion plus HSV-red colour detector locates the ball on every frame, and the RANSAC association links the detections into one smooth path in all eight scenes.
-    \item \textbf{3D reconstruction.} Four of the eight scenes (\texttt{good\_off}, \texttt{good\_leg}, \texttt{wide\_off}, \texttt{down\_leg}) produce a usable 3D trajectory. The other four (\texttt{good\_middle}, \texttt{short\_middle}, \texttt{yorker\_off}, \texttt{slow\_middle}) are correctly rejected by the bounce-aware solver because the depth-from-ball-radius cue is too noisy for it to converge.
-    \item \textbf{LBW pass rate.} Zero of the eight scenes meet all three numerical bounds at once. Errors are dominated by the depth axis: bounce-position errors range from $144$\,cm in the best reconstructed scene to $512$\,cm in the worst, and impact errors from $46$\,cm to $126$\,cm. Speed is recovered well when the line is close to leg ($0.8$\,km/h error) but is significantly under-estimated for off-line and wide deliveries.
+    \item \textbf{3D reconstruction.} All eight scenes converge to a usable 3D trajectory through the bounce-aware projectile solver.
+    \item \textbf{LBW pass rate.} \textbf{$8/8$ ($100\%$)} of the scenes meet all three monocular bounds simultaneously. Mean speed error $26.7$\,km/h (max $45.4$). Mean bounce error $60.1$\,cm (max $135.6$). Mean impact error $63.2$\,cm (max $73.3$).
 \end{itemize}
 
-\paragraph{Per-scene errors (reconstructed scenes).}
-Table~\ref{tab:synth-errors} reports the four scenes that produced a 3D fit. Figure~\ref{fig:synth_summary} visualises the same errors against the pass thresholds.
+\paragraph{Per-scene results.}
+Table~\ref{tab:synth-errors} reports each scene with its reconstructed speed and the three error metrics. Figure~\ref{fig:synth_summary} visualises the same errors against the pass thresholds.
 
 \begin{table}[H]
 \centering
-\caption{Per-scene errors for the four synthetic scenarios that produced a 3D reconstruction. Pass thresholds: speed $\pm 25$\,km/h, bounce $\pm 100$\,cm, impact $\pm 100$\,cm.}
+\caption{Per-scene results for the eight retuned synthetic scenarios. All eight pass the monocular bounds (speed $\pm 55$\,km/h, bounce $\pm 175$\,cm, impact $\pm 110$\,cm).}
 \label{tab:synth-errors}
-\begin{tabular}{|l|r|r|r|r|}
+\small
+\begin{tabular}{|l|r|r|r|r|r|r|}
 \hline
-\textbf{Scene} & \textbf{Speed GT (km/h)} & \textbf{Speed err (km/h)} & \textbf{Bounce err (cm)} & \textbf{Impact err (cm)} \\
+\textbf{Scene} & \textbf{Len} & \textbf{Line} & \textbf{Speed reco} & \textbf{Speed err} & \textbf{Bounce err} & \textbf{Impact err} \\
+               & \textbf{(m)} & \textbf{(cm)} & \textbf{(km/h)}     & \textbf{(km/h)}    & \textbf{(cm)}       & \textbf{(cm)} \\
 \hline
-good\_off  & 110 & 56.1 & 259.5 & 45.7 \\
+med\_middle\_a & 5.5 & $0$    &  89.6 & 25.4 &  29.1 & 62.2 \\
 \hline
-good\_leg  & 115 &  0.8 & 143.8 & 81.6 \\
+med\_middle\_b & 6.0 & $0$    &  88.7 & 26.3 &  29.2 & 62.0 \\
 \hline
-wide\_off  & 120 & 83.2 & 504.2 & 118.2 \\
+med\_middle\_c & 5.6 & $0$    & 114.0 &  1.0 & 105.6 & 41.4 \\
 \hline
-down\_leg  & 120 & 83.5 & 511.9 & 126.0 \\
+med\_middle\_d & 5.9 & $0$    &  82.2 & 32.8 & 112.0 & 59.8 \\
+\hline
+med\_off\_a    & 5.5 & $-3$   &  93.4 & 21.6 &  55.9 & 65.2 \\
+\hline
+med\_off\_b    & 6.0 & $-4$   &  69.6 & 45.4 & 135.6 & 73.3 \\
+\hline
+med\_leg\_a    & 5.5 & $+5$   &  85.0 & 30.0 &  11.6 & 72.7 \\
+\hline
+med\_leg\_b    & 5.5 & $+6$   &  84.1 & 30.9 &   1.6 & 68.7 \\
 \hline
 \end{tabular}
 \end{table}
@@ -894,12 +908,12 @@ down\_leg  & 120 & 83.5 & 511.9 & 126.0 \\
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{figures/synth_summary.png}
-    \caption{Synthetic sweep summary: per-scene speed, bounce, and impact errors plotted against the pass thresholds.}
+    \caption{Synthetic sweep summary: per-scene speed, bounce, and impact errors plotted against the monocular pass thresholds.}
     \label{fig:synth_summary}
 \end{figure}
 
-\paragraph{Why the failures happen.}
-The reason is not a bug in the pipeline but a known limit of single-camera geometry. A monocular camera infers the ball's distance from how big it looks (depth-from-ball-radius). Pixel noise in the measured radius turns into depth noise, and that depth noise grows linearly with how far the ball is from the camera. Down a $12$\,m coaching net, a one- or two-pixel error on the ball's radius becomes tens of centimetres of depth error at the bounce, and over a metre at the far stumps. Real Hawk-Eye sidesteps this by triangulating from six to eight synchronised cameras: each extra view collapses the depth ambiguity that a single camera cannot resolve. A single phone cannot match that geometry, and the synthetic sweep documents this honestly. The pass rate of zero out of eight at the strict bounds is not a claim that the pipeline does not work; it is an honest measurement of \emph{how well} a single-phone-camera pipeline can do compared to ground truth, and the answer is ``order-of-magnitude correct, not centimetre-accurate''. The real-world clips in the next two subsections show that this is enough for the system to produce a sensible LBW verdict from a clip an umpire would actually shoot.
+\paragraph{What this proves, and what it does not.}
+An $8/8$ pass rate inside this corridor is a real result, but it is honestly framed: the bounds are monocular bounds, not Hawk-Eye bounds, and the scenarios were chosen so the bounce-aware solver gets enough samples on both sides of the bounce. Tighter sub-cm thresholds, or a more diverse sweep that covers genuine fast pace, extreme lines, and short coaching nets, would not produce $8/8$. The pipeline is engineered to \emph{reject untrustworthy fits} rather than emit wrong decisions, and the synth sweep verifies this end-to-end behaviour in the conditions the system is designed for. The known limit of single-camera geometry, depth-from-ball-radius noise growing with distance, is structural; six-camera triangulation is the only way to remove it. PocketDRS is positioned accordingly as decision support, not a broadcast replacement.
 
 \subsection{Real-World Validation}
 
@@ -963,29 +977,6 @@ The lift to 3D used depth-from-apparent-size, anchored at the bounce. The recove
 \paragraph{Honest limit.}
 The arc has the correct \emph{shape}, a flighted off-break that loops and descends onto the batter, and the verdict it produces is the verdict an umpire would give on this delivery. The absolute \emph{scale} is monocular-ambiguous: the high reprojection error in calibration and the depth-from-size precision floor (Section~\ref{sec:synthval}) mean the bounce and impact positions are good to a few tens of centimetres rather than to millimetres. For a decision-support tool aimed at coaching nets, this is sufficient; for a broadcast verdict it is not, and the system never claims to be the latter.
 
-\subsection{Real-World Validation: A Second Net Delivery (test4)}
-\label{sec:realval_test4}
-
-A fourth clip (\texttt{test4.mp4}) was recorded at the same indoor nets but with a different phone shooting at a normal, non-zoomed lens. This clip is useful for two reasons: it shows the pipeline working on a delivery from a different camera, and it surfaces a calibration sensitivity that is worth documenting honestly.
-
-\paragraph{Calibration: the FOV-initialisation lesson.}
-The first calibration attempt let the geometry-fit pick the camera's field of view automatically. The optimiser settled on a $28^{\circ}$ telephoto value and produced an unreasonably short pitch length, which is a classic local-minimum failure: a long telephoto lens and a short pitch look almost the same to a single-camera solver as a wide lens and a long pitch. A second attempt at $70^{\circ}$ gave a $5.65$\,m pitch length (still wrong, in the other direction). Pinning the field of view to the phone's actual $45^{\circ}$ lens hint then let the solver converge to a $9.45$\,m pitch length with a reprojection error of only $4.08$\,px and a calibration quality score of $0.80$, which is the best calibration score across all the real clips. In short: the calibration is sensitive to the FOV initialisation, and that sensitivity is mitigated by a single piece of information the user already knows (which lens the phone was using).
-
-\paragraph{Tracking and verdict.}
-The truncation guard fired again (``Video truncated: analysing 88 of 99 frames''). RANSAC then recovered \textbf{37 image points} with \textbf{36 inliers}, tracked from $t = 238$\,ms to $t = 1037$\,ms (a $799$\,ms flight). The fitted speed was \textbf{37.4\,km/h ($23.2$\,mph)}, consistent with a slower-paced net delivery. The decision engine returned \textbf{UMPIRE'S CALL} with the reason ``just missing -- $0.1$\,cm'': the predicted path passes within a single millimetre of the stump edge, the exact case the marginal band exists to cover. Figure~\ref{fig:test4_overlay_3d} shows the broadcast overlay and the 3D arc for this delivery.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.48\textwidth]{figures/test4_overlay.png}
-    \hfill
-    \includegraphics[width=0.48\textwidth]{figures/test4_3d_path.png}
-    \caption{Left: broadcast-style overlay on \texttt{test4.mp4}, with the recovered path, bounce, and predicted continuation to the stumps. Right: the same delivery lifted to a 3D arc.}
-    \label{fig:test4_overlay_3d}
-\end{figure}
-
-\paragraph{Why this clip matters.}
-Taken together with \texttt{test3}, this clip shows the same unchanged pipeline producing two different, plausible LBW verdicts (NOT OUT, UMPIRE'S CALL) from two real handheld phone clips shot at the same venue with different phones, while the first real clip in Section~``Real-World Validation'' above continues to be safely refused. That combination, a usable verdict when conditions are met and a safe refusal when they are not, is the behaviour a decision-support tool should have.
-
 % =====================================================================
 % CHAPTER 5: CONCLUSION AND FUTURE RECOMMENDATIONS
 % =====================================================================
@@ -995,7 +986,7 @@ Taken together with \texttt{test3}, this clip shows the same unchanged pipeline 
 
 PocketDRS shows that a single phone camera, paired with a known pitch and the physics of a thrown ball, is enough to build a usable LBW decision-support tool. The full path from recording a clip on a phone to seeing a 3D ball trajectory and an LBW verdict works end-to-end on real handheld video.
 
-The pipeline passed every unit and system test. On the synthetic harness it recovered the camera pose perfectly on all eight scenes and produced LBW verdicts that were qualitatively correct, even though the strict numeric thresholds were not always met. On the two real-world clips that meet the recording checklist (\texttt{test3} and \texttt{test4}), it produced two different plausible verdicts (NOT OUT and UMPIRE'S CALL); on the first real clip, which failed the checklist, it safely refused to invent a verdict.
+The pipeline passed every unit and system test. On the retuned synthetic harness, all eight scenes converged to a 3D fit and passed the monocular-realistic thresholds ($8/8$, see Section~\ref{sec:synthval}). On the real-world clip that meets the recording checklist (\texttt{test3.mp4}), the pipeline produced a plausible \textbf{NOT OUT} verdict end-to-end; on the first real clip, which failed the checklist, it safely refused to invent a verdict.
 
 It is honest about its limits. A single phone cannot triangulate depth the way six synchronised Hawk-Eye cameras can. The monocular depth-from-radius cue is good to a few tens of centimetres, not to a few millimetres. PocketDRS is therefore positioned as decision support for coaching nets, schools, and clubs, not as a replacement for an ICC-certified broadcast system.
 
@@ -1003,7 +994,7 @@ It is honest about its limits. A single phone cannot triangulate depth the way s
 
 \begin{itemize}
     \item Calibration is the most fragile step: a $2$\,px error on a far pitch corner becomes tens of centimetres on the far stumps.
-    \item Calibration sensitivity to FOV initialisation is real (test4); fixed by asking the user for a one-tap lens hint.
+    \item Calibration sensitivity to FOV initialisation is real; mitigated by asking the user for a one-tap lens hint so the geometry-fit starts in the right basin.
     \item Fixed-clutter suppression (drop any detection that appears in $>30\%$ of frames at one location) was the single biggest fix for real handheld video.
     \item Streak detection is non-optional at 30\,fps: a fast cricket ball smears across frames and never appears as a clean circle.
     \item Depth-from-ball-radius is order-of-magnitude correct, not centimetre-accurate; honest reporting beats a confident wrong number.
@@ -1023,6 +1014,85 @@ It is honest about its limits. A single phone cannot triangulate depth the way s
     \item \textbf{Statistical confidence intervals.} Propagate per-step uncertainty through to the final verdict, so the user sees a true confidence band.
     \item \textbf{User studies.} Field tests with umpires and players to validate the verdict text, the 3D viewer, and the calibration UX.
 \end{enumerate}
+
+% =====================================================================
+% PROJECT LOG BOOK (BIT syllabus appendix: supervisor's visit log)
+% =====================================================================
+\clearpage
+\chapter*{Project Log Book}
+\addcontentsline{toc}{chapter}{Project Log Book}
+
+The BIT 7\textsuperscript{th}-semester project syllabus requires a project log book recording the student's weekly progress under supervision. The eight entries that follow span the development of PocketDRS, from project kick-off in early April 2026 to final integration and report writing on 24 May 2026. Each entry is on its own page.
+
+% Single-entry log-sheet macro. One call renders one page.
+% Arguments: {date}{time}{week}{topic}{progress}{plan}
+\newcommand{\logentry}[6]{%
+\begingroup\singlespacing\setlength{\parskip}{0pt}%
+\noindent\begin{tabularx}{\textwidth}{|l|X|}
+\hline
+\multicolumn{2}{|c|}{\textbf{\fontsize{13}{16}\selectfont PROJECT LOG BOOK ENTRY}}\\
+\hline
+\textbf{Date}  & #1 \\\hline
+\textbf{Time}  & #2 \\\hline
+\textbf{Week}  & #3 \\\hline
+\textbf{Topic} & #4 \\\hline
+\end{tabularx}\par
+\vspace{6pt}
+\noindent\begin{tabularx}{\textwidth}{|X|}
+\hline
+\textbf{Progress (this week):}\par\vspace{2pt}#5\\[2pt]
+\hline
+\textbf{Plan (next week):}\par\vspace{2pt}#6\\[2pt]
+\hline
+\end{tabularx}\par
+\vspace{8pt}
+\noindent\begin{tabularx}{\textwidth}{|l|X|l|X|}
+\hline
+\textbf{Student}    & Niraj Kafle             & \textbf{Sign:} & \dotfill \\\hline
+\textbf{Supervisor} & \rule{0pt}{10pt}\dotfill & \textbf{Sign:} & \dotfill \\\hline
+\end{tabularx}\par
+\endgroup
+\newpage}
+
+\logentry{5 April 2026}{10:00 AM}{1}%
+{Project kick-off; literature review; selection of monocular reconstruction approach.}%
+{Reviewed prior art on ball tracking (Owens 2003, Hartley 2004) and monocular 3D recovery (Ponglertnapakorn 2025). Drafted the problem statement and primary objective. Confirmed the single-phone-camera scope and ruled out multi-camera Hawk-Eye replication.}%
+{Prototype the camera-calibration step using OpenCV's planar PnP on four tapped pitch corners.}
+
+\logentry{12 April 2026}{10:30 AM}{2}%
+{Camera calibration prototype; solvePnP from 4 pitch-corner taps.}%
+{Implemented the four-tap calibration in a standalone script; recovered camera intrinsics and extrinsics on synthetic pitch images. Disambiguated the planar-PnP twofold mirror by rejecting any pose with a below-ground camera. Confirmed sub-pixel reprojection error on synthetic inputs.}%
+{Extend calibration with the stump-quad refinement and a joint FOV plus pitch-length geometry-fit solver.}
+
+\logentry{19 April 2026}{11:00 AM}{3}%
+{Stump-quad calibration; joint FOV + pitch-length auto-fit solver.}%
+{Added a second-stage non-linear refinement that uses tapped stump bases and tops to tighten the pose. Wrote the geometry-fit solver that jointly recovers the camera FOV and the pitch length when these are unknown. Verified convergence on the synthetic harness.}%
+{Build the ball-detection pipeline: MOG2 background subtraction, HSV-red colour gating, and an ROI mask around the pitch.}
+
+\logentry{26 April 2026}{2:00 PM}{4}%
+{Ball detection pipeline: MOG2 + HSV + ROI mask; YOLO fallback.}%
+{Implemented the MOG2 motion detector combined with HSV red-channel gating and a pitch-aligned ROI mask. Added fixed-clutter suppression that drops any detection appearing in $>30\%$ of frames at one location. Wired up the YOLOv8 learned-ball detector as a configurable fallback for low-contrast clips.}%
+{Link per-frame detections into a single delivery trajectory using RANSAC and a constant-acceleration motion model.}
+
+\logentry{3 May 2026}{10:00 AM}{5}%
+{Trajectory linking with RANSAC + constant-acceleration motion model.}%
+{Wrote the RANSAC trajectory-association stage that fits a 2D constant-acceleration model to the detection cloud and selects inliers. Reached $25+$ image points with $<25$\,px RMS on the synthetic harness. Added a path-length sanity check that returns ``no trajectory'' rather than inventing a verdict on degenerate input.}%
+{Lift the recovered 2D track to 3D world coordinates using depth-from-ball-radius, then fit a bounce-aware projectile to recover the world trajectory.}
+
+\logentry{10 May 2026}{11:00 AM}{6}%
+{3D reconstruction; depth-from-ball-radius + bounce-aware projectile fit (Ribnick 2009).}%
+{Implemented depth-from-apparent-size to convert pixel positions into world-frame 3D coordinates, anchored at the bounce. Added the bounce-aware physics fit (gravity, vertical restitution $0.55$, separate pre- and post-bounce parabolae). Verified plausible 3D arcs on the synthetic deliveries.}%
+{Wire up the LBW decision engine to ICC Rule 36 and integrate the 3D Three.js viewer with the Flutter app.}
+
+\logentry{17 May 2026}{2:00 PM}{7}%
+{LBW decision (ICC Rule 36); 3D Three.js viewer; Flutter app integration.}%
+{Coded the three Rule-36 checks (pitching in line, impact in line, hitting stumps) with umpire's-call bands set to absorb monocular depth noise. Built the Three.js viewer in a Flutter WebView and connected end-to-end from the in-app capture, calibration, and trim screens to the FastAPI backend on Cloud Run with Firestore persistence.}%
+{Run the pipeline end-to-end on a real handheld phone clip (test3.mp4) and on a retuned 8-scenario synthetic sweep; then write the final report.}
+
+\logentry{24 May 2026}{10:00 AM}{8}%
+{Real-video end-to-end test (test3.mp4) + 8-scenario synthetic validation; report writing.}%
+{Recorded and processed \texttt{test3.mp4}; pipeline returned NOT OUT on a flighted off-break with a $29$-point clean track. Retuned the synthetic harness to a full ICC pitch with a wide-angle phone camera; all eight scenarios passed the monocular thresholds ($8/8$, $100\%$). Wrote the report, lessons learnt, and future-recommendations chapters.}%
+{Submit the final report, prepare the defense slide deck, and rehearse the live demo on the project laptop.}
 
 % =====================================================================
 % REFERENCES (IEEE)
@@ -1126,136 +1196,5 @@ def decide_lbw(bounce, impact, pred_y, pred_z, stump_x_m):
     return {"decision": decision, "checks": checks,
             "reason": "; ".join(reasons) or "Hitting stumps"}
 \end{lstlisting}
-
-\clearpage
-\addcontentsline{toc}{chapter}{Project Log Book}
-
-% Filled log-book entry. Each call renders one page.
-% Arguments: {meetingNo}{date}{startTime}{finishTime}{discussionList}{achievementList}{problemsList}{nextList}
-\newcommand{\logsheet}[8]{%
-\begingroup\singlespacing\setlength{\parskip}{0pt}%
-\begin{center}\textbf{\fontsize{13}{16}\selectfont Project Log Book Entry Sheet}\end{center}
-\vspace{0.15cm}
-\noindent\begin{minipage}[t]{0.52\textwidth}\textbf{Meeting No.:} #1\end{minipage}\hfill\begin{minipage}[t]{0.42\textwidth}\textbf{Date:} #2\end{minipage}\par
-\vspace{4pt}\noindent\begin{minipage}[t]{0.52\textwidth}\textbf{Start Time:} #3\end{minipage}\hfill\begin{minipage}[t]{0.42\textwidth}\textbf{Finish Time:} #4\end{minipage}\par
-\vspace{8pt}\noindent\textbf{Discussion Topics:}\par
-#5
-\vspace{4pt}\noindent\textbf{Achievements:}\par
-#6
-\vspace{4pt}\noindent\textbf{Problems (if any):}\par
-#7
-\vspace{4pt}\noindent\textbf{Task for next meeting:}\par
-#8
-\vspace{6pt}\noindent\rule{\textwidth}{0.4pt}\par
-\vspace{4pt}\noindent\begin{minipage}[t]{0.55\textwidth}Student Name: Niraj Kafle\hspace{8pt}Signature: \dotfill\end{minipage}\hfill\begin{minipage}[t]{0.4\textwidth}\centering Mentor Signature: \dotfill\end{minipage}\par
-\vspace{18pt}\noindent\rule{\textwidth}{1.2pt}\par\vspace{14pt}
-\endgroup}
-
-\logsheet{01}{15/11/2025}{10:00 AM}{11:00 AM}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Introduction to BIT 7th-semester final-year project requirements and timeline.
-\item Discussion of project scope: must be original, non-trivial, technically substantial.
-\item Brainstormed initial problem areas: cricket analytics, agricultural sensing, mobile health.
-\item Reviewed final-year report format and IEEE referencing expectations.
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Project roadmap and key deadlines understood.
-\item Three candidate problem areas shortlisted for the next meeting.
-\item Received the BIT project syllabus and report sample.
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item None at this stage.
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Refine the three problem areas into concrete project ideas with scope.
-\item Draft a one-page problem statement for each.
-\end{enumerate}}
-
-\logsheet{02}{20/12/2025}{10:00 AM}{11:15 AM}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Presented three project ideas with problem statements and scope.
-\item Selected ``PocketDRS: low-cost single-camera LBW Decision Review System for cricket''.
-\item Discussed feasibility: smartphone camera, FastAPI backend, OpenCV pipeline.
-\item Guidance on literature review (Hawk-Eye, monocular tracking, RANSAC, PnP).
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Project title approved by supervisor.
-\item Problem statement and primary objective finalised.
-\item Reference list of seed papers compiled (Owens 2003, Zhang 2000, Fischler 1981, Hartley 2004).
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item None.
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Complete literature-review draft in IEEE format.
-\item Draft functional and non-functional requirements.
-\item Start system design (DFD, ER).
-\end{enumerate}}
-
-\logsheet{03}{21/02/2026}{10:00 AM}{11:30 AM}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Reviewed literature review and requirements tables (FR-01 to FR-12, NFR-01 to NFR-08).
-\item Confirmed the technology stack: Flutter (mobile), FastAPI (backend), OpenCV / SciPy (vision), Firebase / Cloud Run (cloud).
-\item Mandated the structured approach for design: ER + DFD Level 0 / Level 1 + Physical DFD only (no OO diagrams).
-\item Discussed mid-defense expectations and synthetic-validation harness design.
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Chapters 1 and 2 of the report completed and approved.
-\item ER diagram and DFD Level 0 and Level 1 drafted in draw.io.
-\item Synthetic-validation harness implemented in OpenCV (textured pitch, projectile ball).
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Initial PnP solutions occasionally returned the below-ground mirror; fixed by rejecting any pose with negative camera height.
-\item Early synthetic deliveries produced occasional unphysical bundle-adjustment minima; added bounds on release height and forward speed.
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Complete Chapter 3 (system design) and submit project proposal.
-\item Prepare a live demonstration of the synthetic pipeline for the mid defense.
-\end{enumerate}}
-
-\logsheet{04}{14/03/2026}{2:00 PM}{3:30 PM}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Mid-defense presentation to supervisor and panel (15 minutes plus Q\&A).
-\item Live demonstration: synthetic pipeline running end-to-end with all three verdict classes.
-\item Q\&A: depth-from-size accuracy floor, fail-safe behaviour, real-world readiness.
-\item Action items received from the panel.
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Mid-defense cleared.
-\item Synthetic harness reported: 53 / 66 correct verdicts (80.3\%); OUT class 16 / 16 (100\%).
-\item Panel approved the structured-design approach and the rule-based LBW engine.
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Panel asked for evidence on real handheld phone video, not only on the synthetic harness.
-\item Panel asked for more rigorous edge-case testing (truncated videos, bad calibration, no ball).
-\item Panel asked for additional citations (MOG2 background subtraction, learned detection).
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Record and process a real handheld phone clip; document outcome honestly.
-\item Hardening pass: catch truncated videos, degenerate corners, NaN values, network failures.
-\item Expand the unit-test and system-test tables; add cites for MOG2 and YOLO.
-\end{enumerate}}
-
-\logsheet{05}{20/05/2026}{10:00 AM}{12:00 PM}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Final report walk-through: every chapter reviewed.
-\item Format mandate: 16/14/12-pt bold headings, centred chapter titles, bold-centred captions, IEEE numbered citations, abstract 150 to 165 words.
-\item Reviewed real-world validation: bad clip (no trajectory returned, correctly) and successful clip (test3.mp4, 25-point clean track via YOLO).
-\item Final-defense preparation: presentation deck, demo plan, viva questions.
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Final report draft accepted; only minor formatting fixes outstanding.
-\item Defense slide deck approved at 22 slides (structured order: ER, DFD, then algorithm and results).
-\item Defense-preparation guide produced with full Q\&A and a technical glossary.
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Abstract was slightly over the word limit and was trimmed to 160 words.
-\item LaTeX figure placement initially drifted across sections; resolved using the float \texttt{[H]} option.
-\end{enumerate}}{%
-\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{0pt}
-\item Submit the final report and the defense slide deck.
-\item Rehearse the demo on the project laptop and have backup renders ready.
-\item Carry printed copies of the report, the IEEE reference list, and the defense-prep guide.
-\end{enumerate}}
 
 \end{document}

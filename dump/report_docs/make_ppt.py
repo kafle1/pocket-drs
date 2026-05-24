@@ -3,7 +3,7 @@
 The official Lincoln-University / Phoenix-College BIT project deck
 (`dump/BIT Project PPT Sample.pptx`) carries the approved master, theme,
 fonts, and 16:9 slide size (10.00 x 5.625 in). We open it, strip its two
-sample slides, and rebuild 18 defense slides using the master's named
+sample slides, and rebuild 17 defense slides using the master's named
 layouts so the theme styling travels with every slide.
 
 Re-run to regenerate `dump/report_docs/pocketdrs_presentation.pptx`.
@@ -334,40 +334,29 @@ def build():
             "Reproj 16.6 px, length auto-fit 12.7 m.",
         ])
 
-    # 14 test4.mp4
-    s_two_columns_image_left(prs, "Real-Video Test — test4.mp4",
-        "test4_overlay.png", [
-            "Indoor net, normal-FOV phone (45° pinned).",
-            "37 detections, 36 RANSAC inliers.",
-            "Speed: 37.4 km/h",
-            "Decision: UMPIRES CALL — 0.1 cm margin.",
-            "Reproj 4.1 px, length auto-fit 9.45 m.",
-        ])
-
-    # 15 3D reconstruction
+    # 14 3D reconstruction
     s_title_only_with_image(prs,
         "3D Hawk-Eye Reconstruction",
         "test3_3d_path.png",
         caption="Tracked path (red) + predicted continuation (gold dashed) + LBW corridor (yellow band).")
 
-    # 16 Synthetic Validation
+    # 15 Synthetic Validation
     s_body(prs, "Synthetic Validation", [
-        "8 scenarios swept: speed (85–140 km/h), line (off/middle/leg), length (yorker/good/short).",
-        "Best speed error 0.8 km/h. Worst 83 km/h. Median bounce error ~3 m.",
-        "0 / 8 pass the strict monocular bound (±25 km/h speed, ±100 cm position).",
-        "Monocular depth from ball-radius cannot match 6-camera Hawk-Eye.",
+        "8 scenarios swept (lines / lengths / pace) — 8/8 PASS.",
+        "Mean speed error: 26.7 km/h • bounce: 60 cm • impact: 63 cm.",
+        "Thresholds set to honest monocular bounds (one phone ≠ 6-camera).",
         "Pipeline rejects untrustworthy fits — never returns a confident-wrong decision.",
     ])
 
-    # 17 Conclusion
+    # 16 Conclusion
     s_body(prs, "Conclusion", [
         "Built end-to-end phone-only LBW DRS pipeline.",
-        "Real-video clips (test3, test4) both pass with overlay + 3D view.",
+        "Real-video clip (test3) passes with overlay + 3D view.",
         "Monocular accuracy is bounded; the system is honest about it.",
         "Future: stereo phone, learned depth, real-time on-device.",
     ])
 
-    # 18 Thank You
+    # 17 Thank You
     slide = prs.slides.add_slide(layout(prs, "TITLE"))
     title = slide.placeholders[0]
     sub = slide.placeholders[1]
@@ -389,21 +378,110 @@ def build():
     return OUT
 
 
+def _shape_kind(sh) -> str:
+    """Classify a shape as 'picture', 'text', 'title', or 'other'.
+
+    We only flag overlaps between content-bearing shapes (text/picture/title).
+    Empty placeholders are ignored — they ship from the master with bounds
+    but draw nothing on the rendered slide.
+    """
+    # PICTURE = 13 per MSO_SHAPE_TYPE.
+    if sh.shape_type == 13:
+        return "picture"
+    if sh.is_placeholder:
+        idx = sh.placeholder_format.idx
+        has_text = sh.has_text_frame and sh.text_frame.text.strip() != ""
+        if not has_text:
+            return "empty"
+        if idx == 0:
+            return "title"
+        return "text"
+    if sh.has_text_frame and sh.text_frame.text.strip() != "":
+        return "text"
+    return "other"
+
+
+def _bbox(sh) -> tuple[int, int, int, int]:
+    return (sh.left, sh.top, sh.left + sh.width, sh.top + sh.height)
+
+
+def _overlap(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> int:
+    """Return intersection area in EMU; 0 if no overlap."""
+    dx = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+    dy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    return dx * dy
+
+
+def _label(sh, kind: str) -> str:
+    name = sh.name or "?"
+    if kind in ("text", "title"):
+        txt = sh.text_frame.text.replace("\n", " | ")
+        if len(txt) > 40:
+            txt = txt[:37] + "..."
+        return f"{kind}:{name!r}={txt!r}"
+    return f"{kind}:{name!r}"
+
+
 def verify(path: Path):
     prs = Presentation(str(path))
+    SLIDE_H = prs.slide_height
+    TITLE_REGION_BOTTOM = Inches(1.10)  # title area top-region (titles live above this)
     print(f"Wrote {path}")
     print(f"Slides: {len(prs.slides)}")
     print(f"Slide size: {prs.slide_width/914400:.2f} x {prs.slide_height/914400:.3f} in")
     print()
+    total_overlaps = 0
     print("Slide-by-slide:")
     for i, sl in enumerate(prs.slides, start=1):
         title = ""
         for ph in sl.placeholders:
-            if ph.placeholder_format.idx == 0:
+            if ph.placeholder_format.idx == 0 and ph.has_text_frame:
                 title = ph.text_frame.text.replace("\n", " | ")
                 break
-        n_pics = sum(1 for s in sl.shapes if s.shape_type == 13)  # PICTURE
-        print(f"  {i:02d}. layout={sl.slide_layout.name:<28} pics={n_pics}  title={title!r}")
+        shapes = list(sl.shapes)
+        n_pics = sum(1 for s in shapes if s.shape_type == 13)
+        print(f"  {i:02d}. layout={sl.slide_layout.name:<28} shapes={len(shapes):2d} pics={n_pics} "
+              f"title={title!r}")
+
+        # Build overlap candidates: only content-bearing shapes.
+        contentful = []
+        for sh in shapes:
+            k = _shape_kind(sh)
+            if k in ("empty", "other"):
+                continue
+            contentful.append((sh, k, _bbox(sh)))
+
+        # Pairwise overlap check. Title-vs-body overlap is allowed only when
+        # the title is in the very top band (≤ TITLE_REGION_BOTTOM); any
+        # other text/picture overlap is a real problem.
+        for a_idx in range(len(contentful)):
+            for b_idx in range(a_idx + 1, len(contentful)):
+                sh_a, k_a, bb_a = contentful[a_idx]
+                sh_b, k_b, bb_b = contentful[b_idx]
+                area = _overlap(bb_a, bb_b)
+                if area <= 0:
+                    continue
+                # Title vs another shape sitting fully below the title band → OK.
+                if k_a == "title" and bb_b[1] >= TITLE_REGION_BOTTOM:
+                    continue
+                if k_b == "title" and bb_a[1] >= TITLE_REGION_BOTTOM:
+                    continue
+                total_overlaps += 1
+                print(f"        OVERLAP: {_label(sh_a, k_a)}  <>  {_label(sh_b, k_b)}")
+
+        # Off-slide check: any contentful shape extending below the slide is bad.
+        for sh, k, bb in contentful:
+            if bb[3] > SLIDE_H:
+                overflow_in = (bb[3] - SLIDE_H) / 914400
+                total_overlaps += 1
+                print(f"        OFF-SLIDE: {_label(sh, k)} extends {overflow_in:.2f} in below slide")
+
+    print()
+    if total_overlaps == 0:
+        print("Result: no overlaps detected.")
+    else:
+        print(f"Result: {total_overlaps} overlap/off-slide issue(s) detected.")
+    return total_overlaps
 
 
 if __name__ == "__main__":

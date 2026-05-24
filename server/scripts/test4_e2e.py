@@ -222,26 +222,6 @@ def render_3d(result: dict) -> None:
     print("  wrote test4_3d.png")
 
 
-def _anchored_prediction_px(raw_pts, overlay_predicted):
-    if not overlay_predicted or not raw_pts: return []
-    last = raw_pts[-1]; first = overlay_predicted[0]
-    du = float(last["u"]) - float(first["u"]); dv = float(last["v"]) - float(first["v"])
-    return [(int(round(float(p["u"]) + du)), int(round(float(p["v"]) + dv))) for p in overlay_predicted]
-
-
-def _impact_cutoff_ms(result: dict) -> int | None:
-    """Time (ms) at which the ball loses its projectile identity — i.e. it
-    contacts the batsman, bat, pad or stumps and direction-changes. After
-    this point the detector may still latch on to the deflected ball, but
-    those samples belong to a new trajectory; the Hawk-Eye overlay should
-    stop drawing the *measured* arc here and let the dashed prediction
-    carry the line on to the stumps instead.
-    """
-    impact = ((result.get("events") or {}).get("impact") or {})
-    t = impact.get("t_ms")
-    return int(t) if t is not None else None
-
-
 def render(result: dict) -> None:
     ov = result.get("overlay") or {}
     path = ov.get("path_px") or []
@@ -252,22 +232,23 @@ def render(result: dict) -> None:
     corridor = ov.get("corridor_px") or []
     stumps = ov.get("stumps_px") or {}
 
+    # Tracked (RED, solid) = the server's smooth projectile fit projected
+    # to pixels (path_px[phase=flight]) — one continuous curve, no per-
+    # frame jitter. Predicted (BLUE, dashed) = path_px[phase=predicted];
+    # we extend it linearly past the stump plane below so it visibly
+    # carries the eye to where the ball was going.
+    flight = [(p["u"], p["v"]) for p in path if p.get("phase") == "flight"]
+    predicted = [(p["u"], p["v"]) for p in path if p.get("phase") == "predicted"]
     raw_pts_all = sorted(result.get("track", {}).get("image_points") or [], key=lambda p: p["t_ms"])
-    impact_t = _impact_cutoff_ms(result)
-    raw_pts = [p for p in raw_pts_all if impact_t is None or p["t_ms"] <= impact_t]
-    flight = [(p["u"], p["v"]) for p in raw_pts]
-    flight_t = [p["t_ms"] for p in raw_pts]
-    overlay_predicted = [pp for pp in path if pp.get("phase") == "predicted"]
-    predicted = _anchored_prediction_px(raw_pts, overlay_predicted)
+    flight_t = [p["t_ms"] for p in raw_pts_all]
 
     cap = cv2.VideoCapture(str(VIDEO))
     fps = cap.get(cv2.CAP_PROP_FPS) or 60.0
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)); H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    full_t = [p["t_ms"] for p in raw_pts_all]
-    t_lo = full_t[0] if full_t else path[0]["t_ms"]
-    t_hi = full_t[-1] if full_t else path[-1]["t_ms"]
+    t_lo = flight_t[0] if flight_t else path[0]["t_ms"]
+    t_hi = flight_t[-1] if flight_t else path[-1]["t_ms"]
     f_lo = max(0, int(t_lo / 1000.0 * fps) - 6)
     f_hi = min(total - 1, int(t_hi / 1000.0 * fps) + 6)
 
@@ -305,10 +286,35 @@ def render(result: dict) -> None:
             poly = np.array([(int(x), int(y)) for x, y in flight], np.int32)
             cv2.polylines(frame, [poly], False, RED, 5, cv2.LINE_AA)
         if predicted:
-            tail = (int(flight[-1][0]), int(flight[-1][1])) if flight else predicted[0]
-            chain = [tail, *predicted]
+            tail = (int(flight[-1][0]), int(flight[-1][1])) if flight else (int(predicted[0][0]), int(predicted[0][1]))
+            chain = [tail] + [(int(x), int(y)) for x, y in predicted]
+            tracked_len = sum(
+                float(np.hypot(flight[i][0] - flight[i - 1][0],
+                               flight[i][1] - flight[i - 1][1]))
+                for i in range(1, len(flight))
+            )
+            def _clen(pts):
+                return sum(
+                    float(np.hypot(pts[i][0] - pts[i - 1][0],
+                                   pts[i][1] - pts[i - 1][1]))
+                    for i in range(1, len(pts))
+                )
+            if len(chain) >= 2:
+                step_u = chain[-1][0] - chain[-2][0]
+                step_v = chain[-1][1] - chain[-2][1]
+                for _ in range(80):
+                    if _clen(chain) >= tracked_len:
+                        break
+                    nx = chain[-1][0] + step_u
+                    ny = chain[-1][1] + step_v
+                    if nx < -40 or nx > W + 40 or ny < -40 or ny > H + 40:
+                        break
+                    chain.append((int(nx), int(ny)))
             for a, b in zip(chain, chain[1:]):
-                _dashed(frame, a, b, RED, thick=4, dash=14, gap=10)
+                _dashed(frame, a, b, BLUE, thick=5, dash=18, gap=12)
+            end = chain[-1]
+            cv2.circle(frame, end, 8, BLUE, -1, cv2.LINE_AA)
+            cv2.circle(frame, end, 8, (20, 20, 20), 2, cv2.LINE_AA)
 
         # Ball marker tracks every detected position (including post-impact
         # deflection frames) so the moving dot still follows the ball; the

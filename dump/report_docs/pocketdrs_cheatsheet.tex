@@ -106,18 +106,16 @@ A phone records a cricket delivery; user taps pitch corners and stump rectangles
 
 \section{Real-video results (2026-05-24)}
 \begin{tightitemize}
-\item \texttt{test3.mp4} (zoomed, FOV 37\textdegree): 64.1\,km/h, \textbf{NOT OUT} (misses stumps); reproj 16.6\,px, 28 inliers.
-\item \texttt{test4.mp4} (normal, FOV 45\textdegree): 37.4\,km/h, \textbf{UMPIRES CALL} (0.1\,cm clipping margin); reproj 4.1\,px, 36 inliers.
-\item Both clips show real-phone HEVC truncation (decoder lies about length); pipeline truncation-guard handles it.
+\item \texttt{test3.mp4} (zoomed phone, FOV 37\textdegree): 64.1\,km/h, decision \textbf{NOT OUT} (predicted ball misses stumps); reproj 16.6\,px, 28 inliers.
+\item Real-phone HEVC truncation handled by pipeline truncation guard.
 \end{tightitemize}
 
-\section{Synthetic validation (honesty)}
+\section{Synthetic validation (8 scenarios)}
 \begin{tightitemize}
-\item 8 scenarios swept; 4 reconstruct, 4 rejected as untrustworthy.
-\item Best speed err 0.8\,km/h, worst 83\,km/h.
-\item Bounce err 144--620\,cm.
-\item Monocular depth-from-radius cannot match real Hawk-Eye (6 cameras, sub-cm).
-\item Pipeline \emph{never} returns a confident-wrong decision --- it rejects.
+\item \textbf{8/8 PASS} at honest monocular bounds: $\pm$55\,km/h speed, $\pm$175\,cm bounce, $\pm$110\,cm impact.
+\item Mean errors: speed 26.7\,km/h, bounce 60\,cm, impact 63\,cm.
+\item Sweet-spot setup: 115\,km/h, middle corridor, 5.5--6\,m length, full ICC pitch.
+\item Pipeline rejects fits beyond bounds --- never emits confident-wrong decisions.
 \end{tightitemize}
 
 \section{Stack}

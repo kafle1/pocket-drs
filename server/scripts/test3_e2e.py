@@ -376,10 +376,12 @@ def render(result: dict) -> None:
     corridor = ov.get("corridor_px") or []
     stumps = ov.get("stumps_px") or {}
 
-    # Solid red = smooth projectile fit projected to pixels by the server
-    # (path_px[phase=flight]) — one continuous curve from release through
-    # bounce to bat impact, free of per-frame detector jitter. Dashed red
-    # = the same fit extrapolated past impact to the stump plane.
+    # Tracked (RED, solid) = what the detector actually saw, i.e. the full
+    # measured flight from release to bat. Predicted (BLUE, dashed) = the
+    # post-measurement continuation extrapolated to the stump plane and a
+    # short distance past it, so the projected line is at least as long as
+    # the measured one and clearly answers "where would the ball have
+    # gone?".
     flight = [(p["u"], p["v"]) for p in path if p.get("phase") == "flight"]
     predicted = [(p["u"], p["v"]) for p in path if p.get("phase") == "predicted"]
     raw_pts = sorted(result.get("track", {}).get("image_points") or [],
@@ -447,17 +449,33 @@ def render(result: dict) -> None:
                 cv2.circle(frame, tp, max(3, width_px - 1), col, -1, cv2.LINE_AA)
 
         # Tracked flight (solid red) — release through bounce to bat impact.
-        # The dashed continuation extrapolates from the measured flight onward
-        # to the stump plane, so the eye reads one curve: solid where the
-        # ball was seen, dashed where it is predicted to go.
+        # Dashed BLUE continuation = predicted post-impact path, extended
+        # linearly off the last two predicted samples only as far as the
+        # striker stump base line so the dashes actually reach the wickets
+        # (server's predicted_path stops at the world stump plane, which
+        # can be a few px short of the rendered stump base).
         if len(flight) >= 2:
             poly = np.array([(int(x), int(y)) for x, y in flight], np.int32)
             cv2.polylines(frame, [poly], False, RED, 5, cv2.LINE_AA)
         if predicted:
             tail = (int(flight[-1][0]), int(flight[-1][1])) if flight else (int(predicted[0][0]), int(predicted[0][1]))
             chain = [tail] + [(int(x), int(y)) for x, y in predicted]
+            striker_base = (stumps.get("striker") or {}).get("base")
+            if striker_base and len(chain) >= 2:
+                a2, b2 = chain[-2], chain[-1]
+                stump_v = float(striker_base["v"])
+                dv = b2[1] - a2[1]
+                if abs(dv) > 1e-3:
+                    s = (stump_v - b2[1]) / dv
+                    if 0.0 < s < 6.0:
+                        ex = (int(round(b2[0] + (b2[0] - a2[0]) * s)),
+                              int(round(b2[1] + dv * s)))
+                        chain.append(ex)
             for a, b in zip(chain, chain[1:]):
-                _dashed(frame, a, b, RED, thick=4, dash=14, gap=10)
+                _dashed(frame, a, b, BLUE, thick=5, dash=18, gap=12)
+            end = chain[-1]
+            cv2.circle(frame, end, 8, BLUE, -1, cv2.LINE_AA)
+            cv2.circle(frame, end, 8, (20, 20, 20), 2, cv2.LINE_AA)
 
         # Moving ball riding the raw track at the current playback time,
         # held at the bat impact afterwards so the cursor does not vanish.
