@@ -48,7 +48,11 @@ class AnalysisResult {
     final track = BallTrackResult.empty(width: width, height: height);
     final trackJson = json['track'];
     final pixelTrack = trackJson is Map
-        ? _parsePixelTrack(trackJson.cast<String, Object?>(), width: width, height: height)
+        ? _parsePixelTrack(
+            trackJson.cast<String, Object?>(),
+            width: width,
+            height: height,
+          )
         : track;
 
     final worldJson = json['world_trajectory'];
@@ -105,10 +109,17 @@ class AnalysisResult {
 
 /// Release-speed metric shown as a card over the video.
 class DeliveryMetrics {
-  const DeliveryMetrics({required this.speedKmh, required this.speedMph});
+  const DeliveryMetrics({
+    required this.speedKmh,
+    required this.speedMph,
+    required this.swingSf,
+    required this.spinDeg,
+  });
 
   final double speedKmh;
   final double speedMph;
+  final double swingSf;
+  final double spinDeg;
 
   static DeliveryMetrics? fromJson(Object? json) {
     if (json is! Map) return null;
@@ -116,6 +127,8 @@ class DeliveryMetrics {
     return DeliveryMetrics(
       speedKmh: _readDouble(m, 'speed_kmh') ?? 0,
       speedMph: _readDouble(m, 'speed_mph') ?? 0,
+      swingSf: _readDouble(m, 'swing_sf') ?? 0,
+      spinDeg: _readDouble(m, 'spin_deg') ?? 0,
     );
   }
 }
@@ -125,15 +138,19 @@ class DeliveryMetrics {
 class TrajectoryOverlay {
   const TrajectoryOverlay({
     required this.path,
+    required this.postImpact,
     required this.bounce,
     required this.impact,
     required this.strikerStumps,
     required this.bowlerStumps,
     required this.corridor,
+    required this.pitchRect,
+    required this.centerline,
   });
 
   /// Ordered ball path: real flight first, then the predicted continuation.
   final List<OverlayPoint> path;
+  final List<Offset> postImpact;
   final OverlayPoint? bounce;
   final OverlayPoint? impact;
   final StumpLine? strikerStumps;
@@ -141,6 +158,8 @@ class TrajectoryOverlay {
 
   /// Ground-plane pitch corridor as a 4-point polygon (pixels), or empty.
   final List<Offset> corridor;
+  final List<Offset> pitchRect;
+  final List<Offset> centerline;
 
   bool get hasPath => path.length >= 2;
 
@@ -157,28 +176,33 @@ class TrajectoryOverlay {
     }
     if (path.isEmpty) return null;
     final stumps = m['stumps_px'];
-    final stumpsMap = stumps is Map ? stumps.cast<String, Object?>() : const <String, Object?>{};
-    final corridor = <Offset>[];
-    final corr = m['corridor_px'];
-    if (corr is List) {
-      for (final v in corr) {
-        final o = _readOffset(v);
-        if (o != null) corridor.add(o);
-      }
-    }
+    final stumpsMap = stumps is Map
+        ? stumps.cast<String, Object?>()
+        : const <String, Object?>{};
+    final corridor = _readOffsetList(m['corridor_px']);
+    final pitchRect = _readOffsetList(m['pitch_rect_px']);
+    final centerline = _readOffsetList(m['centerline_px']);
+    final postImpact = _readOffsetList(m['post_impact_px']);
     return TrajectoryOverlay(
       path: List.unmodifiable(path),
+      postImpact: List.unmodifiable(postImpact),
       bounce: OverlayPoint.fromJson(m['bounce_px']),
       impact: OverlayPoint.fromJson(m['impact_px']),
       strikerStumps: StumpLine.fromJson(stumpsMap['striker']),
       bowlerStumps: StumpLine.fromJson(stumpsMap['bowler']),
       corridor: List.unmodifiable(corridor),
+      pitchRect: List.unmodifiable(pitchRect),
+      centerline: List.unmodifiable(centerline),
     );
   }
 }
 
 class OverlayPoint {
-  const OverlayPoint({required this.tMs, required this.px, required this.predicted});
+  const OverlayPoint({
+    required this.tMs,
+    required this.px,
+    required this.predicted,
+  });
 
   final int tMs;
   final Offset px;
@@ -223,6 +247,17 @@ Offset? _readOffset(Object? json) {
   return Offset(u, v);
 }
 
+List<Offset> _readOffsetList(Object? json) {
+  final out = <Offset>[];
+  if (json is List) {
+    for (final v in json) {
+      final o = _readOffset(v);
+      if (o != null) out.add(o);
+    }
+  }
+  return out;
+}
+
 /// 3D ball trajectory in world coordinates (metres).  The pitch frame is
 /// X along the pitch length (0 = striker crease), Y across (positive off
 /// side for right-hander), Z up.  `points` are observed-and-smoothed
@@ -236,10 +271,10 @@ class WorldTrajectory {
   });
 
   factory WorldTrajectory.empty() => const WorldTrajectory(
-        points: <WorldPointM>[],
-        predictedToStumps: <WorldPointM>[],
-        fit: null,
-      );
+    points: <WorldPointM>[],
+    predictedToStumps: <WorldPointM>[],
+    fit: null,
+  );
 
   final List<WorldPointM> points;
   final List<WorldPointM> predictedToStumps;
@@ -304,7 +339,10 @@ class WorldPointM {
     final z = _readDouble(m, 'z');
     if (t == null || x == null || y == null || z == null) return null;
     return WorldPointM(
-      tMs: t, x: x, y: y, z: z,
+      tMs: t,
+      x: x,
+      y: y,
+      z: z,
       confidence: _readDouble(m, 'confidence'),
     );
   }
@@ -314,8 +352,12 @@ class WorldPointM {
 
 class ProjectileFitInfo {
   const ProjectileFitInfo({
-    required this.x0, required this.y0, required this.z0,
-    required this.vx, required this.vy, required this.vz,
+    required this.x0,
+    required this.y0,
+    required this.z0,
+    required this.vx,
+    required this.vy,
+    required this.vz,
     required this.bounceTMs,
     required this.rmsM,
   });
@@ -379,7 +421,12 @@ class AnalysisEvents {
 }
 
 class EventPointM {
-  const EventPointM({required this.tMs, required this.xM, required this.yM, this.zM});
+  const EventPointM({
+    required this.tMs,
+    required this.xM,
+    required this.yM,
+    this.zM,
+  });
 
   final int tMs;
   final double xM;
@@ -398,10 +445,17 @@ class EventPointM {
 }
 
 class CalibrationQuality {
-  const CalibrationQuality({required this.score, required this.reprojErrorPx, required this.notes});
+  const CalibrationQuality({
+    required this.score,
+    required this.reprojErrorPx,
+    required this.notes,
+  });
 
-  factory CalibrationQuality.unknown() =>
-      const CalibrationQuality(score: null, reprojErrorPx: null, notes: <String>[]);
+  factory CalibrationQuality.unknown() => const CalibrationQuality(
+    score: null,
+    reprojErrorPx: null,
+    notes: <String>[],
+  );
 
   final double? score;
   final double? reprojErrorPx;
@@ -458,7 +512,9 @@ class LbwResult {
     };
 
     final checksRaw = json['checks'];
-    final checks = checksRaw is Map ? checksRaw.cast<String, Object?>() : const <String, Object?>{};
+    final checks = checksRaw is Map
+        ? checksRaw.cast<String, Object?>()
+        : const <String, Object?>{};
     final predRaw = json['prediction'];
     final pred = predRaw is Map ? predRaw.cast<String, Object?>() : null;
     return LbwResult(

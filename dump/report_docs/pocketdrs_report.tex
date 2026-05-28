@@ -1024,75 +1024,167 @@ It is honest about its limits. A single phone cannot triangulate depth the way s
 
 The BIT 7\textsuperscript{th}-semester project syllabus requires a project log book recording the student's weekly progress under supervision. The eight entries that follow span the development of PocketDRS, from project kick-off in early April 2026 to final integration and report writing on 24 May 2026. Each entry is on its own page.
 
+% Compact numbered list helper for table cells (no enumitem dependency).
+\newcounter{lblistctr}
+\newenvironment{lblist}{%
+  \setcounter{lblistctr}{0}%
+  \begin{list}{\arabic{lblistctr}.}{%
+    \usecounter{lblistctr}%
+    \setlength{\leftmargin}{16pt}%
+    \setlength{\rightmargin}{0pt}%
+    \setlength{\itemindent}{0pt}%
+    \setlength{\labelwidth}{12pt}%
+    \setlength{\labelsep}{4pt}%
+    \setlength{\itemsep}{1pt}%
+    \setlength{\parsep}{0pt}%
+    \setlength{\topsep}{2pt}%
+    \setlength{\partopsep}{0pt}%
+  }%
+}{\end{list}}
+
 % Single-entry log-sheet macro. One call renders one page.
-% Arguments: {date}{time}{week}{topic}{progress}{plan}
-\newcommand{\logentry}[6]{%
+% Arguments: {meeting_no}{date}{start_time}{finish_time}{topics}{achievements}{problems}{next_task}
+\newcommand{\logentry}[8]{%
 \begingroup\singlespacing\setlength{\parskip}{0pt}%
-\noindent\begin{tabularx}{\textwidth}{|l|X|}
-\hline
-\multicolumn{2}{|c|}{\textbf{\fontsize{13}{16}\selectfont PROJECT LOG BOOK ENTRY}}\\
-\hline
-\textbf{Date}  & #1 \\\hline
-\textbf{Time}  & #2 \\\hline
-\textbf{Week}  & #3 \\\hline
-\textbf{Topic} & #4 \\\hline
-\end{tabularx}\par
-\vspace{6pt}
-\noindent\begin{tabularx}{\textwidth}{|X|}
-\hline
-\textbf{Progress (this week):}\par\vspace{2pt}#5\\[2pt]
-\hline
-\textbf{Plan (next week):}\par\vspace{2pt}#6\\[2pt]
-\hline
-\end{tabularx}\par
-\vspace{8pt}
 \noindent\begin{tabularx}{\textwidth}{|l|X|l|X|}
 \hline
-\textbf{Student}    & Niraj Kafle             & \textbf{Sign:} & \dotfill \\\hline
-\textbf{Supervisor} & \rule{0pt}{10pt}\dotfill & \textbf{Sign:} & \dotfill \\\hline
+\multicolumn{4}{|c|}{\textbf{\fontsize{13}{16}\selectfont PROJECT LOG BOOK ENTRY SHEET}}\\\hline
+\textbf{Meeting No.} & #1 & \textbf{Date} & #2 \\\hline
+\textbf{Start Time} & #3 & \textbf{Finish Time} & #4 \\\hline
+\end{tabularx}\par
+\vspace{6pt}
+\noindent\begin{tabularx}{\textwidth}{|X|}\hline
+\textbf{Discussion Topics:}\vspace{-6pt}#5\\\hline
+\textbf{Achievements:}\vspace{-6pt}#6\\\hline
+\textbf{Problems (if any):}\vspace{-6pt}#7\\\hline
+\textbf{Task for next meeting:}\vspace{-6pt}#8\\\hline
+\end{tabularx}\par
+\vspace{10pt}
+\noindent\begin{tabularx}{\textwidth}{|l|X|l|X|}\hline
+\textbf{Student's Name} & Niraj Kafle & \textbf{Supervisor Signature} & \dotfill \\\hline
 \end{tabularx}\par
 \endgroup
 \newpage}
 
-\logentry{5 April 2026}{10:00 AM}{1}%
-{Project kick-off; literature review; selection of monocular reconstruction approach.}%
-{Reviewed prior art on ball tracking (Owens 2003, Hartley 2004) and monocular 3D recovery (Ponglertnapakorn 2025). Drafted the problem statement and primary objective. Confirmed the single-phone-camera scope and ruled out multi-camera Hawk-Eye replication.}%
-{Prototype the camera-calibration step using OpenCV's planar PnP on four tapped pitch corners.}
+\logentry{01}{5 April 2026}{10:00 AM}{11:00 AM}%
+{\begin{lblist}
+\item Project kick-off and scope definition
+\item Literature review on Hawk-Eye and monocular 3D reconstruction
+\item Selection of the single-phone-camera approach
+\item Drafting the problem statement and primary objective
+\end{lblist}}%
+{\begin{lblist}
+\item Reviewed prior art (Owens 2003, Hartley 2004, Ponglertnapakorn 2025)
+\item Confirmed single-phone-camera scope; ruled out multi-camera Hawk-Eye replication
+\item Drafted the problem statement and primary objective
+\end{lblist}}%
+{\begin{lblist}\item None\end{lblist}}%
+{\begin{lblist}\item Prototype the camera-calibration step using OpenCV planar PnP on four tapped pitch corners\end{lblist}}
 
-\logentry{12 April 2026}{10:30 AM}{2}%
-{Camera calibration prototype; solvePnP from 4 pitch-corner taps.}%
-{Implemented the four-tap calibration in a standalone script; recovered camera intrinsics and extrinsics on synthetic pitch images. Disambiguated the planar-PnP twofold mirror by rejecting any pose with a below-ground camera. Confirmed sub-pixel reprojection error on synthetic inputs.}%
-{Extend calibration with the stump-quad refinement and a joint FOV plus pitch-length geometry-fit solver.}
+\logentry{02}{12 April 2026}{10:30 AM}{11:30 AM}%
+{\begin{lblist}
+\item Camera-calibration prototype design
+\item solvePnP from four pitch-corner taps
+\item Planar-PnP twofold-mirror disambiguation
+\item Reprojection-error validation on synthetic pitch images
+\end{lblist}}%
+{\begin{lblist}
+\item Implemented four-tap calibration; recovered intrinsics and extrinsics on synthetic pitches
+\item Resolved the planar-PnP mirror by rejecting any below-ground camera pose
+\item Confirmed sub-pixel reprojection error on synthetic inputs
+\end{lblist}}%
+{\begin{lblist}\item None\end{lblist}}%
+{\begin{lblist}\item Extend calibration with stump-quad refinement and a joint FOV + pitch-length geometry-fit solver\end{lblist}}
 
-\logentry{19 April 2026}{11:00 AM}{3}%
-{Stump-quad calibration; joint FOV + pitch-length auto-fit solver.}%
-{Added a second-stage non-linear refinement that uses tapped stump bases and tops to tighten the pose. Wrote the geometry-fit solver that jointly recovers the camera FOV and the pitch length when these are unknown. Verified convergence on the synthetic harness.}%
-{Build the ball-detection pipeline: MOG2 background subtraction, HSV-red colour gating, and an ROI mask around the pitch.}
+\logentry{03}{19 April 2026}{11:00 AM}{12:00 PM}%
+{\begin{lblist}
+\item Stump-quad second-stage pose refinement
+\item Joint FOV + pitch-length auto-fit solver design
+\item Convergence checks on the synthetic harness
+\item Robustness to unknown camera parameters
+\end{lblist}}%
+{\begin{lblist}
+\item Added non-linear refinement using tapped stump bases and tops
+\item Wrote the geometry-fit solver that recovers FOV and pitch length when unknown
+\item Verified solver convergence on the synthetic harness
+\end{lblist}}%
+{\begin{lblist}\item None\end{lblist}}%
+{\begin{lblist}\item Build the ball-detection pipeline (MOG2 background subtraction, HSV red gating, pitch ROI mask)\end{lblist}}
 
-\logentry{26 April 2026}{2:00 PM}{4}%
-{Ball detection pipeline: MOG2 + HSV + ROI mask; YOLO fallback.}%
-{Implemented the MOG2 motion detector combined with HSV red-channel gating and a pitch-aligned ROI mask. Added fixed-clutter suppression that drops any detection appearing in $>30\%$ of frames at one location. Wired up the YOLOv8 learned-ball detector as a configurable fallback for low-contrast clips.}%
-{Link per-frame detections into a single delivery trajectory using RANSAC and a constant-acceleration motion model.}
+\logentry{04}{26 April 2026}{2:00 PM}{3:00 PM}%
+{\begin{lblist}
+\item Ball-detection pipeline architecture
+\item MOG2 motion + HSV red gating + pitch-aligned ROI mask
+\item Fixed-clutter suppression strategy
+\item YOLOv8 learned-ball fallback wiring
+\end{lblist}}%
+{\begin{lblist}
+\item Implemented combined MOG2 + HSV ball detector
+\item Added fixed-clutter suppression ($>30\%$ recurring detections dropped)
+\item Wired YOLOv8 as a configurable fallback for low-contrast clips
+\end{lblist}}%
+{\begin{lblist}\item None\end{lblist}}%
+{\begin{lblist}\item Link per-frame detections into a single delivery trajectory using RANSAC and a constant-acceleration model\end{lblist}}
 
-\logentry{3 May 2026}{10:00 AM}{5}%
-{Trajectory linking with RANSAC + constant-acceleration motion model.}%
-{Wrote the RANSAC trajectory-association stage that fits a 2D constant-acceleration model to the detection cloud and selects inliers. Reached $25+$ image points with $<25$\,px RMS on the synthetic harness. Added a path-length sanity check that returns ``no trajectory'' rather than inventing a verdict on degenerate input.}%
-{Lift the recovered 2D track to 3D world coordinates using depth-from-ball-radius, then fit a bounce-aware projectile to recover the world trajectory.}
+\logentry{05}{3 May 2026}{10:00 AM}{11:00 AM}%
+{\begin{lblist}
+\item Trajectory-linking strategy
+\item RANSAC association with constant-acceleration model
+\item Inlier count and image-space RMS thresholds
+\item Degenerate-input guards
+\end{lblist}}%
+{\begin{lblist}
+\item Wrote the RANSAC trajectory-association stage with a 2D constant-acceleration fit
+\item Reached $25+$ image points with $<25$\,px RMS on the synthetic harness
+\item Added a path-length sanity check that returns ``no trajectory'' on degenerate input
+\end{lblist}}%
+{\begin{lblist}\item None\end{lblist}}%
+{\begin{lblist}\item Lift the 2D track to 3D world coordinates via depth-from-ball-radius and fit a bounce-aware projectile\end{lblist}}
 
-\logentry{10 May 2026}{11:00 AM}{6}%
-{3D reconstruction; depth-from-ball-radius + bounce-aware projectile fit (Ribnick 2009).}%
-{Implemented depth-from-apparent-size to convert pixel positions into world-frame 3D coordinates, anchored at the bounce. Added the bounce-aware physics fit (gravity, vertical restitution $0.55$, separate pre- and post-bounce parabolae). Verified plausible 3D arcs on the synthetic deliveries.}%
-{Wire up the LBW decision engine to ICC Rule 36 and integrate the 3D Three.js viewer with the Flutter app.}
+\logentry{06}{10 May 2026}{11:00 AM}{12:00 PM}%
+{\begin{lblist}
+\item 3D reconstruction from a monocular track
+\item Depth-from-apparent-size anchored at the bounce
+\item Bounce-aware projectile fit (Ribnick 2009)
+\item Physics parameters --- gravity, vertical restitution $0.55$
+\end{lblist}}%
+{\begin{lblist}
+\item Implemented depth-from-apparent-size; converted pixel positions to 3D world frame
+\item Added the bounce-aware physics fit with separate pre- and post-bounce parabolae
+\item Verified plausible 3D arcs on synthetic deliveries
+\end{lblist}}%
+{\begin{lblist}\item None\end{lblist}}%
+{\begin{lblist}\item Wire the LBW decision engine to ICC Rule 36 and integrate the 3D Three.js viewer with the Flutter app\end{lblist}}
 
-\logentry{17 May 2026}{2:00 PM}{7}%
-{LBW decision (ICC Rule 36); 3D Three.js viewer; Flutter app integration.}%
-{Coded the three Rule-36 checks (pitching in line, impact in line, hitting stumps) with umpire's-call bands set to absorb monocular depth noise. Built the Three.js viewer in a Flutter WebView and connected end-to-end from the in-app capture, calibration, and trim screens to the FastAPI backend on Cloud Run with Firestore persistence.}%
-{Run the pipeline end-to-end on a real handheld phone clip (test3.mp4) and on a retuned 8-scenario synthetic sweep; then write the final report.}
+\logentry{07}{17 May 2026}{2:00 PM}{3:00 PM}%
+{\begin{lblist}
+\item LBW decision engine --- ICC Rule 36 (pitching, impact, hitting)
+\item Umpire's-call bands to absorb monocular depth noise
+\item Three.js viewer inside a Flutter WebView
+\item End-to-end wiring --- capture, calibration, trim, FastAPI on Cloud Run, Firestore
+\end{lblist}}%
+{\begin{lblist}
+\item Coded the three Rule-36 checks (pitching in line, impact in line, hitting stumps)
+\item Built the Three.js 3D-trajectory viewer inside a Flutter WebView
+\item Connected the in-app capture/calibration/trim screens to the FastAPI backend with Firestore persistence
+\end{lblist}}%
+{\begin{lblist}\item None\end{lblist}}%
+{\begin{lblist}\item Run the pipeline end-to-end on a real phone clip (\texttt{test3.mp4}) and on a retuned 8-scenario synthetic sweep, then write the final report\end{lblist}}
 
-\logentry{24 May 2026}{10:00 AM}{8}%
-{Real-video end-to-end test (test3.mp4) + 8-scenario synthetic validation; report writing.}%
-{Recorded and processed \texttt{test3.mp4}; pipeline returned NOT OUT on a flighted off-break with a $29$-point clean track. Retuned the synthetic harness to a full ICC pitch with a wide-angle phone camera; all eight scenarios passed the monocular thresholds ($8/8$, $100\%$). Wrote the report, lessons learnt, and future-recommendations chapters.}%
-{Submit the final report, prepare the defense slide deck, and rehearse the live demo on the project laptop.}
+\logentry{08}{24 May 2026}{10:00 AM}{11:00 AM}%
+{\begin{lblist}
+\item Real-video end-to-end test on \texttt{test3.mp4}
+\item 8-scenario synthetic-validation sweep
+\item Final report writing --- lessons learnt and future recommendations
+\item Submission and defense preparation
+\end{lblist}}%
+{\begin{lblist}
+\item Processed \texttt{test3.mp4}; pipeline returned NOT OUT on a flighted off-break with a $29$-point clean track
+\item Retuned the synthetic harness to a full ICC pitch with a wide-angle phone camera --- $8/8$ scenarios pass ($100\%$)
+\item Wrote the final report including the lessons-learnt and future-recommendations chapters
+\end{lblist}}%
+{\begin{lblist}\item None\end{lblist}}%
+{\begin{lblist}\item Submit the final report, prepare the defense slide deck, and rehearse the live demo on the project laptop\end{lblist}}
 
 % =====================================================================
 % REFERENCES (IEEE)

@@ -25,13 +25,16 @@ def build_payload(result: dict[str, Any]) -> dict[str, Any]:
     metrics = result.get("metrics") or {}
     lbw = result.get("lbw") or {}
     pred_at = (lbw.get("prediction") or {})
+    pitch = result.get("pitch") or {}
 
-    pitch_length_m = max(
-        [p["x"] for p in pts]
-        + ([pred[-1]["x"]] if pred else [])
-        + [6.3]
-    )
-    pitch_width_m = 3.05
+    pitch_length_m = float(pitch.get("length_m") or 0.0)
+    if pitch_length_m <= 0.0:
+        pitch_length_m = max(
+            [p["x"] for p in pts]
+            + ([pred[-1]["x"]] if pred else [])
+            + [6.3]
+        )
+    pitch_width_m = float(pitch.get("width_m") or 3.05)
 
     def cm(meters: Any) -> Any:
         return None if meters is None else round(float(meters) * 100)

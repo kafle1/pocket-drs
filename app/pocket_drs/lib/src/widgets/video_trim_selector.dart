@@ -40,7 +40,6 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
   // Range slider state — units are video milliseconds.
   RangeValues? _range;
   Timer? _seekDebounce;
-  double? _lastDraggedHandle;  // 0 = start, 1 = end
 
   @override
   void initState() {
@@ -69,9 +68,9 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
       } catch (_) {}
       _controller = null;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to load video')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Failed to load video')));
       }
     }
   }
@@ -194,8 +193,9 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
                       ),
                       Text(
                         _fmt(Duration(milliseconds: range.end.toInt())),
-                        style: AppTypography.mono(theme.textTheme.labelMedium)
-                            ?.copyWith(color: scheme.onSurfaceVariant),
+                        style: AppTypography.mono(
+                          theme.textTheme.labelMedium,
+                        )?.copyWith(color: scheme.onSurfaceVariant),
                       ),
                     ],
                   ),
@@ -214,7 +214,6 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
                       final target = movedStart ? v.start : v.end;
                       setState(() {
                         _range = v;
-                        _lastDraggedHandle = movedStart ? 0 : 1;
                       });
                       _scheduleSeekMs(target.toInt());
                     },

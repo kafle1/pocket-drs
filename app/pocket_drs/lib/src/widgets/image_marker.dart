@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -22,8 +21,10 @@ class ImageMarker extends StatefulWidget {
     this.guides,
     this.highlightGuideIndex,
     this.showHeader = true,
-  }) : assert(imagePath != null || imageBytes != null,
-            'Provide imagePath or imageBytes');
+  }) : assert(
+         imagePath != null || imageBytes != null,
+         'Provide imagePath or imageBytes',
+       );
 
   /// Native-only path (dart:io File). On web, leave null and pass imageBytes.
   final String? imagePath;
@@ -85,7 +86,7 @@ class _ImageMarkerState extends State<ImageMarker> {
     } else if (!kIsWeb && widget.imagePath != null) {
       bytes = await File(widget.imagePath!).readAsBytes();
     } else {
-      return;  // nothing to load
+      return; // nothing to load
     }
     final codec = await ui.instantiateImageCodec(bytes);
     final frame = await codec.getNextFrame();
@@ -244,9 +245,9 @@ class _ImageMarkerState extends State<ImageMarker> {
                                   )
                                 else
                                   Image.file(
-                                  File(widget.imagePath!),
-                                  fit: BoxFit.fill,
-                                ),
+                                    File(widget.imagePath!),
+                                    fit: BoxFit.fill,
+                                  ),
                                 CustomPaint(
                                   painter: _MarkerPainter(
                                     markers: _markers,

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../analysis/frame_decoder.dart';
 import '../analysis/pitch_calibration.dart';
@@ -19,7 +19,6 @@ import '../theme/app_typography.dart';
 import '../utils/app_logger.dart';
 import '../utils/app_settings.dart';
 import '../widgets/drs_button.dart';
-import '../utils/web_open.dart';
 import '../widgets/image_marker.dart';
 import '../widgets/trajectory_video_view.dart';
 import '../widgets/video_frame_selector.dart';
@@ -58,9 +57,11 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   String? _framePath;
   Uint8List? _frameBytes;
   ui.Size? _frameSize;
-  List<Offset>? _corners; // normalized [0..1], striker-L, striker-R, bowler-R, bowler-L
-  List<Offset>? _strikerStumps; // normalized: [base, top]
-  List<Offset>? _bowlerStumps; // normalized: [base, top]
+  // Normalized [0..1], ordered striker-left, striker-right, bowler-right, bowler-left.
+  List<Offset>? _corners;
+  // Normalized stump cluster quads: top-left, top-right, bottom-right, bottom-left.
+  List<Offset>? _strikerStumps;
+  List<Offset>? _bowlerStumps;
   // Pitch length is geometry-fit on the server from the stump marks.
   // Width barely affects the ball reconstruction; a regulation default
   // is sent so the in-line LBW corridor renders at the right scale.
@@ -163,18 +164,6 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     return size;
   }
 
-  Future<ui.Size> _decodeImageSize(String path) async {
-    final bytes = await File(path).readAsBytes();
-    final codec = await ui.instantiateImageCodec(bytes);
-    final frame = await codec.getNextFrame();
-    final size = ui.Size(
-      frame.image.width.toDouble(),
-      frame.image.height.toDouble(),
-    );
-    frame.image.dispose();
-    return size;
-  }
-
   // ---------------------------------------------------------------- step 3: pitch
   void _onPitchComplete(List<Offset> markers) {
     setState(() {
@@ -199,14 +188,16 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     final bottomY = (br.dy + bl.dy) / 2.0;
     if (topY >= bottomY) {
       _showError(
-          'For the $endName stumps: tap top-left, top-right, bottom-right, bottom-left in that order');
+        'For the $endName stumps: tap top-left, top-right, bottom-right, bottom-left in that order',
+      );
       return false;
     }
     final leftX = (tl.dx + bl.dx) / 2.0;
     final rightX = (tr.dx + br.dx) / 2.0;
     if (leftX >= rightX) {
       _showError(
-          'For the $endName stumps: tap top-left, top-right, bottom-right, bottom-left in that order');
+        'For the $endName stumps: tap top-left, top-right, bottom-right, bottom-left in that order',
+      );
       return false;
     }
     return true;
@@ -243,10 +234,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     final size = _frameSize!;
     Offset px(Offset n) => Offset(n.dx * size.width, n.dy * size.height);
     final corners = _corners!;
-    final stumps = <Offset>[
-      ..._strikerStumps!,
-      ..._bowlerStumps!,
-    ];
+    final stumps = <Offset>[..._strikerStumps!, ..._bowlerStumps!];
     return PitchCalibration(
       imagePoints: corners.map(px).toList(growable: false),
       stumpPoints: stumps.map(px).toList(growable: false),
@@ -307,8 +295,14 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
           'mode': 'taps',
           'pitch_corners_norm': cornersNorm,
           'stump_quads_norm': <Map<String, Object?>>[
-            pt(sk[0]), pt(sk[1]), pt(sk[2]), pt(sk[3]),
-            pt(bw[0]), pt(bw[1]), pt(bw[2]), pt(bw[3]),
+            pt(sk[0]),
+            pt(sk[1]),
+            pt(sk[2]),
+            pt(sk[3]),
+            pt(bw[0]),
+            pt(bw[1]),
+            pt(bw[2]),
+            pt(bw[3]),
           ],
           // Only width is sent — pitch length is geometry-fit on the
           // server from the marked stump rectangle so non-regulation
@@ -342,7 +336,8 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       // Storage cleanup — only fires when the user has opted in AND the
       // clip came from in-app recording. A user-picked file from the
       // camera roll is theirs to keep; we never touch it.
-      if (!kIsWeb && _videoFromCamera &&
+      if (!kIsWeb &&
+          _videoFromCamera &&
           await AppSettings.getAutoDeleteSource()) {
         try {
           await File(video.path).delete();
@@ -459,15 +454,21 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   }
 
   // -------------------------------------------------------------------- build
-  static const _labels = ['UPLOAD', 'TRIM', 'FRAME', 'PITCH', 'STRIKER', 'BOWLER'];
+  static const _labels = [
+    'UPLOAD',
+    'TRIM',
+    'FRAME',
+    'PITCH',
+    'STRIKER',
+    'BOWLER',
+  ];
 
   String? get _hint => switch (_step) {
-        _Step.pitch => 'Tap the 4 pitch corners, clockwise from the striker end.',
-        _Step.stumpsStriker ||
-        _Step.stumpsBowler =>
-          'Tap the stump base first, then the top. Pinch to zoom.',
-        _ => null,
-      };
+    _Step.pitch => 'Tap the 4 pitch corners, clockwise from the striker end.',
+    _Step.stumpsStriker || _Step.stumpsBowler =>
+      'Tap the stump base first, then the top. Pinch to zoom.',
+    _ => null,
+  };
 
   /// Which side of the frame the currently-selected stump cluster sits on,
   /// derived from the already-tapped pitch corners. Returns null for steps
@@ -500,8 +501,9 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     final clusterRight = _activeClusterIsRight;
     final alignRight = clusterRight == true;
     final textAlign = alignRight ? TextAlign.right : TextAlign.left;
-    final colAlign =
-        alignRight ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    final colAlign = alignRight
+        ? CrossAxisAlignment.end
+        : CrossAxisAlignment.start;
     final titlePadding = alignRight
         ? const EdgeInsets.only(right: AppSpacing.md)
         : const EdgeInsets.only(left: AppSpacing.md);
@@ -540,8 +542,9 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
                           Text(
                             'STEP ${(_step.index + 1).toString().padLeft(2, '0')} / '
                             '${_labels.length.toString().padLeft(2, '0')}',
-                            style: theme.textTheme.labelSmall
-                                ?.copyWith(color: scheme.onSurfaceVariant),
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
                           ),
                           const Spacer(),
                           IconButton(
@@ -558,7 +561,9 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
                         padding: titlePadding,
                         child: Text(
                           _labels[_step.index].toLowerCase().replaceFirstMapped(
-                              RegExp(r'^.'), (m) => m.group(0)!.toUpperCase()),
+                            RegExp(r'^.'),
+                            (m) => m.group(0)!.toUpperCase(),
+                          ),
                           style: theme.textTheme.headlineSmall,
                           textAlign: textAlign,
                         ),
@@ -574,8 +579,9 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             textAlign: textAlign,
-                            style: theme.textTheme.bodySmall
-                                ?.copyWith(color: scheme.onSurfaceVariant),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ],
@@ -612,58 +618,66 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       case _Step.pitch:
         if (_frameBytes == null && _framePath == null) return const SizedBox();
         return ImageMarker(
-                key: const ValueKey('pitch'),
-                imagePath: _framePath,
-                imageBytes: _frameBytes,
-                maxMarkers: 4,
-                title: 'Mark Pitch Corners',
-                subtitle: 'Tap clockwise from the striker end',
-                markerLabels: const [
-                  'Striker Left',
-                  'Striker Right',
-                  'Bowler Right',
-                  'Bowler Left',
-                ],
-                initialMarkers: _corners,
-                showHeader: false,
-                onComplete: _onPitchComplete,
-              );
+          key: const ValueKey('pitch'),
+          imagePath: _framePath,
+          imageBytes: _frameBytes,
+          maxMarkers: 4,
+          title: 'Mark Pitch Corners',
+          subtitle: 'Tap clockwise from the striker end',
+          markerLabels: const [
+            'Striker Left',
+            'Striker Right',
+            'Bowler Right',
+            'Bowler Left',
+          ],
+          initialMarkers: _corners,
+          showHeader: false,
+          onComplete: _onPitchComplete,
+        );
       case _Step.stumpsStriker:
         if (_frameBytes == null && _framePath == null) return const SizedBox();
         return ImageMarker(
-                key: const ValueKey('striker'),
-                imagePath: _framePath,
-                imageBytes: _frameBytes,
-                maxMarkers: 4,
-                title: 'Mark Striker Stumps',
-                subtitle: 'Tap the 4 corners of the stump cluster — top-left, top-right, bottom-right, bottom-left',
-                markerLabels: const [
-                  'Top Left', 'Top Right', 'Bottom Right', 'Bottom Left',
-                ],
-                initialMarkers: _strikerStumps,
-                guides: _stumpGuides(),
-                highlightGuideIndex: 1,
-                showHeader: false,
-                onComplete: _onStrikerStumpsComplete,
-              );
+          key: const ValueKey('striker'),
+          imagePath: _framePath,
+          imageBytes: _frameBytes,
+          maxMarkers: 4,
+          title: 'Mark Striker Stumps',
+          subtitle:
+              'Tap the 4 corners of the stump cluster — top-left, top-right, bottom-right, bottom-left',
+          markerLabels: const [
+            'Top Left',
+            'Top Right',
+            'Bottom Right',
+            'Bottom Left',
+          ],
+          initialMarkers: _strikerStumps,
+          guides: _stumpGuides(),
+          highlightGuideIndex: 1,
+          showHeader: false,
+          onComplete: _onStrikerStumpsComplete,
+        );
       case _Step.stumpsBowler:
         if (_frameBytes == null && _framePath == null) return const SizedBox();
         return ImageMarker(
-                key: const ValueKey('bowler'),
-                imagePath: _framePath,
-                imageBytes: _frameBytes,
-                maxMarkers: 4,
-                title: 'Mark Bowler Stumps',
-                subtitle: 'Tap the 4 corners of the stump cluster — top-left, top-right, bottom-right, bottom-left',
-                markerLabels: const [
-                  'Top Left', 'Top Right', 'Bottom Right', 'Bottom Left',
-                ],
-                initialMarkers: _bowlerStumps,
-                guides: _stumpGuides(),
-                highlightGuideIndex: 2,
-                showHeader: false,
-                onComplete: _onBowlerStumpsComplete,
-              );
+          key: const ValueKey('bowler'),
+          imagePath: _framePath,
+          imageBytes: _frameBytes,
+          maxMarkers: 4,
+          title: 'Mark Bowler Stumps',
+          subtitle:
+              'Tap the 4 corners of the stump cluster — top-left, top-right, bottom-right, bottom-left',
+          markerLabels: const [
+            'Top Left',
+            'Top Right',
+            'Bottom Right',
+            'Bottom Left',
+          ],
+          initialMarkers: _bowlerStumps,
+          guides: _stumpGuides(),
+          highlightGuideIndex: 2,
+          showHeader: false,
+          onComplete: _onBowlerStumpsComplete,
+        );
       case _Step.processing:
         return _ProcessingView(
           pct: _progressPct,
@@ -729,8 +743,9 @@ class _UploadStep extends StatelessWidget {
                 const Spacer(),
                 Text(
                   '01.',
-                  style: AppTypography.mono(theme.textTheme.displayMedium)
-                      ?.copyWith(color: AppColors.signalRed),
+                  style: AppTypography.mono(
+                    theme.textTheme.displayMedium,
+                  )?.copyWith(color: AppColors.signalRed),
                 ),
                 const SizedBox(height: AppSpacing.md),
                 Text('Delivery video.', style: theme.textTheme.headlineMedium),
@@ -738,8 +753,9 @@ class _UploadStep extends StatelessWidget {
                 Text(
                   'Record or choose one clip of the delivery. You calibrate on a '
                   'frame from it, then the same clip is analysed.',
-                  style: theme.textTheme.bodyLarge
-                      ?.copyWith(color: scheme.onSurfaceVariant),
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
                 const Spacer(),
                 DrsButton(
@@ -806,8 +822,9 @@ class _ProcessingView extends StatelessWidget {
           children: [
             Text(
               '$p%',
-              style: AppTypography.mono(theme.textTheme.displayLarge)
-                  ?.copyWith(color: hasError ? scheme.error : AppColors.signalRed),
+              style: AppTypography.mono(
+                theme.textTheme.displayLarge,
+              )?.copyWith(color: hasError ? scheme.error : AppColors.signalRed),
             ),
             const SizedBox(height: AppSpacing.md),
             Text(
@@ -882,21 +899,20 @@ class _ResultsView extends StatelessWidget {
     try {
       final base = await AppSettings.getServerUrl();
       final token = await FirebaseAuth.instance.currentUser?.getIdToken();
-      final url = (base.endsWith('/') ? base : '$base/') +
-          'v1/jobs/$id/three-d' +
-          (token == null ? '' : '?token=$token');
-      if (kIsWeb) {
-        openWebUrl(url);
-      } else if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('3D view: $url')),
-        );
+      final baseUri = Uri.parse(base.endsWith('/') ? base : '$base/');
+      final page = baseUri.resolve('v1/jobs/$id/three-d');
+      final uri = token == null || token.isEmpty
+          ? page
+          : page.replace(queryParameters: <String, String>{'token': token});
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) {
+        throw StateError('No browser available for $uri');
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open 3D view: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not open 3D view: $e')));
       }
     }
   }
@@ -930,8 +946,9 @@ class _ResultsView extends StatelessWidget {
                   Text(
                     reason!,
                     textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: AppColors.bone),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: AppColors.bone,
+                    ),
                   ),
                   const SizedBox(height: AppSpacing.md),
                 ],

@@ -30,8 +30,6 @@ class VideoReader:
     cheap ``CAP_PROP_POS_FRAMES`` jump when the gap is large.
     """
 
-    _MAX_CONSECUTIVE_STALE = 3
-
     def __init__(self, video_path: str):
         self._cap = cv2.VideoCapture(video_path)
         if not self._cap.isOpened():
@@ -49,7 +47,6 @@ class VideoReader:
         self._meta = VideoMeta(fps=fps, frame_count=frame_count, duration_ms=duration_ms)
         self._last_frame: np.ndarray | None = None
         self._cursor_idx: int = -1  # next read returns frame index cursor+1
-        self._consecutive_stale = 0
 
     @property
     def meta(self) -> VideoMeta:
@@ -85,16 +82,18 @@ class VideoReader:
         while self._cursor_idx < target_idx:
             ok, raw = self._cap.read()
             if not ok or raw is None:
-                if self._last_frame is None:
+                # Do not synthesize analysis frames from the previous image:
+                # duplicated tail frames look like a stopped ball and corrupt
+                # bounce/impact classification. A failed sequential read may
+                # still be a keyframe/seek hiccup, so try one explicit frame
+                # seek before declaring the clip exhausted or truncated.
+                self._cap.set(cv2.CAP_PROP_POS_FRAMES, float(target_idx))
+                ok, raw = self._cap.read()
+                if not ok or raw is None:
                     raise VideoDecodeError(f"Failed to decode frame at {t_ms}ms")
-                self._consecutive_stale += 1
-                if self._consecutive_stale >= self._MAX_CONSECUTIVE_STALE:
-                    raise VideoDecodeError(
-                        f"Video appears truncated near {t_ms}ms "
-                        f"(decoding failed for {self._consecutive_stale} "
-                        "consecutive frames)"
-                    )
-                return self._last_frame.copy()
+                self._cursor_idx = target_idx
+                frame = raw
+                break
             self._cursor_idx += 1
             frame = raw
 
@@ -104,7 +103,6 @@ class VideoReader:
             return (self._last_frame.copy() if self._last_frame is not None
                     else self._read_nonseek_fallback(t_ms))
 
-        self._consecutive_stale = 0
         self._last_frame = frame
         return frame
 

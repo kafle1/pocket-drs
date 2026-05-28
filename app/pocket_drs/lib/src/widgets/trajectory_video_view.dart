@@ -79,9 +79,16 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
     final flight = path.where((p) => !p.predicted);
     final firstT = (flight.isEmpty ? path.first : flight.first).tMs;
     final lastT = (flight.isEmpty ? path.last : flight.last).tMs;
-    _windowStartMs = (firstT - 250).clamp(0, durationMs <= 0 ? firstT : durationMs);
-    _windowEndMs = durationMs <= 0 ? lastT + 600 : (lastT + 600).clamp(0, durationMs);
-    if (_windowEndMs <= _windowStartMs) _windowEndMs = durationMs > 0 ? durationMs : lastT + 600;
+    _windowStartMs = (firstT - 250).clamp(
+      0,
+      durationMs <= 0 ? firstT : durationMs,
+    );
+    _windowEndMs = durationMs <= 0
+        ? lastT + 600
+        : (lastT + 600).clamp(0, durationMs);
+    if (_windowEndMs <= _windowStartMs) {
+      _windowEndMs = durationMs > 0 ? durationMs : lastT + 600;
+    }
   }
 
   void _onTick() {
@@ -103,11 +110,15 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
   @override
   Widget build(BuildContext context) {
     if (_error != null) {
-      return Center(child: Text(_error!, style: const TextStyle(color: AppColors.bone)));
+      return Center(
+        child: Text(_error!, style: const TextStyle(color: AppColors.bone)),
+      );
     }
     final c = _controller;
     if (c == null || !c.value.isInitialized) {
-      return const Center(child: CircularProgressIndicator(color: AppColors.signalRed));
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.signalRed),
+      );
     }
 
     final overlay = widget.result.overlay;
@@ -190,8 +201,6 @@ class _OverlayPainter extends CustomPainter {
 
   static const _gold = Color(0xFFEAC785);
   static const _predictedYellow = Color(0xFFFFD166);
-  static const _corridorFill = Color(0x553C74E0);
-  static const _corridorEdge = Color(0xAA6E9BF0);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -199,32 +208,44 @@ class _OverlayPainter extends CustomPainter {
     final sy = size.height / imageHeight;
     Offset map(Offset p) => Offset(p.dx * sx, p.dy * sy);
 
-    // Corridor / pitching-area strip intentionally omitted from the live
-    // overlay — the user wanted a clean ball trajectory with no
-    // competing geometry. The verdict chip carries the LBW result.
-
-    // Stumps: bowler end faint, striker (batsman) end prominent gold.
-    if (overlay.bowlerStumps != null) {
-      _drawStumps(canvas, map(overlay.bowlerStumps!.base), map(overlay.bowlerStumps!.top),
-          color: _gold.withValues(alpha: 0.45), width: 2.5, prominent: false);
-    }
+    // Decision target: striker/batsman stumps only. Drawing the foreground
+    // bowler stumps or the full pitch corridor makes umpire-POV clips look
+    // like the wrong end is being judged.
     if (overlay.strikerStumps != null) {
-      _drawStumps(canvas, map(overlay.strikerStumps!.base), map(overlay.strikerStumps!.top),
-          color: _gold, width: 5.0, prominent: true);
+      _drawStumps(
+        canvas,
+        map(overlay.strikerStumps!.base),
+        map(overlay.strikerStumps!.top),
+        color: _gold,
+        width: 5.0,
+        prominent: true,
+      );
     }
 
     // Tracked path = solid red (release → bounce → bat impact).
     // Predicted path = dashed yellow (post-impact continuation to stumps).
     // Two distinct colours so the eye separates "what the ball did" from
     // "what the ball would have done if no bat".
-    final flight = [for (final p in overlay.path) if (!p.predicted) map(p.px)];
-    final predicted = <Offset>[
-      if (overlay.impact != null) map(overlay.impact!.px),
-      for (final p in overlay.path) if (p.predicted) map(p.px),
+    final flight = [
+      for (final p in overlay.path)
+        if (!p.predicted) map(p.px),
     ];
-    _drawDashed(canvas, predicted, _predictedYellow, 3.5);
     _drawPolyline(canvas, flight, AppColors.signalRed, 4.5, glow: true);
-
+    final predictedPts = [
+      for (final p in overlay.path)
+        if (p.predicted) map(p.px),
+    ];
+    if (predictedPts.isNotEmpty && flight.isNotEmpty) {
+      final start = overlay.impact == null
+          ? flight.last
+          : map(overlay.impact!.px);
+      _drawDashed(
+        canvas,
+        <Offset>[start, predictedPts.last],
+        _predictedYellow,
+        3.5,
+      );
+    }
     if (overlay.bounce != null) {
       _drawBouncePin(canvas, map(overlay.bounce!.px));
     }
@@ -234,13 +255,20 @@ class _OverlayPainter extends CustomPainter {
 
     final ball = _ballAt(overlay.path, map, nowMs);
     if (ball != null) {
-      canvas.drawCircle(ball, 11.0, Paint()..color = AppColors.bone.withValues(alpha: 0.25));
+      canvas.drawCircle(
+        ball,
+        11.0,
+        Paint()..color = AppColors.bone.withValues(alpha: 0.25),
+      );
       canvas.drawCircle(ball, 6.0, Paint()..color = AppColors.bone);
     }
   }
 
   Offset? _ballAt(List<OverlayPoint> path, Offset Function(Offset) map, int t) {
-    final flight = [for (final p in path) if (!p.predicted) p];
+    final flight = [
+      for (final p in path)
+        if (!p.predicted) p,
+    ];
     if (flight.length < 2) return null;
     if (t <= flight.first.tMs) return null;
     if (t >= flight.last.tMs) return map(flight.last.px);
@@ -256,41 +284,67 @@ class _OverlayPainter extends CustomPainter {
     return null;
   }
 
-  void _drawStumps(Canvas canvas, Offset base, Offset top,
-      {required Color color, required double width, required bool prominent}) {
+  void _drawStumps(
+    Canvas canvas,
+    Offset base,
+    Offset top, {
+    required Color color,
+    required double width,
+    required bool prominent,
+  }) {
     if (prominent) {
-      canvas.drawLine(base, top, Paint()
-        ..color = color.withValues(alpha: 0.30)
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = width + 7.0);
+      canvas.drawLine(
+        base,
+        top,
+        Paint()
+          ..color = color.withValues(alpha: 0.30)
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = width + 7.0,
+      );
     }
-    canvas.drawLine(base, top, Paint()
-      ..color = color
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = width);
+    canvas.drawLine(
+      base,
+      top,
+      Paint()
+        ..color = color
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = width,
+    );
     canvas.drawCircle(top, prominent ? 4.0 : 2.5, Paint()..color = color);
   }
 
-  void _drawPolyline(Canvas canvas, List<Offset> pts, Color color, double width, {bool glow = false}) {
+  void _drawPolyline(
+    Canvas canvas,
+    List<Offset> pts,
+    Color color,
+    double width, {
+    bool glow = false,
+  }) {
     if (pts.length < 2) return;
     final path = Path()..moveTo(pts.first.dx, pts.first.dy);
     for (var i = 1; i < pts.length; i++) {
       path.lineTo(pts[i].dx, pts[i].dy);
     }
     if (glow) {
-      canvas.drawPath(path, Paint()
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeJoin = StrokeJoin.round
+          ..strokeCap = StrokeCap.round
+          ..color = color.withValues(alpha: 0.25)
+          ..strokeWidth = width + 7.0,
+      );
+    }
+    canvas.drawPath(
+      path,
+      Paint()
         ..style = PaintingStyle.stroke
         ..strokeJoin = StrokeJoin.round
         ..strokeCap = StrokeCap.round
-        ..color = color.withValues(alpha: 0.25)
-        ..strokeWidth = width + 7.0);
-    }
-    canvas.drawPath(path, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeJoin = StrokeJoin.round
-      ..strokeCap = StrokeCap.round
-      ..color = color
-      ..strokeWidth = width);
+        ..color = color
+        ..strokeWidth = width,
+    );
   }
 
   void _drawDashed(Canvas canvas, List<Offset> pts, Color color, double width) {
@@ -323,7 +377,11 @@ class _OverlayPainter extends CustomPainter {
 
   /// Bounce point — a solid red dot, no label.
   void _drawBouncePin(Canvas canvas, Offset c) {
-    canvas.drawCircle(c, 6.0, Paint()..color = AppColors.signalRed.withValues(alpha: 0.30));
+    canvas.drawCircle(
+      c,
+      6.0,
+      Paint()..color = AppColors.signalRed.withValues(alpha: 0.30),
+    );
     canvas.drawCircle(c, 4.0, Paint()..color = AppColors.signalRed);
   }
 
@@ -332,20 +390,11 @@ class _OverlayPainter extends CustomPainter {
     canvas.drawCircle(c, r, Paint()..color = color);
   }
 
-  void _label(Canvas canvas, Offset at, String text, Color color) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.0),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas, at);
-  }
-
   @override
   bool shouldRepaint(_OverlayPainter old) =>
-      old.nowMs != nowMs || old.overlay != overlay || old.imageWidth != imageWidth;
+      old.nowMs != nowMs ||
+      old.overlay != overlay ||
+      old.imageWidth != imageWidth;
 }
 
 class _MetricStack extends StatelessWidget {
@@ -366,11 +415,30 @@ class _MetricStack extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _MetricCard(
-          icon: Icons.speed_rounded,
-          label: 'Speed',
-          value: speedValue.toStringAsFixed(0),
-          unit: speedUnit.label,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _MetricCard(
+              icon: Icons.speed_rounded,
+              label: 'Speed',
+              value: speedValue.toStringAsFixed(0),
+              unit: speedUnit.label,
+            ),
+            const SizedBox(width: 6),
+            _MetricCard(
+              icon: Icons.timeline_rounded,
+              label: 'Swing',
+              value: metrics.swingSf.toStringAsFixed(1),
+              unit: '',
+            ),
+            const SizedBox(width: 6),
+            _MetricCard(
+              icon: Icons.rotate_right_rounded,
+              label: 'Spin',
+              value: metrics.spinDeg.toStringAsFixed(0),
+              unit: 'deg',
+            ),
+          ],
         ),
         if (decision != null) ...[
           const SizedBox(height: 8),
@@ -396,7 +464,7 @@ class _MetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 96,
+      width: 86,
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xCC101012),
@@ -476,7 +544,12 @@ class _DecisionChip extends StatelessWidget {
       child: Text(
         label,
         textAlign: TextAlign.center,
-        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.2),
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.2,
+        ),
       ),
     );
   }
@@ -497,7 +570,11 @@ class _ReplayButton extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(10),
-          child: Icon(playing ? Icons.pause : Icons.replay, color: AppColors.bone, size: 22),
+          child: Icon(
+            playing ? Icons.pause : Icons.replay,
+            color: AppColors.bone,
+            size: 22,
+          ),
         ),
       ),
     );

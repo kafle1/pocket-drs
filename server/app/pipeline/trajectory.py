@@ -43,6 +43,12 @@ class TrajectoryFit:
     px_per_ms_x: float    # mean image velocity, x
     px_per_ms_y: float    # mean image velocity, y
     notes: list[str]
+    # Post-impact deflection arc, when present: a second constant-acceleration
+    # arc detected AFTER the primary one with a horizontal direction change
+    # (pad/bat deflection in cricket). Kept separate from `points` because the
+    # downstream projectile fit assumes one smooth parabola; the overlay still
+    # renders these so the user can see the ball was tracked past the impact.
+    post_impact_points: list[TrajectoryPoint] = None  # type: ignore[assignment]
 
 
 def _propagate(
@@ -498,10 +504,35 @@ def find_ball_trajectory(
         total_candidates=total_candidates,
         exclude=claimed_a,
     )
+    post_impact: list[TrajectoryPoint] | None = None
     if fit_b is not None:
         merged = _merge_bounce_arcs(fit_a, fit_b, search_radius_px=search_radius_px)
         if merged is not None:
             best_fit = merged
+        else:
+            # No clean bounce continuation, but a real second arc still came
+            # from somewhere. Only treat it as a post-impact deflection when
+            # the horizontal direction has CLEARLY reversed (pad/bat contact)
+            # and the arc lives within a plausible reaction window after the
+            # primary arc — otherwise it's tracking noise from late-frame
+            # clutter and we leave the primary arc untouched.
+            early, late = (
+                (fit_a, fit_b) if fit_a.points[0].t_ms <= fit_b.points[0].t_ms else (fit_b, fit_a)
+            )
+            if late.points[0].t_ms > early.points[-1].t_ms:
+                gap_ms = late.points[0].t_ms - early.points[-1].t_ms
+                vx_e, vx_l = early.px_per_ms_x, late.px_per_ms_x
+                same_dir = vx_e * vx_l > 0.0
+                # Real deflection: opposite signs AND comparable magnitudes
+                # (rebound retains ~30-150% of incoming pace, not 5%).
+                reversed_pace_ok = (
+                    not same_dir
+                    and abs(vx_e) > 0.05 and abs(vx_l) > 0.05
+                    and 0.3 < abs(vx_l) / abs(vx_e) < 3.0
+                )
+                if reversed_pace_ok and 0 < gap_ms < 1000:
+                    best_fit = early
+                    post_impact = list(late.points)
 
     # Recover the clean detections the constant-acceleration model drops at the
     # ends (a fast, near-axial ball accelerates in the image under perspective),
@@ -518,6 +549,18 @@ def find_ball_trajectory(
             px_per_ms_x=best_fit.px_per_ms_x,
             px_per_ms_y=best_fit.px_per_ms_y,
             notes=list(best_fit.notes) + [f"extended ends +{added}"],
+            post_impact_points=best_fit.post_impact_points,
+        )
+    if post_impact is not None and best_fit.post_impact_points is None:
+        best_fit = TrajectoryFit(
+            points=best_fit.points,
+            inliers=best_fit.inliers,
+            candidates_total=best_fit.candidates_total,
+            rms_px=best_fit.rms_px,
+            px_per_ms_x=best_fit.px_per_ms_x,
+            px_per_ms_y=best_fit.px_per_ms_y,
+            notes=list(best_fit.notes) + [f"post-impact arc: +{len(post_impact)} pts"],
+            post_impact_points=post_impact,
         )
 
     # Final-track validation: a genuine ball traverses a meaningful fraction
