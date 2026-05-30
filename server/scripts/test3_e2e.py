@@ -182,36 +182,37 @@ def render_3d(result: dict) -> None:
     ax.add_collection3d(Poly3DCollection(
         [pitch_quad], facecolor="#1f4a2c", alpha=0.95, edgecolor="#4f9b66"))
 
-    # In-line LBW corridor: the lateral band between the two outermost
-    # stumps (±0.114 + ball radius), running the whole length of the
-    # pitch. A ball that pitches OR impacts inside this band is "in line"
-    # for the LBW; outside it is automatic not out. Drawn brighter than
-    # the pitch and raised 1 mm so it sits cleanly on top.
+    # On-stumps corridor — a faint BLUE band down the pitch — plus the BLUE
+    # WICKET ZONE: a translucent vertical wall at the stump plane the ball is
+    # judged against (the "would it hit the stumps" volume), exactly like the
+    # blue zone in real DRS graphics.
+    target_x = float((lbw.get("prediction") or {}).get("stump_x_m") or 0.0)
     corr_half = STUMP_DX + 0.036  # outer-stump half + ball radius
-    corr_quad = [(0, -corr_half, 0.002), (0, corr_half, 0.002),
-                 (L, corr_half, 0.002), (L, -corr_half, 0.002)]
     ax.add_collection3d(Poly3DCollection(
-        [corr_quad], facecolor="#f5c14b", alpha=0.45, edgecolor="#ffd166"))
+        [[(0, -corr_half, 0.002), (0, corr_half, 0.002),
+          (L, corr_half, 0.002), (L, -corr_half, 0.002)]],
+        facecolor="#3f8bff", alpha=0.10, edgecolor="none"))
+    ax.add_collection3d(Poly3DCollection(
+        [[(target_x, -corr_half, 0.0), (target_x, corr_half, 0.0),
+          (target_x, corr_half, H_STUMP), (target_x, -corr_half, H_STUMP)]],
+        facecolor="#3f8bff", alpha=0.22, edgecolor="#8fc0ff", linewidths=1.0))
 
-    # Popping creases at 1.22 m from each stump line — the "pitching area"
-    # markings batters use to read length. Two thin yellow lines across
-    # the pitch keep the geometry recognisable as cricket, not generic 3D.
+    # White popping creases at 1.22 m from each stump line — recognisable
+    # cricket markings, not generic 3D.
     POPPING_CREASE_M = 1.22
     for cx in (POPPING_CREASE_M, L - POPPING_CREASE_M):
         ax.plot([cx, cx], [-half_w, half_w], [0.003, 0.003],
-                color="#ffd166", linewidth=1.5, alpha=0.7)
-    # Stump-to-stump centerline so the pitching-area band reads as the
-    # bowler's intended line.
+                color="#eef2f5", linewidth=1.6, alpha=0.85)
     ax.plot([0, L], [0, 0], [0.003, 0.003],
-            color="#f0e6b2", linewidth=1.0, alpha=0.35, linestyle=":")
+            color="#dfe7ec", linewidth=0.8, alpha=0.3, linestyle=":")
 
     # Striker (far, prominent) and bowler (near, faint) stumps. Bails on
     # top so the stumps read as a wicket, not three sticks. Drawn last
     # over the corridor so they pop visually.
     BAIL_Z = H_STUMP + 0.012
     for x_end, col, lw, alpha in (
-        (0.0, "#ffd166", 4.5, 1.0),
-        (L,   "#cdd3dc", 2.8, 0.55),
+        (target_x,                     "#f2f5f8", 5.0, 1.0),
+        (L if target_x == 0 else 0.0,  "#aeb6bf", 2.6, 0.5),
     ):
         for dy in (-STUMP_DX, 0.0, STUMP_DX):
             ax.plot([x_end, x_end], [dy, dy], [0, H_STUMP],
@@ -236,12 +237,10 @@ def render_3d(result: dict) -> None:
             ax.plot([xs_i, xs_i], [ys_i, ys_i], [0.004, zs_i],
                     color="#9aa0a6", linewidth=0.7, alpha=0.35,
                     zorder=5)
-        ax.plot(xs_t, ys_t, zs_t,
-                color="#ff4a4a", linewidth=4.0, label="tracked", zorder=8)
-        ts_t = np.linspace(0.0, 1.0, len(xs_t))
-        ax.scatter(xs_t, ys_t, zs_t, c=ts_t, cmap="plasma", s=22,
-                   edgecolor="#0d1117", linewidth=0.4, depthshade=False,
-                   zorder=8)
+        # Thick red ball "tube" — layered strokes read as a broadcast 3D tube.
+        for _w, _a in ((9.0, 0.16), (6.0, 0.34), (3.4, 1.0)):
+            ax.plot(xs_t, ys_t, zs_t, color="#ff3b30", linewidth=_w,
+                    alpha=_a, solid_capstyle="round", zorder=8)
 
     # Predicted continuation — stops at the stump plane (server-enforced)
     # so the dashed line terminates exactly where the LBW intersection is.
@@ -254,9 +253,9 @@ def render_3d(result: dict) -> None:
             pred_xs = [impact["x_m"]] + pred_xs
             pred_ys = [impact["y_m"]] + pred_ys
             pred_zs = [max(0.015, impact.get("z_m", 0.0))] + pred_zs
-        ax.plot(pred_xs, pred_ys, pred_zs, color="#ffd700",
-                linewidth=4.0, linestyle="--", dashes=(4, 2),
-                label="predicted", zorder=9)
+        ax.plot(pred_xs, pred_ys, pred_zs, color="#ff8a7a",
+                linewidth=3.2, linestyle="--", dashes=(4, 2),
+                zorder=9)
         # Predicted ground shadow so the LBW corridor crossing is readable.
         ax.plot(pred_xs, pred_ys, [0.004] * len(pred_xs),
                 color="#ffd700", linewidth=1.0, linestyle=":", alpha=0.45,
@@ -293,46 +292,39 @@ def render_3d(result: dict) -> None:
         ax.set_box_aspect((L + 0.6, W + 0.4, 1.6))
     except AttributeError:
         pass
+    ax.set_axis_off()   # broadcast look — pitch + ball carry the geometry
 
-    # Keep faint axis ticks so absolute scale is readable, but tone them
-    # down to broadcast-graphic level (the corridor / stumps carry the
-    # geometry).
-    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
-        axis.pane.set_facecolor("#0d1117")
-        axis.pane.set_edgecolor("#1f2933")
-        axis.line.set_color("#1f2933")
-    ax.tick_params(colors="#5b6473", labelsize=8)
-    ax.set_xlabel("x  along pitch (m)", color="#9aa0a6", fontsize=9, labelpad=2)
-    ax.set_ylabel("y  across (m)",      color="#9aa0a6", fontsize=9, labelpad=2)
-    ax.set_zlabel("z  height (m)",       color="#9aa0a6", fontsize=9, labelpad=2)
-    ax.grid(False)
+    # ---- DRS decision panel stack (real-broadcast style) ----
+    checks = lbw.get("checks") or {}
+    GRN, RED, YEL = "#2faa4a", "#d23b2f", "#e0a52b"
+
+    def _panel(y, header, value, vcol):
+        fig.text(0.045, y, header, color="#ffffff", fontsize=10.5,
+                 fontweight="bold", va="center", ha="left",
+                 bbox=dict(facecolor="#16335c", edgecolor="none",
+                           boxstyle="square,pad=0.6"))
+        fig.text(0.045, y - 0.058, value, color="#ffffff", fontsize=10.5,
+                 fontweight="bold", va="center", ha="left",
+                 bbox=dict(facecolor=vcol, edgecolor="none",
+                           boxstyle="square,pad=0.6"))
 
     dec = (lbw.get("decision") or "?").upper().replace("_", " ")
-    verdict_col = {
-        "OUT": "#ef4444",
-        "UMPIRES CALL": "#fbbf24",
-        "NOT OUT": "#22c55e",
-    }.get(dec, "#dde3eb")
-    pred_y_at = (lbw.get("prediction") or {}).get("y_at_stumps_m")
-    pred_z_at = (lbw.get("prediction") or {}).get("z_at_stumps_m")
-    chip_lines = [dec]
-    if pred_y_at is not None and pred_z_at is not None:
-        chip_lines.append(
-            f"y={pred_y_at*100:+.0f}cm  z={pred_z_at*100:.0f}cm")
-    fig.text(0.04, 0.96, "\n".join(chip_lines), color=verdict_col,
-             fontsize=18, fontweight="bold", va="top",
-             bbox=dict(facecolor="#161b22", edgecolor=verdict_col,
-                       boxstyle="round,pad=0.5"))
+    dec_col = {"OUT": RED, "NOT OUT": GRN, "UMPIRES CALL": YEL}.get(dec, "#555")
+    wk_hit = bool(checks.get("wickets_hitting"))
+    imp_in = bool(checks.get("impact_in_line", True))
+    pit_in = bool(checks.get("pitching_in_line", True))
+    _panel(0.92, "ORIGINAL DECISION", dec, dec_col)
+    _panel(0.72, "WICKETS", "HITTING" if wk_hit else "MISSING", RED if wk_hit else GRN)
+    _panel(0.52, "IMPACT", "IN LINE" if imp_in else "OUTSIDE OFF", RED if imp_in else GRN)
+    _panel(0.32, "PITCHING", "IN LINE" if pit_in else "OUTSIDE", RED if pit_in else GRN)
 
-    fig.text(0.96, 0.96, f"{metrics.get('speed_kmh', 0):.0f} km/h",
-             color="#dde3eb", fontsize=11, ha="right", va="top")
-
-    ax.legend(loc="lower left", facecolor="#161b22", edgecolor="#30363d",
-              labelcolor="#dde3eb", framealpha=0.9, fontsize=9)
+    fig.text(0.965, 0.95, f"{metrics.get('speed_kmh', 0):.0f} km/h",
+             color="#dde3eb", fontsize=12, ha="right", va="top",
+             fontweight="bold")
 
     out = OUT / "test3_3d.png"
-    fig.tight_layout()
-    fig.savefig(out, dpi=150, facecolor=fig.get_facecolor())
+    fig.savefig(out, dpi=150, facecolor=fig.get_facecolor(),
+                bbox_inches="tight", pad_inches=0.2)
     plt.close(fig)
     print(f"  wrote {out.name}")
 

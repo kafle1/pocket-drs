@@ -55,7 +55,14 @@ def build_payload(result: dict[str, Any]) -> dict[str, Any]:
             "z_m": impact.get("z_m") or 0.0,
         },
         "speed_kmh": float(metrics.get("speed_kmh") or 0.0),
+        "swing_cm": float(metrics.get("swing_sf") or 0.0),
+        "spin_deg": float(metrics.get("spin_deg") or 0.0),
         "lbw_decision": lbw.get("decision"),
+        "checks": {
+            "pitching_in_line": bool((lbw.get("checks") or {}).get("pitching_in_line", True)),
+            "impact_in_line": bool((lbw.get("checks") or {}).get("impact_in_line", True)),
+            "wickets_hitting": bool((lbw.get("checks") or {}).get("wickets_hitting", False)),
+        },
         "y_at_stumps_cm": cm(pred_at.get("y_at_stumps_m")),
         "z_at_stumps_cm": cm(pred_at.get("z_at_stumps_m")),
     }

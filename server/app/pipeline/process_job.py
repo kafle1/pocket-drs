@@ -431,18 +431,44 @@ def _detect_impact_frame(points) -> int | None:
     return None
 
 
-def _compute_metrics(fit) -> dict:
-    """Release-speed metric from the projectile fit.
+def _compute_metrics(
+    fit,
+    *,
+    image_points: list[dict] | None = None,
+    world_points: list | None = None,
+    bounce_index: int | None = None,
+) -> dict:
+    """Broadcast delivery metrics — Speed, Swing, Spin — from the fit + track.
 
-    Speed is the magnitude of the initial velocity vector |v0|, surfaced in
-    both km/h and mph so the client can show whichever unit the user
-    prefers. Accuracy follows the calibrated scale — with stump-anchored
-    PnP and a well-fit FOV it lands within a few percent of truth.
+    * Speed  — release speed |v0| (km/h + mph). Accuracy follows the
+      calibrated scale; stump-anchored PnP lands within a few percent.
+    * Swing  — the ball's sideways (across-pitch) movement in the air before it
+      pitches, in centimetres: the change in world Y from release to the bounce
+      point. (Measured on the ground plane so it is true lateral movement, not
+      the in-image gravity sag.)
+    * Spin   — the lateral angle the ball travels off the straight line down
+      the pitch (drift / turn), in degrees, from the fitted velocity.
     """
     speed_ms = math.sqrt(fit.vx ** 2 + fit.vy ** 2 + fit.vz ** 2)
+    spin_deg = (
+        abs(math.degrees(math.atan2(fit.vy, abs(fit.vx))))
+        if abs(fit.vx) > 1e-3 else 0.0
+    )
+
+    swing_cm = 0.0
+    try:
+        if world_points and len(world_points) >= 3:
+            n = len(world_points)
+            bi = bounce_index if (bounce_index is not None and 1 < bounce_index < n) else n - 1
+            swing_cm = abs(float(world_points[bi].y_m) - float(world_points[0].y_m)) * 100.0
+    except Exception:  # noqa: BLE001 — metric is best-effort, never fatal
+        swing_cm = 0.0
+
     return {
         "speed_kmh": round(max(0.0, speed_ms * 3.6), 1),
         "speed_mph": round(max(0.0, speed_ms * 2.2369362921), 1),
+        "swing_sf": round(max(0.0, swing_cm), 1),   # sideways air movement (cm)
+        "spin_deg": round(max(0.0, spin_deg), 1),   # drift/turn off straight (deg)
     }
 
 
@@ -945,7 +971,12 @@ def run_pipeline(
                     else None
                 ),
             )
-            metrics_payload = _compute_metrics(recon.fit)
+            metrics_payload = _compute_metrics(
+                recon.fit,
+                image_points=image_points_payload,
+                world_points=recon.world_points,
+                bounce_index=recon.bounce_index,
+            )
         elif recon.fit is not None and recon.fit.rms_m > MAX_FIT_RMS_M:
             warnings.append(
                 f"3D reconstruction discarded — trajectory fit error "

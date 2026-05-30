@@ -78,7 +78,7 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
     }
     final flight = path.where((p) => !p.predicted);
     final firstT = (flight.isEmpty ? path.first : flight.first).tMs;
-    final lastT = (flight.isEmpty ? path.last : flight.last).tMs;
+    final lastT = path.last.tMs;
     _windowStartMs = (firstT - 250).clamp(
       0,
       durationMs <= 0 ? firstT : durationMs,
@@ -143,7 +143,9 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
                 child: VideoPlayer(c),
               ),
             ),
-            const ColoredBox(color: Color(0x4D000000)),
+            // Keep the scene bright like the broadcast render — only a faint
+            // scrim so the overlay lines stay legible.
+            const ColoredBox(color: Color(0x14000000)),
             if (overlay != null && imgW > 0 && imgH > 0)
               CustomPaint(
                 painter: _OverlayPainter(
@@ -199,7 +201,8 @@ class _OverlayPainter extends CustomPainter {
   final double imageHeight;
   final int nowMs;
 
-  static const _gold = Color(0xFFEAC785);
+  static const _blue = Color(0xFF3FA7FF); // calibrated pitch + corridor lines
+  static const _yellow = Color(0xFFFFCF40); // stumps
   static const _predictedYellow = Color(0xFFFFD166);
 
   @override
@@ -208,24 +211,40 @@ class _OverlayPainter extends CustomPainter {
     final sy = size.height / imageHeight;
     Offset map(Offset p) => Offset(p.dx * sx, p.dy * sy);
 
-    // Decision target: striker/batsman stumps only. Drawing the foreground
-    // bowler stumps or the full pitch corridor makes umpire-POV clips look
-    // like the wrong end is being judged.
-    if (overlay.strikerStumps != null) {
-      _drawStumps(
-        canvas,
-        map(overlay.strikerStumps!.base),
-        map(overlay.strikerStumps!.top),
-        color: _gold,
-        width: 5.0,
-        prominent: true,
+    // ---- calibrated ground geometry (drawn under the ball path) ----
+    // Full pitch outline — blue (proves the pitch calibration).
+    _drawPolygon(canvas, [for (final p in overlay.pitchRect) map(p)], _blue, 2.2);
+    // On-stumps corridor between the two wickets — translucent blue channel.
+    final corridor = [for (final p in overlay.corridor) map(p)];
+    if (corridor.length >= 4) {
+      canvas.drawPath(
+        Path()..addPolygon(corridor, true),
+        Paint()
+          ..color = _blue.withValues(alpha: 0.14)
+          ..style = PaintingStyle.fill,
       );
+      _drawPolygon(canvas, corridor, _blue, 1.6);
+    }
+    // Pitching line stump-to-stump (centre line down the pitch).
+    _drawPolyline(
+      canvas,
+      [for (final p in overlay.centerline) map(p)],
+      _blue.withValues(alpha: 0.75),
+      1.6,
+    );
+    // Both wickets — yellow (3 stumps + bail).
+    if (overlay.bowlerStumps != null) {
+      _drawWicket(canvas, map(overlay.bowlerStumps!.base),
+          map(overlay.bowlerStumps!.top), prominent: false);
+    }
+    if (overlay.strikerStumps != null) {
+      _drawWicket(canvas, map(overlay.strikerStumps!.base),
+          map(overlay.strikerStumps!.top), prominent: true);
     }
 
+    // ---- ball path ----
     // Tracked path = solid red (release → bounce → bat impact).
     // Predicted path = dashed yellow (post-impact continuation to stumps).
-    // Two distinct colours so the eye separates "what the ball did" from
-    // "what the ball would have done if no bat".
     final flight = [
       for (final p in overlay.path)
         if (!p.predicted) map(p.px),
@@ -241,7 +260,7 @@ class _OverlayPainter extends CustomPainter {
           : map(overlay.impact!.px);
       _drawDashed(
         canvas,
-        <Offset>[start, predictedPts.last],
+        <Offset>[start, ...predictedPts],
         _predictedYellow,
         3.5,
       );
@@ -250,7 +269,7 @@ class _OverlayPainter extends CustomPainter {
       _drawBouncePin(canvas, map(overlay.bounce!.px));
     }
     if (overlay.impact != null) {
-      _drawDot(canvas, map(overlay.impact!.px), _gold, 5.0);
+      _drawDot(canvas, map(overlay.impact!.px), _yellow, 5.0);
     }
 
     final ball = _ballAt(overlay.path, map, nowMs);
@@ -264,17 +283,19 @@ class _OverlayPainter extends CustomPainter {
     }
   }
 
-  Offset? _ballAt(List<OverlayPoint> path, Offset Function(Offset) map, int t) {
-    final flight = [
-      for (final p in path)
-        if (!p.predicted) p,
-    ];
-    if (flight.length < 2) return null;
-    if (t <= flight.first.tMs) return null;
-    if (t >= flight.last.tMs) return map(flight.last.px);
-    for (var i = 1; i < flight.length; i++) {
-      final a = flight[i - 1];
-      final b = flight[i];
+  Offset? _ballAt(
+    List<OverlayPoint> path,
+    Offset Function(Offset) map,
+    int t,
+  ) {
+    final samples = List<OverlayPoint>.of(path)
+      ..sort((a, b) => a.tMs.compareTo(b.tMs));
+    if (samples.length < 2) return null;
+    if (t <= samples.first.tMs) return null;
+    if (t >= samples.last.tMs) return map(samples.last.px);
+    for (var i = 1; i < samples.length; i++) {
+      final a = samples[i - 1];
+      final b = samples[i];
       if (t >= a.tMs && t <= b.tMs) {
         final span = b.tMs - a.tMs;
         final f = span <= 0 ? 0.0 : (t - a.tMs) / span;
@@ -284,33 +305,59 @@ class _OverlayPainter extends CustomPainter {
     return null;
   }
 
-  void _drawStumps(
+  /// Three-stump wicket in yellow, scaled to the wicket's image height so the
+  /// stump spread looks right in perspective (far wicket narrower than near).
+  void _drawWicket(
     Canvas canvas,
     Offset base,
     Offset top, {
-    required Color color,
-    required double width,
     required bool prominent,
   }) {
+    final half = (0.16 * (base.dy - top.dy).abs()).clamp(4.0, 70.0);
+    final width = prominent ? 4.0 : 3.0;
+    const offs = <double>[-1, 0, 1];
     if (prominent) {
+      for (final k in offs) {
+        canvas.drawLine(
+          base.translate(k * half, 0),
+          top.translate(k * half, 0),
+          Paint()
+            ..color = _yellow.withValues(alpha: 0.25)
+            ..strokeCap = StrokeCap.round
+            ..strokeWidth = width + 6.0,
+        );
+      }
+    }
+    final stumpPaint = Paint()
+      ..color = _yellow
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = width;
+    for (final k in offs) {
       canvas.drawLine(
-        base,
-        top,
-        Paint()
-          ..color = color.withValues(alpha: 0.30)
-          ..strokeCap = StrokeCap.round
-          ..strokeWidth = width + 7.0,
+        base.translate(k * half, 0),
+        top.translate(k * half, 0),
+        stumpPaint,
       );
     }
-    canvas.drawLine(
-      base,
-      top,
+    // bail across the tops
+    canvas.drawLine(top.translate(-half, 0), top.translate(half, 0), stumpPaint);
+  }
+
+  void _drawPolygon(
+    Canvas canvas,
+    List<Offset> pts,
+    Color color,
+    double width,
+  ) {
+    if (pts.length < 2) return;
+    canvas.drawPath(
+      Path()..addPolygon(pts, true),
       Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeJoin = StrokeJoin.round
         ..color = color
-        ..strokeCap = StrokeCap.round
         ..strokeWidth = width,
     );
-    canvas.drawCircle(top, prominent ? 4.0 : 2.5, Paint()..color = color);
   }
 
   void _drawPolyline(
