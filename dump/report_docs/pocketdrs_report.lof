@@ -5,9 +5,9 @@
 \contentsline {figure}{\numberline {3.2}{\ignorespaces PocketDRS entity--relationship diagram.}}{11}{figure.caption.5}%
 \contentsline {figure}{\numberline {3.3}{\ignorespaces Level 0 (context) DFD.}}{12}{figure.caption.6}%
 \contentsline {figure}{\numberline {3.4}{\ignorespaces Level 1 DFD.}}{12}{figure.caption.7}%
-\contentsline {figure}{\numberline {3.5}{\ignorespaces Three-tier system architecture of PocketDRS.}}{13}{figure.caption.8}%
+\contentsline {figure}{\numberline {3.5}{\ignorespaces Three-tier system architecture of PocketDRS.}}{14}{figure.caption.8}%
 \contentsline {figure}{\numberline {3.6}{\ignorespaces Result screen for OUT (left), NOT OUT (middle), UMPIRE'S CALL (right).}}{15}{figure.caption.10}%
-\contentsline {figure}{\numberline {3.7}{\ignorespaces Physical DFD of the deployed system.}}{15}{figure.caption.11}%
+\contentsline {figure}{\numberline {3.7}{\ignorespaces Physical DFD of the deployed system.}}{16}{figure.caption.11}%
 \addvspace {10\p@ }
 \contentsline {figure}{\numberline {4.1}{\ignorespaces A sample frame from the synthetic harness: full ICC pitch, crease lines, and the simulated red ball used to generate ground-truth deliveries.}}{25}{figure.caption.12}%
 \contentsline {figure}{\numberline {4.2}{\ignorespaces Synthetic sweep summary: per-scene speed, bounce, and impact errors plotted against the monocular pass thresholds.}}{27}{figure.caption.14}%

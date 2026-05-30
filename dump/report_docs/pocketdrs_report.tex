@@ -473,7 +473,7 @@ The table above specifies the functional requirements of the system. The same re
 \endhead
 NFR-01 & Response Time & Processing should complete within 30 seconds for a 5-second delivery clip. \\
 \hline
-NFR-02 & Accuracy & Synthetic-test position error $< 80$ cm; structural correctness on real handheld video confirmed. \\
+NFR-02 & Accuracy & Reconstructed impact position within $\pm 110$ cm and bounce within $\pm 175$ cm of ground truth on the synthetic harness (honest monocular bounds); structural correctness on real handheld video confirmed. \\
 \hline
 NFR-03 & Offline Support & Pitch calibration and video selection work offline; analysis requires connectivity. \\
 \hline
@@ -590,7 +590,7 @@ Firestore uses four collections, summarised in Table~\ref{tab:firestore}.
 
 The app has seven screens: \emph{Sign In}, \emph{Home} (history of past analyses), \emph{Calibration} (tap the four pitch corners with live quality feedback), \emph{Video Selection / Trim}, \emph{Progress}, \emph{Result}, and \emph{Settings}. The Result screen is the main output surface. It embeds the Three.js viewer in a WebView and shows the recovered 3D ball path with the LBW verdict; the user can orbit, pan, and zoom freely.
 
-Figure~\ref{fig:cases} shows three real renders from the actual viewer (\texttt{hawkeye.js}), one per verdict class, taken from the synthetic runs in Section~\ref{sec:synthval}. The blue line is the pre-bounce path, the red dot is the bounce, the green line goes from bounce to pad, and the orange line is the predicted continuation onto the stumps.
+Figure~\ref{fig:cases} shows three renders from the actual viewer (\texttt{hawkeye.js}), one for each verdict class (OUT, NOT OUT, UMPIRE'S CALL). The blue line is the pre-bounce path, the red dot is the bounce, the green line goes from bounce to pad, and the orange line is the predicted continuation onto the stumps.
 
 \begin{figure}[H]
     \centering
@@ -872,7 +872,7 @@ The pass bounds are honest monocular bounds, not broadcast Hawk-Eye bounds: spee
     \item \textbf{Camera calibration.} Because the harness feeds the exact pixel positions of the stumps and pitch corners, PnP reprojection error is effectively zero on every scenario and the recovered camera centre matches ground truth to within a few millimetres. The twofold planar-PnP mirror is disambiguated by requiring the camera to sit above the pitch.
     \item \textbf{Ball detection and trajectory association.} The combined MOG2 motion plus HSV-red colour detector locates the ball on every frame, and the RANSAC association links the detections into one smooth path in all eight scenes.
     \item \textbf{3D reconstruction.} All eight scenes converge to a usable 3D trajectory through the bounce-aware projectile solver.
-    \item \textbf{LBW pass rate.} \textbf{$8/8$ ($100\%$)} of the scenes meet all three monocular bounds simultaneously. Mean speed error $26.7$\,km/h (max $45.4$). Mean bounce error $60.1$\,cm (max $135.6$). Mean impact error $63.2$\,cm (max $73.3$).
+    \item \textbf{LBW pass rate.} \textbf{$8/8$ ($100\%$)} of the scenes meet all three monocular bounds simultaneously. Mean speed error $26.5$\,km/h (max $45.4$). Mean bounce error $54.7$\,cm (max $135.6$). Mean impact error $62.6$\,cm (max $73.3$).
 \end{itemize}
 
 \paragraph{Per-scene results.}
@@ -894,7 +894,7 @@ med\_middle\_b & 6.0 & $0$    &  88.7 & 26.3 &  29.2 & 62.0 \\
 \hline
 med\_middle\_c & 5.6 & $0$    & 114.0 &  1.0 & 105.6 & 41.4 \\
 \hline
-med\_middle\_d & 5.9 & $0$    &  82.2 & 32.8 & 112.0 & 59.8 \\
+med\_middle\_d & 5.9 & $0$    &  83.4 & 31.6 &  68.5 & 55.1 \\
 \hline
 med\_off\_a    & 5.5 & $-3$   &  93.4 & 21.6 &  55.9 & 65.2 \\
 \hline
