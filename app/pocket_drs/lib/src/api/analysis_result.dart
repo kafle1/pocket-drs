@@ -138,7 +138,6 @@ class DeliveryMetrics {
 class TrajectoryOverlay {
   const TrajectoryOverlay({
     required this.path,
-    required this.postImpact,
     required this.bounce,
     required this.impact,
     required this.strikerStumps,
@@ -150,7 +149,6 @@ class TrajectoryOverlay {
 
   /// Ordered ball path: real flight first, then the predicted continuation.
   final List<OverlayPoint> path;
-  final List<Offset> postImpact;
   final OverlayPoint? bounce;
   final OverlayPoint? impact;
   final StumpLine? strikerStumps;
@@ -182,10 +180,8 @@ class TrajectoryOverlay {
     final corridor = _readOffsetList(m['corridor_px']);
     final pitchRect = _readOffsetList(m['pitch_rect_px']);
     final centerline = _readOffsetList(m['centerline_px']);
-    final postImpact = _readOffsetList(m['post_impact_px']);
     return TrajectoryOverlay(
       path: List.unmodifiable(path),
-      postImpact: List.unmodifiable(postImpact),
       bounce: OverlayPoint.fromJson(m['bounce_px']),
       impact: OverlayPoint.fromJson(m['impact_px']),
       strikerStumps: StumpLine.fromJson(stumpsMap['striker']),

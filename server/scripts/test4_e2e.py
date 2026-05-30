@@ -316,9 +316,9 @@ def render(result: dict) -> None:
             cv2.circle(frame, end, 8, BLUE, -1, cv2.LINE_AA)
             cv2.circle(frame, end, 8, (20, 20, 20), 2, cv2.LINE_AA)
 
-        # Ball marker tracks every detected position (including post-impact
-        # deflection frames) so the moving dot still follows the ball; the
-        # static red flight line above is the one that stops at impact.
+        # Ball marker follows the public live track only. The pipeline stops
+        # publishing ball detections after impact; the dashed line is the DRS
+        # prediction of the path the ball would have taken.
         ball = min(raw_pts_all, key=lambda p: abs(p["t_ms"] - t_now))
         cv2.circle(frame, (int(ball["u"]), int(ball["v"])), 11, WHITE, -1, cv2.LINE_AA)
         cv2.circle(frame, (int(ball["u"]), int(ball["v"])), 11, RED, 2, cv2.LINE_AA)
