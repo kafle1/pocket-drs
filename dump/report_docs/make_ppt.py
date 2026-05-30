@@ -248,9 +248,6 @@ image_bullets_slide("Synthetic Validation: 8 Scenarios",
     "Camera pose recovered correctly in every scene.",
     "8 / 8 verdicts correct against the known ground truth.",
 ])
-image_slide("Mobile App: Calibration & Result",
-            [FIG / "app_calibration.png", FIG / "app_result_out.png"],
-            ["Pitch calibration (tap 4 corners)", "Result + 3D viewer"])
 
 bullet_slide("Limitations & Honest Bounds", [
     (0, "A single phone cannot triangulate depth like six to eight synchronised Hawk-Eye cameras."),
