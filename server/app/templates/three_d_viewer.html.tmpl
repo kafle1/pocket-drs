@@ -5,37 +5,36 @@
 <title>PocketDRS — 3D Hawk-Eye</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden;
-    background: radial-gradient(120% 90% at 50% 18%, #16324d 0%, #0a1622 55%, #060c14 100%);
+    background: linear-gradient(180deg, #244f74 0%, #163a55 32%, #0d2336 60%, #07121d 100%);
     color: #eef3f8; font: 13px/1.4 -apple-system, "Segoe UI", system-ui, sans-serif; }
   #scene { position: absolute; inset: 0; }
 
-  /* DRS decision panel stack (left) */
-  #panels { position: absolute; top: 18px; left: 18px; display: flex;
-            flex-direction: column; gap: 14px; }
-  .pan { width: 150px; border-radius: 4px; overflow: hidden;
-         box-shadow: 0 4px 14px rgba(0,0,0,.45); }
-  .ph { background: #16335c; color: #fff; font-weight: 800; letter-spacing: .6px;
-        font-size: 11px; padding: 7px 10px; }
-  .pv { color: #fff; font-weight: 800; letter-spacing: .6px; font-size: 12px;
-        padding: 7px 10px; }
+  #panels { position: absolute; top: 20px; left: 20px; display: flex;
+            flex-direction: column; gap: 13px; opacity: 0; transition: opacity .8s ease .5s; }
+  .pan { width: 152px; border-radius: 5px; overflow: hidden;
+         box-shadow: 0 6px 18px rgba(0,0,0,.5); }
+  .ph { background: #16335c; color: #fff; font-weight: 800; letter-spacing: .7px;
+        font-size: 11px; padding: 7px 11px; }
+  .pv { color: #fff; font-weight: 800; letter-spacing: .7px; font-size: 12px;
+        padding: 7px 11px; transition: background .4s ease; }
 
-  /* metric cards (right) */
-  #metrics { position: absolute; top: 18px; right: 18px; display: flex;
-             flex-direction: column; gap: 10px; align-items: flex-end; }
-  .mc { background: rgba(12,18,26,.82); border: 1px solid rgba(255,255,255,.12);
-        border-radius: 10px; padding: 8px 12px; min-width: 92px; text-align: right;
-        backdrop-filter: blur(3px); }
-  .mc span { display: block; font-size: 9px; letter-spacing: 1.4px; color: #93a3b4;
+  #metrics { position: absolute; top: 20px; right: 20px; display: flex;
+             flex-direction: column; gap: 11px; align-items: flex-end;
+             opacity: 0; transition: opacity .8s ease .5s; }
+  .mc { background: rgba(10,18,28,.72); border: 1px solid rgba(255,255,255,.13);
+        border-radius: 12px; padding: 9px 14px; min-width: 98px; text-align: right;
+        backdrop-filter: blur(6px); box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+  .mc span { display: block; font-size: 9px; letter-spacing: 1.5px; color: #8fa3b8;
              font-weight: 700; }
-  .mc b { font-size: 20px; font-weight: 800; }
+  .mc b { font-size: 22px; font-weight: 800; }
   .mc i { font-style: normal; font-size: 11px; color: #aebccb; font-weight: 600; }
 
-  #help { position: absolute; bottom: 14px; right: 16px; color: #5b6f84;
-          font-size: 11px; }
-  #legend { position: absolute; bottom: 14px; left: 18px; font-size: 11px;
-            color: #aebccb; }
-  #legend .dot { display: inline-block; width: 14px; height: 4px; border-radius: 2px;
-                 vertical-align: middle; margin: 0 5px 2px 12px; }
+  #brand { position: absolute; bottom: 16px; left: 22px; font-size: 12px;
+           letter-spacing: 2px; color: #6f87a0; font-weight: 700; opacity: 0;
+           transition: opacity 1s ease 1s; }
+  #brand b { color: #e9f0f7; letter-spacing: 1px; }
+  #help { position: absolute; bottom: 16px; right: 20px; color: #51647a; font-size: 11px; }
+  .show { opacity: 1 !important; }
 </style>
 </head>
 <body>
@@ -54,12 +53,8 @@
   <div class="mc"><span>SPIN</span><b id="m-spin">–</b> <i>deg</i></div>
 </div>
 
-<div id="legend">
-  <span class="dot" style="background:#ff3b30"></span>tracked
-  <span class="dot" style="background:#ff8a7a"></span>predicted
-  <span class="dot" style="background:#3f8bff"></span>wicket zone
-</div>
-<div id="help">drag = orbit · scroll = zoom · right-drag = pan</div>
+<div id="brand"><b>PocketDRS</b> · 3D HAWK-EYE</div>
+<div id="help">drag = orbit · scroll = zoom</div>
 
 <script type="importmap">
 { "imports": {
@@ -71,244 +66,246 @@
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 const PAYLOAD = __PAYLOAD__;
 
 const L = PAYLOAD.pitch_length_m;
 const PW = PAYLOAD.pitch_width_m;
 const halfW = PW / 2;
-const STUMP_H = 0.711;
-const STUMP_DX = 0.114;
-const CORR_HALF = STUMP_DX + 0.036;
-const TARGET_X = 0; // striker stumps — the wicket judged
-
+const STUMP_H = 0.711, STUMP_DX = 0.114, CORR_HALF = STUMP_DX + 0.036;
+const TARGET_X = 0;                          // striker wicket — the judged end
 let W = window.innerWidth, H = window.innerHeight;
 
-const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x0a1622, L + 6, L + 26);
-
+// ---------------------------------------------------------------- renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(W, H);
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.getElementById("scene").appendChild(renderer.domElement);
 
-// Camera: low and slightly behind the STRIKER wicket (the judged end), so the
-// blue wicket zone + stumps sit prominent in the foreground and the ball flies
-// in toward them — the classic DRS "would it have hit?" framing.
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x0b1a2a, L + 8, L + 30);
+
 const camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 200);
 camera.up.set(0, 0, 1);
-camera.position.set(-3.4, 2.3, 1.7);
+camera.position.set(-4.0, 2.3, 1.95);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(L * 0.34, 0, 0.45);
+controls.target.set(L * 0.30, 0, 0.42);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.minDistance = 2.5;
-controls.maxDistance = 40;
+controls.maxDistance = 50;
 controls.maxPolarAngle = Math.PI * 0.49;
-controls.update();
+controls.autoRotate = false;   // the user controls the view manually
 
-// Lighting — bright broadcast key from the umpire side + soft sky fill.
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-const key = new THREE.DirectionalLight(0xffffff, 1.0);
-key.position.set(L + 6, 4, 8);
-scene.add(key);
-scene.add(new THREE.HemisphereLight(0xa9c7ff, 0x2a3a24, 0.5));
+// ---------------------------------------------------------------- lighting
+scene.add(new THREE.AmbientLight(0xffffff, 0.42));
+scene.add(new THREE.HemisphereLight(0xbcd6ff, 0x223a26, 0.55));
+const sun = new THREE.DirectionalLight(0xfff4e6, 1.45);
+sun.position.set(L * 0.6 + 5, 6, 9);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 40;
+sun.shadow.camera.left = -3; sun.shadow.camera.right = L + 3;
+sun.shadow.camera.top = 4; sun.shadow.camera.bottom = -4;
+sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
+sun.target.position.set(L * 0.4, 0, 0); scene.add(sun.target); scene.add(sun);
 
-// --- outfield (large green ground plane) ------------------------------
-{
-  const g = new THREE.PlaneGeometry(60, 80);
-  const m = new THREE.MeshStandardMaterial({ color: 0x1f6b34, roughness: 1.0 });
-  const mesh = new THREE.Mesh(g, m);
-  mesh.position.set(L / 2, 0, -0.01);
-  scene.add(mesh);
+// ---------------------------------------------------------------- mown field
+function mownTexture() {
+  const c = document.createElement("canvas"); c.width = 64; c.height = 512;
+  const g = c.getContext("2d");
+  for (let i = 0; i < 16; i++) {
+    g.fillStyle = i % 2 ? "#1f6b34" : "#246f39";
+    g.fillRect(0, i * 32, 64, 32);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(10, 14);
+  t.colorSpace = THREE.SRGBColorSpace; return t;
 }
-
-// --- pitch strip (worn tan-green) -------------------------------------
 {
-  const g = new THREE.PlaneGeometry(L + 1.6, PW + 0.4);
-  const m = new THREE.MeshStandardMaterial({ color: 0x9fa56a, roughness: 0.98 });
-  const mesh = new THREE.Mesh(g, m);
-  mesh.position.set(L / 2, 0, 0.0);
-  scene.add(mesh);
-  const inner = new THREE.Mesh(
-    new THREE.PlaneGeometry(L + 1.6, 0.9),
-    new THREE.MeshStandardMaterial({ color: 0x8b9158, roughness: 0.98 }),
-  );
-  inner.position.set(L / 2, 0, 0.001);
-  scene.add(inner);
+  const field = new THREE.Mesh(
+    new THREE.PlaneGeometry(70, 90),
+    new THREE.MeshStandardMaterial({ map: mownTexture(), roughness: 1.0 }));
+  field.position.set(L / 2, 0, -0.012); field.receiveShadow = true;
+  scene.add(field);
 }
-
-// --- white creases + stump-line markings ------------------------------
-function whiteLine(a, b, op = 0.9, w = 2) {
+// pitch strip (worn tan-green), receives shadows
+{
+  const pitch = new THREE.Mesh(
+    new THREE.PlaneGeometry(L + 1.7, PW + 0.5),
+    new THREE.MeshStandardMaterial({ color: 0xb6b079, roughness: 0.97 }));
+  pitch.position.set(L / 2, 0, 0.0); pitch.receiveShadow = true; scene.add(pitch);
+  const worn = new THREE.Mesh(
+    new THREE.PlaneGeometry(L + 1.7, 1.0),
+    new THREE.MeshStandardMaterial({ color: 0xa49b66, roughness: 0.97 }));
+  worn.position.set(L / 2, 0, 0.001); worn.receiveShadow = true; scene.add(worn);
+}
+// white creases (popping + return + bowling) — crisp markings
+function line3(a, b, op = 0.92) {
   const g = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(a[0], a[1], a[2]), new THREE.Vector3(b[0], b[1], b[2]),
-  ]);
+    new THREE.Vector3(...a), new THREE.Vector3(...b)]);
   return new THREE.Line(g, new THREE.LineBasicMaterial({
-    color: 0xf3f7fa, transparent: true, opacity: op, linewidth: w }));
+    color: 0xf2f7fb, transparent: true, opacity: op }));
 }
-const CREASE = 1.22;
-for (const cx of [CREASE, L - CREASE, 0, L]) {
-  scene.add(whiteLine([cx, -halfW, 0.004], [cx, halfW, 0.004], cx === 0 || cx === L ? 0.95 : 0.6));
+for (const cx of [1.22, L - 1.22, 0, L]) {
+  scene.add(line3([cx, -halfW, 0.005], [cx, halfW, 0.005], cx === 0 || cx === L ? 0.95 : 0.5));
+  for (const dy of [-0.66, 0.66])               // return creases
+    scene.add(line3([cx - 0.4, dy, 0.005], [cx + 0.7, dy, 0.005], 0.4));
 }
-scene.add(whiteLine([0, 0, 0.004], [L, 0, 0.004], 0.18)); // bowling line
 
-// --- on-stumps corridor (translucent blue band on the ground) ---------
+// ---------------------------------------------------------------- corridor + blue wicket zone
 {
   const g = new THREE.PlaneGeometry(L, CORR_HALF * 2);
   const m = new THREE.MeshBasicMaterial({ color: 0x3f8bff, transparent: true,
-    opacity: 0.12, side: THREE.DoubleSide });
-  const mesh = new THREE.Mesh(g, m);
-  mesh.position.set(L / 2, 0, 0.003);
-  scene.add(mesh);
+    opacity: 0.10, side: THREE.DoubleSide, depthWrite: false });
+  const mesh = new THREE.Mesh(g, m); mesh.position.set(L / 2, 0, 0.004); scene.add(mesh);
 }
-
-// --- BLUE wicket zone: vertical slab at the stump plane (would-hit volume)
 {
-  const g = new THREE.BoxGeometry(0.06, CORR_HALF * 2, STUMP_H);
-  const m = new THREE.MeshBasicMaterial({ color: 0x3f8bff, transparent: true,
-    opacity: 0.30, side: THREE.DoubleSide, depthWrite: false });
-  const box = new THREE.Mesh(g, m);
-  box.position.set(TARGET_X, 0, STUMP_H / 2);
-  scene.add(box);
+  const g = new THREE.BoxGeometry(0.05, CORR_HALF * 2, STUMP_H);
+  const box = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x3f8bff,
+    transparent: true, opacity: 0.26, side: THREE.DoubleSide, depthWrite: false }));
+  box.position.set(TARGET_X, 0, STUMP_H / 2); scene.add(box);
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(g),
     new THREE.LineBasicMaterial({ color: 0xbcd9ff, transparent: true, opacity: 0.95 }));
-  edges.position.copy(box.position);
-  scene.add(edges);
+  edges.position.copy(box.position); scene.add(edges);
 }
 
-// --- stumps + bails ---------------------------------------------------
-function makeStumps(x, color, scale, emissive = 0) {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5,
-    emissive: emissive ? color : 0x000000, emissiveIntensity: emissive });
-  const geom = new THREE.CylinderGeometry(0.016 * scale, 0.016 * scale, STUMP_H, 14);
+// ---------------------------------------------------------------- stumps + bails (cast shadows)
+function stumps(x, color, scale, glow) {
+  const grp = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.05 });
+  const geo = new THREE.CylinderGeometry(0.017 * scale, 0.017 * scale, STUMP_H, 18);
   for (const dy of [-STUMP_DX, 0, STUMP_DX]) {
-    const m = new THREE.Mesh(geom, mat);
-    m.position.set(x, dy, STUMP_H / 2);
-    m.rotation.x = Math.PI / 2;
-    group.add(m);
+    const m = new THREE.Mesh(geo, mat); m.position.set(x, dy, STUMP_H / 2);
+    m.rotation.x = Math.PI / 2; m.castShadow = true; grp.add(m);
   }
-  const bgeom = new THREE.CylinderGeometry(0.009, 0.009, STUMP_DX + 0.02, 10);
+  const bmat = new THREE.MeshStandardMaterial({ color, roughness: 0.4,
+    emissive: glow ? 0x554433 : 0x000000, emissiveIntensity: glow ? 0.4 : 0 });
+  const bgeo = new THREE.CylinderGeometry(0.01, 0.01, STUMP_DX + 0.02, 12);
   for (const off of [-STUMP_DX / 2, STUMP_DX / 2]) {
-    const b = new THREE.Mesh(bgeom, mat);
-    b.position.set(x, off, STUMP_H + 0.014);
-    b.rotation.z = Math.PI / 2;
-    group.add(b);
+    const b = new THREE.Mesh(bgeo, bmat); b.position.set(x, off, STUMP_H + 0.015);
+    b.rotation.z = Math.PI / 2; b.castShadow = true; grp.add(b);
   }
-  return group;
+  return grp;
 }
-scene.add(makeStumps(TARGET_X, 0xf4f7fa, 1.0, 0.12));
-scene.add(makeStumps(L - TARGET_X, 0xb9c0c9, 0.85));
+scene.add(stumps(TARGET_X, 0xf6f9fc, 1.0, true));
+scene.add(stumps(L - TARGET_X, 0xb6bdc6, 0.85, false));
 
-// --- ball path as a solid tube ---------------------------------------
-function tube(points, color, radius, opacity = 1.0, emissive = 0.25) {
-  if (points.length < 2) return null;
-  const v = points.map(p => new THREE.Vector3(p[0], p[1], Math.max(0.02, p[2])));
+// ---------------------------------------------------------------- ball path tubes
+function tube(points, color, radius, opacity, emissive) {
+  const v = points.map(p => new THREE.Vector3(p[0], p[1], Math.max(0.0, p[2])));
   const curve = new THREE.CatmullRomCurve3(v, false, "catmullrom", 0.5);
-  const geo = new THREE.TubeGeometry(curve, Math.max(24, v.length * 8), radius, 14, false);
-  const mat = new THREE.MeshStandardMaterial({
-    color, emissive: color, emissiveIntensity: emissive, roughness: 0.35,
+  const geo = new THREE.TubeGeometry(curve, Math.max(64, v.length * 14), radius, 18, false);
+  const mat = new THREE.MeshStandardMaterial({ color, emissive: color,
+    emissiveIntensity: emissive, roughness: 0.3, metalness: 0.0,
     transparent: opacity < 1, opacity });
-  return { mesh: new THREE.Mesh(geo, mat), curve };
+  const mesh = new THREE.Mesh(geo, mat); mesh.castShadow = true;
+  return { mesh, curve };
 }
-function groundShadow(points, color) {
-  const v = points.map(p => new THREE.Vector3(p[0], p[1], 0.006));
-  const curve = new THREE.CatmullRomCurve3(v);
-  const geo = new THREE.TubeGeometry(curve, Math.max(24, v.length * 6), 0.022, 8, false);
-  return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-    color, transparent: true, opacity: 0.18 }));
-}
-
-const tracked = PAYLOAD.tracked.map(p => [p.x, p.y, p.z]);
+const trackedRaw = PAYLOAD.tracked.map(p => [p.x, p.y, p.z]);
 const predicted = PAYLOAD.predicted.map(p => [p.x, p.y, p.z]);
+
+// The bounce is the lowest point of the incoming arc (where the ball pitches).
+// Split the path there: RED descends to the bounce, PINK rises away from it —
+// so the pitch reads as a sharp V, never a flat smear along the ground.
+let bi = 0;
+for (let i = 1; i < trackedRaw.length; i++) if (trackedRaw[i][2] < trackedRaw[bi][2]) bi = i;
+const bouncePt = trackedRaw.length ? trackedRaw[bi] : null;
+const trackDown = bouncePt ? trackedRaw.slice(0, bi + 1) : trackedRaw;
+const predUp = (bouncePt ? [bouncePt] : []).concat(predicted);
+
+if (trackDown.length >= 2) scene.add(tube(trackDown, 0xff3b30, 0.045, 1.0, 0.32).mesh);
+if (predUp.length >= 2) scene.add(tube(predUp, 0xff9a86, 0.040, 0.9, 0.25).mesh);
+
+// One smooth curve (incoming + predicted) for the moving ball.
+let fullCurve = null;
+{
+  const all = trackDown.concat(predicted).map(p => new THREE.Vector3(p[0], p[1], Math.max(0.0, p[2])));
+  if (all.length >= 2) fullCurve = new THREE.CatmullRomCurve3(all, false, "catmullrom", 0.5);
+}
 const impact = PAYLOAD.impact;
 const impactPt = impact && Number.isFinite(impact.x_m)
-  ? [impact.x_m, impact.y_m, Math.max(0.02, impact.z_m)] : null;
+  ? [impact.x_m, impact.y_m, Math.max(0.04, impact.z_m)] : null;
 
-let fullCurve = null;
-if (tracked.length >= 2) {
-  const t = tube(tracked, 0xff3b30, 0.05, 1.0, 0.3);
-  scene.add(t.mesh);
-  scene.add(groundShadow(tracked, 0xff3b30));
-  fullCurve = t.curve;
-}
-if (predicted.length >= 2) {
-  const lead = impactPt ? [impactPt] : [];
-  const pts = [...lead, ...predicted];
-  const t = tube(pts, 0xff8a7a, 0.042, 0.92, 0.2);
-  scene.add(t.mesh);
-  scene.add(groundShadow(pts, 0xff8a7a));
-}
-
-// --- pitching + impact markers ----------------------------------------
+// pitching + impact markers
 const bounce = PAYLOAD.bounce;
 if (bounce && Number.isFinite(bounce.x_m)) {
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.12, 32),
-    new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.7 }));
-  disc.position.set(bounce.x_m, bounce.y_m, 0.01);
-  scene.add(disc);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.12, 0.15, 32),
-    new THREE.MeshBasicMaterial({ color: 0xffe39a, side: THREE.DoubleSide }));
-  ring.position.set(bounce.x_m, bounce.y_m, 0.011);
-  scene.add(ring);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.12, 0.16, 40),
+    new THREE.MeshBasicMaterial({ color: 0xffd166, side: THREE.DoubleSide }));
+  ring.position.set(bounce.x_m, bounce.y_m, 0.012); scene.add(ring);
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.12, 40),
+    new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.55 }));
+  disc.position.set(bounce.x_m, bounce.y_m, 0.011); scene.add(disc);
 }
 if (impactPt) {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(0.05, 18, 18),
-    new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee,
-      emissiveIntensity: 0.5 }));
-  m.position.set(impactPt[0], impactPt[1], impactPt[2]);
-  scene.add(m);
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.05, 22, 22),
+    new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 0.7 }));
+  m.position.set(...impactPt); m.castShadow = true; scene.add(m);
 }
 
-// --- moving ball along the full path ----------------------------------
-const ball = new THREE.Mesh(new THREE.SphereGeometry(0.055, 20, 20),
-  new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xff5a4a,
-    emissiveIntensity: 0.45, roughness: 0.3 }));
-scene.add(ball);
+// moving ball (glows under bloom, casts a shadow)
+const ball = new THREE.Mesh(new THREE.SphereGeometry(0.058, 28, 28),
+  new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xff5436,
+    emissiveIntensity: 0.85, roughness: 0.25 }));
+ball.castShadow = true; scene.add(ball);
 
-// --- HUD: panels + metrics --------------------------------------------
+// ---------------------------------------------------------------- post-processing (bloom)
+let composer = null;
+try {
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 0.38, 0.5, 0.85);
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+} catch (e) { composer = null; }
+
+// ---------------------------------------------------------------- HUD
 const GRN = "#2faa4a", RED = "#d23b2f", YEL = "#e0a52b";
 const c = PAYLOAD.checks || {};
-function setPanel(id, text, col) {
-  const el = document.getElementById(id);
-  el.textContent = text;
-  el.style.background = col;
-}
-setPanel("p-pitch", c.pitching_in_line ? "IN LINE" : "OUTSIDE",
-         c.pitching_in_line ? RED : GRN);
-setPanel("p-impact", c.impact_in_line ? "IN LINE" : "OUTSIDE OFF",
-         c.impact_in_line ? RED : GRN);
-setPanel("p-wickets", c.wickets_hitting ? "HITTING" : "MISSING",
-         c.wickets_hitting ? RED : GRN);
+const setP = (id, t, col) => { const e = document.getElementById(id); e.textContent = t; e.style.background = col; };
+setP("p-pitch", c.pitching_in_line ? "IN LINE" : "OUTSIDE", c.pitching_in_line ? RED : GRN);
+setP("p-impact", c.impact_in_line ? "IN LINE" : "OUTSIDE OFF", c.impact_in_line ? RED : GRN);
+setP("p-wickets", c.wickets_hitting ? "HITTING" : "MISSING", c.wickets_hitting ? RED : GRN);
 const dec = (PAYLOAD.lbw_decision || "?").toUpperCase().replace(/_/g, " ");
-setPanel("p-decision", dec,
-         dec === "OUT" ? RED : dec === "NOT OUT" ? GRN : YEL);
-
-document.getElementById("m-speed").textContent = PAYLOAD.speed_kmh.toFixed(0);
+setP("p-decision", dec, dec === "OUT" ? RED : dec === "NOT OUT" ? GRN : YEL);
+document.getElementById("m-speed").textContent = (PAYLOAD.speed_kmh || 0).toFixed(0);
 document.getElementById("m-swing").textContent = (PAYLOAD.swing_cm || 0).toFixed(0);
 document.getElementById("m-spin").textContent = (PAYLOAD.spin_deg || 0).toFixed(1);
+for (const id of ["panels", "metrics", "brand"]) document.getElementById(id).classList.add("show");
 
-// --- resize + animation loop ------------------------------------------
+// ---------------------------------------------------------------- resize + loop
 window.addEventListener("resize", () => {
   W = window.innerWidth; H = window.innerHeight;
-  renderer.setSize(W, H);
+  renderer.setSize(W, H); if (composer) composer.setSize(W, H);
   camera.aspect = W / H; camera.updateProjectionMatrix();
 });
 
+// Static framed default view — the user orbits manually (no auto-rotation).
 let t0 = null;
-const LOOP_MS = 2600, HOLD_MS = 900;
+const LOOP = 2600, HOLD = 1100;
+const _bp = new THREE.Vector3();
 function tick(now) {
   if (t0 === null) t0 = now;
-  if (fullCurve) {
-    const phase = ((now - t0) % (LOOP_MS + HOLD_MS)) / LOOP_MS;
+  const el = now - t0;
+  if (fullCurve) {                              // ball rides the trajectory, then holds
+    const phase = (el % (LOOP + HOLD)) / LOOP;
     const u = Math.min(1, Math.max(0, phase));
-    const p = fullCurve.getPointAt(u);
-    ball.position.copy(p);
+    fullCurve.getPointAt(u, _bp);
+    ball.position.set(_bp.x, _bp.y, Math.max(0.058, _bp.z));   // sit on the pitch
     ball.visible = phase <= 1.02;
   }
   controls.update();
-  renderer.render(scene, camera);
+  (composer || renderer).render(scene, camera);
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
