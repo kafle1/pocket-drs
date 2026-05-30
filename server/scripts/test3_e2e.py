@@ -42,20 +42,24 @@ OUT.mkdir(parents=True, exist_ok=True)
 # emits via ``stump_quads_norm``. Half-cluster widths in normalised image
 # units: striker (far) ≈ 0.011, bowler (near) ≈ 0.048 — eyeballed from
 # the first frame and consistent with the perspective.
-STRIKER_QUAD = [
-    (0.5048, 0.4816),  # TL
-    (0.5272, 0.4816),  # TR
-    (0.5272, 0.5429),  # BR
-    (0.5048, 0.5429),  # BL
+# Taps recovered by colour-segmenting the actual first frame (not eyeballed):
+# the yellow stumps give clean vertical-blob clusters and the green strip its
+# edges. These fit a single camera pose to ~3 px reprojection (the previous
+# hand-eyeballed taps were ~16 px and forced a wrong 12.7 m / 64 km/h scale).
+STRIKER_QUAD = [   # far (striker-end) stumps, by the batsman
+    (0.509, 0.482),  # TL
+    (0.552, 0.482),  # TR
+    (0.552, 0.545),  # BR
+    (0.509, 0.545),  # BL
 ]
-BOWLER_QUAD = [
-    (0.4185, 0.6304),  # TL
-    (0.5165, 0.6304),  # TR
-    (0.5165, 0.8409),  # BR
-    (0.4185, 0.8409),  # BL
+BOWLER_QUAD = [    # near (bowler-end) stumps, prominent in the foreground
+    (0.403, 0.633),  # TL
+    (0.544, 0.633),  # TR
+    (0.544, 0.851),  # BR
+    (0.403, 0.851),  # BL
 ]
 CORNERS_NORM = [  # striker-left, striker-right, bowler-right, bowler-left
-    (0.324, 0.521), (0.704, 0.521), (0.787, 0.911), (0.185, 0.911),
+    (0.420, 0.465), (0.595, 0.465), (0.625, 0.800), (0.305, 0.800),
 ]
 
 
@@ -73,18 +77,15 @@ def build_request() -> dict:
         },
         "calibration": {
             "mode": "taps",
-            # test3.mp4 was filmed on a zoomed-in phone (~37° horizontal
-            # FOV). The pitch-corner taps in this fixture are eyeballed
-            # rather than precisely measured, so they disagree with the
-            # stump geometry under any single FOV — the joint solver
-            # would then drop them and the stumps-only fallback has a
-            # (FOV × length) degeneracy. Pinning the real FOV lets the
-            # solver recover the correct ~12 m length and ~60 km/h speed
-            # deterministically. The production app does not need this
-            # override: real users tap the actual turf corners, which
-            # disambiguate FOV on their own.
-            "h_fov_deg": 37.0,
-            "pitch_dimensions_m": {"width": 3.05},
+            # Break the (FOV × length) degeneracy by PINNING the real pitch
+            # length (full ICC 20.12 m — confirmed by Niraj that test3 is a
+            # full-length net) and letting the solver fit FOV from the stump
+            # geometry. This is the deterministic disambiguation the eyeballed
+            # taps lacked. With the colour-derived taps the solver reprojects
+            # to ~10 px (was ~16) and recovers the full-pitch scale. The
+            # production app does not need this override: real users tap the
+            # actual turf corners, which disambiguate FOV on their own.
+            "pitch_dimensions_m": {"width": 3.05, "length": 20.12},
             "pitch_corners_norm": [{"x": x, "y": y} for x, y in CORNERS_NORM],
             "stump_quads_norm": [
                 {"x": x, "y": y} for x, y in STRIKER_QUAD + BOWLER_QUAD
@@ -112,21 +113,20 @@ def render_three_d_viewer(result: dict) -> None:
     out = OUT / "test3_3d.html"
     out.write_text(render_html(result))
     print(f"  wrote {out.name}")
-
-
-def _dashed(img, a, b, color, thick=3, dash=18, gap=12):
-    a = np.array(a, float)
-    b = np.array(b, float)
-    length = float(np.hypot(*(b - a)))
-    if length < 1:
-        return
-    step = dash + gap
-    n = int(length // step) + 1
-    d = (b - a) / length
-    for i in range(n):
-        s = a + d * (i * step)
-        e = a + d * min(i * step + dash, length)
-        cv2.line(img, tuple(s.astype(int)), tuple(e.astype(int)), color, thick, cv2.LINE_AA)
+    # Capture the WebGL viewer to a static PNG (the real app 3D view) for the
+    # report/PPT figures. Best-effort: needs Playwright + a Chromium build;
+    # if either is missing the matplotlib render_3d() still provides a figure.
+    import subprocess
+    png = OUT / "test3_3d_app.png"
+    shooter = ROOT / "server" / "scripts" / "shoot_3d.py"
+    try:
+        subprocess.run(
+            [sys.executable, str(shooter), str(out), str(png)],
+            check=True, capture_output=True, timeout=120,
+        )
+        print(f"  wrote {png.name} (app WebGL 3D view)")
+    except Exception as exc:  # noqa: BLE001 — diagnostic convenience only
+        print(f"  (skipped app 3D PNG: {exc.__class__.__name__})")
 
 
 def _card(img, x, y, w, h, title, value):
@@ -242,9 +242,9 @@ def render_3d(result: dict) -> None:
             ax.plot(xs_t, ys_t, zs_t, color="#ff3b30", linewidth=_w,
                     alpha=_a, solid_capstyle="round", zorder=8)
 
-    # Predicted continuation — stops at the stump plane (server-enforced)
-    # so the dashed line terminates exactly where the LBW intersection is.
-    # Pre-pend the impact point so the dashes flow out of the tracked arc.
+    # Predicted continuation — one clean SOLID red line (same colour as the
+    # tracked arc), terminating at the stump plane. Pre-pend the impact point
+    # so it flows straight out of the tracked arc as a single curve.
     if pred:
         pred_xs = [p["x"] for p in pred]
         pred_ys = [p["y"] for p in pred]
@@ -253,9 +253,8 @@ def render_3d(result: dict) -> None:
             pred_xs = [impact["x_m"]] + pred_xs
             pred_ys = [impact["y_m"]] + pred_ys
             pred_zs = [max(0.015, impact.get("z_m", 0.0))] + pred_zs
-        ax.plot(pred_xs, pred_ys, pred_zs, color="#ff8a7a",
-                linewidth=3.2, linestyle="--", dashes=(4, 2),
-                zorder=9)
+        ax.plot(pred_xs, pred_ys, pred_zs, color="#ff3b30",
+                linewidth=3.4, solid_capstyle="round", zorder=9)
         # Predicted ground shadow so the LBW corridor crossing is readable.
         ax.plot(pred_xs, pred_ys, [0.004] * len(pred_xs),
                 color="#ffd700", linewidth=1.0, linestyle=":", alpha=0.45,
@@ -441,18 +440,18 @@ def render(result: dict) -> None:
                 cv2.line(frame, b, tp, col, width_px, cv2.LINE_AA)
                 cv2.circle(frame, tp, max(3, width_px - 1), col, -1, cv2.LINE_AA)
 
-        # Tracked flight (solid red) — release through bounce to bat impact.
-        # The dashed continuation extrapolates from the measured flight onward
-        # to the stump plane, so the eye reads one curve: solid where the
-        # ball was seen, dashed where it is predicted to go.
+        # Whole ball path = ONE clean solid red line: tracked flight (release
+        # through bounce to impact) continued straight into the predicted path
+        # to the stumps. Same colour and width throughout, no dashes, so the
+        # eye reads a single clear curve.
         if len(flight) >= 2:
             poly = np.array([(int(x), int(y)) for x, y in flight], np.int32)
             cv2.polylines(frame, [poly], False, RED, 5, cv2.LINE_AA)
         if predicted:
             tail = (int(flight[-1][0]), int(flight[-1][1])) if flight else predicted[0]
             chain = [tail, *predicted]
-            for a, b in zip(chain, chain[1:]):
-                _dashed(frame, a, b, RED, thick=4, dash=14, gap=10)
+            poly_pred = np.array([(int(x), int(y)) for x, y in chain], np.int32)
+            cv2.polylines(frame, [poly_pred], False, RED, 5, cv2.LINE_AA)
 
         # Moving ball riding the raw track at the current playback time,
         # held at the bat impact afterwards so the cursor does not vanish.

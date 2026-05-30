@@ -91,19 +91,6 @@ BLUE = (235, 170, 60)
 WHITE = (255, 255, 255)
 
 
-def _dashed(img, a, b, color, thick=3, dash=18, gap=12):
-    a = np.array(a, float); b = np.array(b, float)
-    length = float(np.hypot(*(b - a)))
-    if length < 1: return
-    step = dash + gap
-    n = int(length // step) + 1
-    d = (b - a) / length
-    for i in range(n):
-        s = a + d * (i * step)
-        e = a + d * min(i * step + dash, length)
-        cv2.line(img, tuple(s.astype(int)), tuple(e.astype(int)), color, thick, cv2.LINE_AA)
-
-
 def _card(img, x, y, w, h, title, value):
     sub = img[y:y + h, x:x + w].copy()
     cv2.rectangle(sub, (0, 0), (w, h), (28, 28, 28), -1)
@@ -178,7 +165,7 @@ def render_3d(result: dict) -> None:
         if impact.get("x_m") is not None:
             pxs = [impact["x_m"]] + pxs; pys = [impact["y_m"]] + pys
             pzs = [max(0.015, impact.get("z_m", 0.0))] + pzs
-        ax.plot(pxs, pys, pzs, color="#ffd700", linewidth=4.0, linestyle="--", dashes=(4, 2), label="predicted", zorder=9)
+        ax.plot(pxs, pys, pzs, color="#ff3b30", linewidth=3.6, solid_capstyle="round", label="predicted", zorder=9)
         ax.plot(pxs, pys, [0.004] * len(pxs), color="#ffd700", linewidth=1.0, linestyle=":", alpha=0.45, zorder=5)
 
     if bounce.get("x_m") is not None:
@@ -310,10 +297,10 @@ def render(result: dict) -> None:
                     if nx < -40 or nx > W + 40 or ny < -40 or ny > H + 40:
                         break
                     chain.append((int(nx), int(ny)))
-            for a, b in zip(chain, chain[1:]):
-                _dashed(frame, a, b, BLUE, thick=5, dash=18, gap=12)
+            poly_pred = np.array([(int(x), int(y)) for x, y in chain], np.int32)
+            cv2.polylines(frame, [poly_pred], False, RED, 5, cv2.LINE_AA)
             end = chain[-1]
-            cv2.circle(frame, end, 8, BLUE, -1, cv2.LINE_AA)
+            cv2.circle(frame, end, 8, RED, -1, cv2.LINE_AA)
             cv2.circle(frame, end, 8, (20, 20, 20), 2, cv2.LINE_AA)
 
         # Ball marker follows the public live track only. The pipeline stops

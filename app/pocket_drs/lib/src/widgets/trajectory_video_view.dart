@@ -10,8 +10,8 @@ import '../utils/video_controller_factory.dart';
 /// over it — red ball path through the bounce, the blue on-stumps corridor on
 /// the ground, gold stumps, and Speed / Spin / Swing metric cards. Modelled on
 /// the FullTrack-AI presentation: the live scene is dimmed so the telemetry
-/// reads cleanly, and the real flight stops at the bat/pad impact while the
-/// dashed continuation is the predicted path to the stumps.
+/// reads cleanly, and the tracked flight continues, as one clean solid red
+/// line, into the predicted path to the stumps.
 class TrajectoryVideoView extends StatefulWidget {
   const TrajectoryVideoView({
     super.key,
@@ -202,8 +202,7 @@ class _OverlayPainter extends CustomPainter {
   final int nowMs;
 
   static const _blue = Color(0xFF3FA7FF); // calibrated pitch + corridor lines
-  static const _yellow = Color(0xFFFFCF40); // stumps
-  static const _predictedYellow = Color(0xFFFFD166);
+  static const _yellow = Color(0xFFFFCF40); // stumps (pitch markings, not ball path)
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -243,13 +242,15 @@ class _OverlayPainter extends CustomPainter {
     }
 
     // ---- ball path ----
-    // Tracked path = solid red (release → bounce → bat impact).
-    // Predicted path = dashed yellow (post-impact continuation to stumps).
+    // Tracked path = solid red (release → bounce → bat impact); the predicted
+    // continuation (post-impact to the stumps) is the SAME solid red line.
+    // The whole ball path is one clean red curve — no glow gradient, no
+    // dashes, no yellow — to match the clean test3_sample broadcast look.
     final flight = [
       for (final p in overlay.path)
         if (!p.predicted) map(p.px),
     ];
-    _drawPolyline(canvas, flight, AppColors.signalRed, 4.5, glow: true);
+    _drawPolyline(canvas, flight, AppColors.signalRed, 4.5);
     final predictedPts = [
       for (final p in overlay.path)
         if (p.predicted) map(p.px),
@@ -258,18 +259,21 @@ class _OverlayPainter extends CustomPainter {
       final start = overlay.impact == null
           ? flight.last
           : map(overlay.impact!.px);
-      _drawDashed(
+      // One clean, continuous solid red line through the prediction — same
+      // style and width as the tracked flight, so the whole ball path reads
+      // as a single clear curve (no dashes), matching the test3 reference.
+      _drawPolyline(
         canvas,
         <Offset>[start, ...predictedPts],
-        _predictedYellow,
-        3.5,
+        AppColors.signalRed,
+        4.5,
       );
     }
     if (overlay.bounce != null) {
       _drawBouncePin(canvas, map(overlay.bounce!.px));
     }
     if (overlay.impact != null) {
-      _drawDot(canvas, map(overlay.impact!.px), _yellow, 5.0);
+      _drawDot(canvas, map(overlay.impact!.px), AppColors.signalRed, 5.0);
     }
 
     final ball = _ballAt(overlay.path, map, nowMs);
@@ -392,34 +396,6 @@ class _OverlayPainter extends CustomPainter {
         ..color = color
         ..strokeWidth = width,
     );
-  }
-
-  void _drawDashed(Canvas canvas, List<Offset> pts, Color color, double width) {
-    if (pts.length < 2) return;
-    const dash = 12.0;
-    const gap = 8.0;
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = width;
-    for (var i = 1; i < pts.length; i++) {
-      var a = pts[i - 1];
-      final b = pts[i];
-      final seg = b - a;
-      final len = seg.distance;
-      if (len == 0) continue;
-      final dir = seg / len;
-      var drawn = 0.0;
-      var on = true;
-      while (drawn < len) {
-        final step = (on ? dash : gap).clamp(0.0, len - drawn);
-        if (on) canvas.drawLine(a, a + dir * step, paint);
-        a = a + dir * step;
-        drawn += step;
-        on = !on;
-      }
-    }
   }
 
   /// Bounce point — a solid red dot, no label.

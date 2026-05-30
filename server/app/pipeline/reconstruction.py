@@ -94,6 +94,16 @@ class ProjectileFit:
     bounce_t_ms: float | None
     rms_m: float
     notes: list[str]
+    # Measured post-bounce horizontal velocity (m/s).  A real delivery changes
+    # both direction (seam / spin) and speed (friction) off the pitch, so the
+    # post-bounce arc is fitted independently and its lateral/longitudinal
+    # velocity stored here.  ``None`` means "no independent post-bounce
+    # evidence" — evaluators then carry the pre-bounce horizontal velocity
+    # through the bounce (the old behaviour).  ``vz_post`` likewise overrides
+    # the restitution-derived rebound speed when measured directly.
+    vx_post: float | None = None
+    vy_post: float | None = None
+    vz_post: float | None = None
 
 
 @dataclass(frozen=True)
@@ -603,16 +613,44 @@ def solve_bounce_trajectory_linear(
         #   vz_post = -e * (vz_pre - g*t_b)  =>  vz_pre = g*t_b - vz_post/e
         vz_post = post_fit.vz
         vz_pre = gravity * t_b_s - vz_post / max(restitution, 1e-3)
+        # Trust the independently-fitted post-bounce HORIZONTAL velocity only
+        # when that arc is well-determined: enough points and a residual no
+        # worse than the pre-bounce arc, with a physical cricket speed range.
+        # When it qualifies we keep the *measured* post-bounce direction and
+        # speed — that is the seam/spin deviation and the friction slow-down off
+        # the pitch that a real DRS must reproduce and the restitution model
+        # cannot.  The VERTICAL rebound stays restitution-derived: it is well
+        # modelled, and replacing it with the raw post-fit vz adds depth-noise
+        # without adding information (verified to worsen height accuracy).  A
+        # short or noisy post arc leaves the fields None, so the evaluator
+        # carries the pre-bounce velocity through (the old behaviour) rather
+        # than inventing a sideways kick.
+        post_trust = (
+            len(post) >= 4
+            and math.isfinite(post_fit.vx)
+            and math.isfinite(post_fit.vy)
+            and post_rms <= max(2.5, 1.5 * pre_rms)
+            and 3.0 <= abs(post_fit.vx) <= 50.0
+            and abs(post_fit.vy) <= 8.0
+        )
         best_rms_px = combined_rms
+        notes = [
+            "bounce-aware linear solve (Ribnick 2009)",
+            f"t_b={t_b_s*1000:.0f}ms pre_rms={pre_rms:.2f}px post_rms={post_rms:.2f}px",
+        ]
+        if post_trust:
+            notes.append(
+                f"measured post-bounce horiz v=({post_fit.vx:.1f},{post_fit.vy:.2f}) m/s"
+            )
         best = ProjectileFit(
             x0=pre_fit.x0, y0=pre_fit.y0, z0=pre_fit.z0,
             vx=pre_fit.vx, vy=pre_fit.vy, vz=vz_pre,
             bounce_t_ms=float(t_b_s * 1000.0),
             rms_m=0.0,
-            notes=[
-                "bounce-aware linear solve (Ribnick 2009)",
-                f"t_b={t_b_s*1000:.0f}ms pre_rms={pre_rms:.2f}px post_rms={post_rms:.2f}px",
-            ],
+            notes=notes,
+            vx_post=post_fit.vx if post_trust else None,
+            vy_post=post_fit.vy if post_trust else None,
+            vz_post=None,  # vertical rebound stays restitution-derived
         )
     if best is None:
         return None
@@ -743,6 +781,61 @@ def _project_world(pose: CameraPose, x: float, y: float, z: float) -> tuple[floa
     u = pose.fx * (p_cam[0, 0] / depth) + pose.cx
     v = pose.fy * (p_cam[1, 0] / depth) + pose.cy
     return float(u), float(v), depth
+
+
+def _bounce_eval(
+    fit: ProjectileFit,
+) -> tuple[float, float, float, float, float, float] | None:
+    """Single source of truth for a fit's bounce geometry.
+
+    Returns ``(t_b_s, xb, yb, vx_post, vy_post, vz_post)`` or ``None`` when the
+    fit has no bounce.  The bounce time is the solver's ``bounce_t_ms`` — the
+    point where the pre/post arcs were split — and z is taken to be 0 there by
+    construction (the ball is on the ground at the pitch contact).  Anchoring on
+    that single time and feeding it to the flight overlay, the forward
+    prediction AND the smoothing pass is what removes the old kink: those three
+    previously evaluated the bounce with two different conventions.  (The
+    production reconstruction is the gravity-constrained *linear* solver, whose
+    stored ``vz`` is back-derived to satisfy restitution at this exact time, so
+    re-deriving a "physical" ground-touch time from it is both circular and
+    numerically unstable — measured.)  Horizontal post-bounce velocity is the
+    measured value when the bounce-aware solver recovered it, else the
+    pre-bounce velocity carried through; vertical rebound is restitution-derived
+    from the pre-bounce descent (or the measured value when explicitly stored).
+    """
+    if fit.bounce_t_ms is None:
+        return None
+    t_b = max(fit.bounce_t_ms / 1000.0, 0.0)
+    xb = fit.x0 + fit.vx * t_b
+    yb = fit.y0 + fit.vy * t_b
+    vx_post = fit.vx_post if fit.vx_post is not None else fit.vx
+    vy_post = fit.vy_post if fit.vy_post is not None else fit.vy
+    if fit.vz_post is not None:
+        vz_post = fit.vz_post
+    else:
+        vz_post = -COEFFICIENT_OF_RESTITUTION_Z * (fit.vz - GRAVITY_MS2 * t_b)
+    return (t_b, xb, yb, vx_post, vy_post, vz_post)
+
+
+def _eval_fit_at(fit: ProjectileFit, t_s: float) -> tuple[float, float, float]:
+    """Evaluate the bounce-aware projectile position at time ``t_s``.
+
+    The one evaluator shared by the flight overlay, the forward prediction and
+    the smoothing pass, so all three render the identical physical trajectory
+    (including any measured post-bounce deviation).
+    """
+    be = _bounce_eval(fit)
+    if be is not None and t_s >= be[0]:
+        t_g, xb, yb, vxp, vyp, vzp = be
+        tp = t_s - t_g
+        x = xb + vxp * tp
+        y = yb + vyp * tp
+        z = max(0.0, vzp * tp - 0.5 * GRAVITY_MS2 * tp * tp)
+        return x, y, z
+    x = fit.x0 + fit.vx * t_s
+    y = fit.y0 + fit.vy * t_s
+    z = max(0.0, fit.z0 + fit.vz * t_s - 0.5 * GRAVITY_MS2 * t_s * t_s)
+    return x, y, z
 
 
 def _projectile_at(params: np.ndarray, t_s: float, *, has_bounce: bool, t_b: float | None,
@@ -1059,6 +1152,9 @@ def reconstruct_trajectory(
                     bounce_t_ms=bl_fit.bounce_t_ms,
                     rms_m=float(bl_rms_px * px_to_m),
                     notes=list(bl_fit.notes),
+                    vx_post=bl_fit.vx_post,
+                    vy_post=bl_fit.vy_post,
+                    vz_post=bl_fit.vz_post,
                 )
 
     if not used_linear:
@@ -1214,18 +1310,9 @@ def reconstruct_trajectory(
         smoothed = []
         for p in raw:
             ts = (p.t_ms - t0_ms) / 1000.0
-            if fit.bounce_t_ms is not None and ts >= fit.bounce_t_ms / 1000.0:
-                t_b = fit.bounce_t_ms / 1000.0
-                vz_at_b = fit.vz - GRAVITY_MS2 * t_b
-                vz_post = -COEFFICIENT_OF_RESTITUTION_Z * vz_at_b
-                tp = ts - t_b
-                x_s = (fit.x0 + fit.vx * t_b) + fit.vx * tp
-                y_s = (fit.y0 + fit.vy * t_b) + fit.vy * tp
-                z_s = max(0.0, vz_post * tp - 0.5 * GRAVITY_MS2 * tp * tp)
-            else:
-                x_s = fit.x0 + fit.vx * ts
-                y_s = fit.y0 + fit.vy * ts
-                z_s = max(0.0, fit.z0 + fit.vz * ts - 0.5 * GRAVITY_MS2 * ts * ts)
+            # Same shared evaluator the overlay and prediction use, so the
+            # smoothed world points lie on the identical bounce-aware arc.
+            x_s, y_s, z_s = _eval_fit_at(fit, ts)
             # Confidence weighted by raw observation conf and inverse-residual.
             resid = math.sqrt((p.x_m - x_s) ** 2 + (p.y_m - y_s) ** 2 + (p.z_m - z_s) ** 2)
             tightness = max(0.05, 1.0 - resid / max(0.5, fit.rms_m * 3.0))
@@ -1261,37 +1348,42 @@ def predict_path_to_stumps(
     *,
     impact_t_ms: float,
     target_x_m: float,
-    n_steps: int = 18,
+    n_steps: int = 24,
 ) -> list[tuple[float, float, float, float]]:
     """Forward-extrapolate the projectile from impact to the stump plane.
 
-    Uses the bounce-aware projectile fit: pre-bounce dynamics if the impact
-    falls before the bounce, otherwise the post-bounce branch with vz reset
-    by the coefficient of restitution. Returns ``(t_ms_rel_to_fit_origin,
-    x, y, z)`` tuples — the overlay builder's contract.
+    Uses the shared bounce-aware evaluator (:func:`_eval_fit_at`) so the
+    predicted segment continues the flight overlay seamlessly: pre-bounce
+    dynamics when the impact falls before the pitch point, otherwise the
+    measured (or restitution-derived) post-bounce branch — which is what
+    carries any real seam/spin deviation off the pitch into the forecast.
+    Returns ``(t_ms_rel_to_fit_origin, x, y, z)`` tuples — the overlay
+    builder's contract.
     """
     impact_s = impact_t_ms / 1000.0
+    x_imp, y_imp, z_imp = _eval_fit_at(fit, impact_s)
 
-    if fit.bounce_t_ms is not None and impact_s > fit.bounce_t_ms / 1000.0:
-        t_b = fit.bounce_t_ms / 1000.0
-        vz_at_b = fit.vz - GRAVITY_MS2 * t_b
-        vz_post_at_bounce = -COEFFICIENT_OF_RESTITUTION_Z * vz_at_b
-        tp_at_impact = impact_s - t_b
-        x_imp = (fit.x0 + fit.vx * t_b) + fit.vx * tp_at_impact
-        y_imp = (fit.y0 + fit.vy * t_b) + fit.vy * tp_at_impact
-        z_imp = max(0.0, vz_post_at_bounce * tp_at_impact - 0.5 * GRAVITY_MS2 * tp_at_impact ** 2)
-        vz_at_imp = vz_post_at_bounce - GRAVITY_MS2 * tp_at_impact
+    # Horizontal velocity that governs the continuation, and the vertical speed
+    # at impact: post-bounce values when the impact is past the pitch point,
+    # pre-bounce otherwise.  Pulling both from the same _bounce_eval the
+    # evaluator used guarantees the forecast leaves the impact point along the
+    # exact tangent of the drawn flight arc (no kink at the hand-off).
+    be = _bounce_eval(fit)
+    if be is not None and impact_s >= be[0]:
+        t_g, _xb, _yb, vx_eff, vy_eff, vz_post = be
+        vz_at_imp = vz_post - GRAVITY_MS2 * (impact_s - t_g)
     else:
-        x_imp = fit.x0 + fit.vx * impact_s
-        y_imp = fit.y0 + fit.vy * impact_s
-        z_imp = max(0.0, fit.z0 + fit.vz * impact_s - 0.5 * GRAVITY_MS2 * impact_s ** 2)
+        vx_eff, vy_eff = fit.vx, fit.vy
         vz_at_imp = fit.vz - GRAVITY_MS2 * impact_s
 
-    if abs(fit.vx) < 1e-3:
+    if abs(vx_eff) < 1e-3:
         return []
-    dt_to_stumps = (target_x_m - x_imp) / fit.vx
-    if dt_to_stumps > 2.0:
-        return []
+    dt_to_stumps = (target_x_m - x_imp) / vx_eff
+    # Cap the horizon: a multi-second dt means a near-degenerate horizontal
+    # speed, not a real delivery.  Clamp instead of dropping the path so a
+    # genuinely slow ball still gets a forecast.
+    if dt_to_stumps > 3.0:
+        dt_to_stumps = 3.0
     # If the ball has already crossed the stump plane at impact (DRS late
     # interception cases), show a short forward continuation so the user
     # still sees the predicted direction past the bat.
@@ -1302,8 +1394,8 @@ def predict_path_to_stumps(
     for i in range(1, n_steps + 1):
         s = i / n_steps
         tp = dt_to_stumps * s
-        x = x_imp + fit.vx * tp
-        y = y_imp + fit.vy * tp
+        x = x_imp + vx_eff * tp
+        y = y_imp + vy_eff * tp
         z = max(0.0, z_imp + vz_at_imp * tp - 0.5 * GRAVITY_MS2 * tp ** 2)
         out.append((float(impact_t_ms + tp * 1000.0), x, y, z))
     return out
@@ -1336,10 +1428,6 @@ def build_overlay_px(
     Returns pixel-space polylines and markers; every coordinate is in the same
     frame space as ``track.image_points`` and ``image_size``.
     """
-    params = np.array([fit.x0, fit.y0, fit.z0, fit.vx, fit.vy, fit.vz], dtype=float)
-    has_bounce = fit.bounce_t_ms is not None
-    t_b = fit.bounce_t_ms / 1000.0 if has_bounce else None
-
     def proj(x: float, y: float, z: float) -> dict | None:
         p = _project_world(pose, x, y, z)
         if p is None:
@@ -1352,7 +1440,7 @@ def build_overlay_px(
     if impact_s > 1e-3:
         for i in range(steps + 1):
             ts = impact_s * i / steps
-            x, y, z = _projectile_at(params, ts, has_bounce=has_bounce, t_b=t_b)
+            x, y, z = _eval_fit_at(fit, ts)
             pt = proj(x, y, z)
             if pt is not None:
                 path.append({"t_ms": int(t0_ms + ts * 1000.0), "phase": "flight", **pt})

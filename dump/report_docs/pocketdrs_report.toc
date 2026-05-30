@@ -16,7 +16,7 @@
 \contentsline {subsection}{\numberline {1.4.1}Scope}{3}{subsection.1.4.1}%
 \contentsline {subsection}{\numberline {1.4.2}Limitation}{3}{subsection.1.4.2}%
 \contentsline {section}{\numberline {1.5}Development Methodology}{3}{section.1.5}%
-\contentsline {section}{\numberline {1.6}Report Organization}{4}{section.1.6}%
+\contentsline {section}{\numberline {1.6}Report Organisation}{4}{section.1.6}%
 \contentsline {chapter}{\numberline {2}Background Study and Literature Review}{5}{chapter.2}%
 \contentsline {section}{\numberline {2.1}Background Study}{5}{section.2.1}%
 \contentsline {section}{\numberline {2.2}Literature Review}{6}{section.2.2}%
@@ -55,7 +55,7 @@
 \contentsline {paragraph}{Per-scene results.}{26}{figure.caption.12}%
 \contentsline {paragraph}{What this proves, and what it does not.}{27}{figure.caption.14}%
 \contentsline {subsection}{\numberline {4.2.4}Real-World Validation}{27}{subsection.4.2.4}%
-\contentsline {paragraph}{What went wrong, in plain terms.}{28}{figure.caption.15}%
+\contentsline {paragraph}{What went wrong.}{28}{figure.caption.15}%
 \contentsline {paragraph}{Why this is a good result, not a failure.}{29}{Item.29}%
 \contentsline {paragraph}{What a good test video looks like.}{29}{Item.29}%
 \contentsline {subsection}{\numberline {4.2.5}Real-World Validation: A Successfully Tracked Delivery (test3)}{29}{subsection.4.2.5}%

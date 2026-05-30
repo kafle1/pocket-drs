@@ -328,6 +328,24 @@ def evaluate(scen: Scenario, idx: int) -> dict:
                 (i["x_m"] - igt[0]) ** 2 + (i["y_m"] - igt[1]) ** 2 + (i["z_m"] - igt[2]) ** 2
             ) * 100
 
+    # Predicted-path accuracy at the stump plane. The synthetic ball flies
+    # untouched to x=0, so the true ball position at the stump plane
+    # (impact_gt) is the ground truth the predicted path must reproduce.
+    # This is the metric the trajectory-prediction optimisation targets;
+    # bounce/impact errors above measure reconstruction, not the forecast.
+    pred_stump_err_cm = None
+    pred_y_err_cm = None
+    pred_z_err_cm = None
+    if impact_gt is not None:
+        igt = impact_gt[1]
+        pred = lbw.get("prediction") or {}
+        py = pred.get("y_at_stumps_m")
+        pz = pred.get("z_at_stumps_m")
+        if py is not None and pz is not None:
+            pred_y_err_cm = abs(py - igt[1]) * 100
+            pred_z_err_cm = abs(pz - igt[2]) * 100
+            pred_stump_err_cm = math.hypot(py - igt[1], pz - igt[2]) * 100
+
     # Pass thresholds — realistic for monocular single-camera reconstruction
     # inside the pipeline's sweet spot (full pitch, medium-pace, middle
     # corridor, ball pixel size never below 4 px in flight):
@@ -347,6 +365,7 @@ def evaluate(scen: Scenario, idx: int) -> dict:
     print(f"  reproj={cal.get('reproj_error_px', float('nan')):.1f}px  pts={len(pts)}  inliers={track.get('inliers')}")
     print(f"  speed: gt={scen.speed_kmh:.0f}  reco={speed_reco}  err={speed_err}")
     print(f"  bounce err: {bounce_err_cm}  impact err: {impact_err_cm}")
+    print(f"  pred@stumps err: {pred_stump_err_cm}  (y={pred_y_err_cm} z={pred_z_err_cm})")
     print(f"  lbw: {lbw.get('decision')}  ({lbw.get('reason')})")
     print(f"  result: {'PASS' if passed else 'FAIL'}")
 
@@ -366,6 +385,9 @@ def evaluate(scen: Scenario, idx: int) -> dict:
         "speed_err_kmh": speed_err,
         "bounce_err_cm": bounce_err_cm,
         "impact_err_cm": impact_err_cm,
+        "pred_stump_err_cm": pred_stump_err_cm,
+        "pred_y_err_cm": pred_y_err_cm,
+        "pred_z_err_cm": pred_z_err_cm,
         "reproj_px": cal.get("reproj_error_px"),
         "lbw": lbw.get("decision"),
         "passed": passed,
@@ -404,7 +426,7 @@ def plot_summary(rows: list[dict]) -> None:
 
     n_pass = sum(1 for r in rows if r["passed"])
     fig.suptitle(
-        f"PocketDRS synthetic validation — {n_pass}/{len(rows)} scenarios passed",
+        f"PocketDRS synthetic validation: {n_pass}/{len(rows)} scenarios passed",
         color="#dde3eb", fontsize=14,
     )
     fig.tight_layout()
@@ -423,7 +445,9 @@ def main() -> int:
     rows = [evaluate(scen, i) for i, scen in enumerate(SCENARIOS)]
 
     keys = ["name", "speed_gt", "speed_reco", "speed_err_kmh",
-            "bounce_err_cm", "impact_err_cm", "reproj_px", "lbw", "passed"]
+            "bounce_err_cm", "impact_err_cm",
+            "pred_stump_err_cm", "pred_y_err_cm", "pred_z_err_cm",
+            "reproj_px", "lbw", "passed"]
     with open(OUT / "summary.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=keys)
         w.writeheader()
@@ -446,6 +470,12 @@ def main() -> int:
         print(f"bounce err: mean={np.mean(bounces):.1f}  max={np.max(bounces):.1f} cm")
     if impacts:
         print(f"impact err: mean={np.mean(impacts):.1f}  max={np.max(impacts):.1f} cm")
+    preds = [r["pred_stump_err_cm"] for r in rows if r.get("pred_stump_err_cm") is not None]
+    pys = [r["pred_y_err_cm"] for r in rows if r.get("pred_y_err_cm") is not None]
+    pzs = [r["pred_z_err_cm"] for r in rows if r.get("pred_z_err_cm") is not None]
+    if preds:
+        print(f"PRED@stumps: mean={np.mean(preds):.1f}  max={np.max(preds):.1f} cm  "
+              f"(y mean={np.mean(pys):.1f}  z mean={np.mean(pzs):.1f})")
     print(f"\nartifacts: {OUT}")
     return 0 if n_pass == len(rows) else 1
 
