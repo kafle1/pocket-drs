@@ -511,7 +511,7 @@ The project fits one semester. Requirements and design took weeks 1--3, the pipe
 
 The data model has six entities. A \emph{User} (Firebase UID) owns many \emph{Pitches} and submits many \emph{Analyses}. Each \emph{Pitch} has one \emph{CalibrationProfile} (the saved corner and stump taps). Each \emph{Analysis} uses one \emph{Pitch}, holds one \emph{DeliveryVideo} (the trimmed clip), and produces one \emph{LBWResult}. Figure~\ref{fig:er} shows the full diagram with attributes and crow's-foot cardinalities.
 
-In Firestore the same model lives under per-user collections: \texttt{users/\{uid\}} for the user document, \texttt{users/\{uid\}/pitches/\{pitchId\}} for saved calibrations, and \texttt{users/\{uid\}/analyses/\{analysisId\}} for completed analyses.
+In Firestore the same model lives under per-user collections: \texttt{users/\{uid\}} for the user document, \texttt{users/\{uid\}/\allowbreak pitches/\{pitchId\}} for saved calibrations, and \texttt{users/\{uid\}/\allowbreak analyses/\{analysisId\}} for completed analyses.
 
 \begin{figure}[H]
     \centering
@@ -569,15 +569,17 @@ Firestore uses four collections, summarised in Table~\ref{tab:firestore}.
 \centering
 \caption{Firestore collections used by PocketDRS.}
 \label{tab:firestore}
-\begin{tabular}{|p{4.4cm}|p{9.2cm}|}
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{|>{\raggedright\arraybackslash}p{5.2cm}|>{\raggedright\arraybackslash}p{8.4cm}|}
 \hline
 \textbf{Collection path} & \textbf{What it holds} \\
 \hline
 \texttt{users/\{uid\}} & User document: email and profile fields. \\
 \hline
-\texttt{users/\{uid\}/pitches/\{pitchId\}} & Saved calibration: corners, stumps, homography, quality score, timestamp. \\
+\texttt{users/\{uid\}/\allowbreak pitches/\{pitchId\}} & Saved calibration: corners, stumps, homography, quality score, timestamp. \\
 \hline
-\texttt{users/\{uid\}/analyses/\{analysisId\}} & Finished analysis: video metadata, calibration used, 2D track, 3D path, LBW verdict, warnings. \\
+\texttt{users/\{uid\}/\allowbreak analyses/\{analysisId\}} & Finished analysis: video metadata, calibration used, 2D track, 3D path, LBW verdict, warnings. \\
 \hline
 \texttt{job\_queue/\{jobId\}} & Live job state: status, progress, error. Deleted once the result is saved. \\
 \hline
@@ -1072,23 +1074,7 @@ The mobile client communicates with the backend through a small REST surface. Ea
 
 \textbf{Analysis response} reports: \texttt{job\_id}, \texttt{status}, \texttt{video} metadata (duration, fps), the recovered \texttt{calibration} (intrinsics $K$, rotation \texttt{rvec}, translation \texttt{tvec}, reprojection error in pixels), the \texttt{track} (per-frame image points, RANSAC inlier count, image-space RMS), the \texttt{world\_trajectory} (3D points plus the projectile-fit parameters and metric RMS), the detected \texttt{events} (bounce and impact in pitch coordinates), the \texttt{lbw} decision (verdict, plain-English reason, the three Rule-36 check booleans, and the predicted strike coordinates at the stump plane), and a \texttt{diagnostics} block with warnings and a log identifier.
 
-\section*{Appendix B: Application Screenshots}
-
-\renewcommand{\thefigure}{B.\arabic{figure}}
-\setcounter{figure}{0}
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[height=0.32\textheight,keepaspectratio]{figures/app_calibration.png}
-    \hspace{6pt}
-    \includegraphics[height=0.32\textheight,keepaspectratio]{figures/app_result_out.png}
-    \caption{Left: pitch calibration recovering a valid above-ground camera pose ($8.6$\,px reprojection error). Right: result screen with the reconstructed trajectory and an OUT verdict.}
-    \label{fig:app_screens}
-\end{figure}
-
-Figure~\ref{fig:app_screens} shows the calibration step on a real practice-net clip (left), and the 3D result viewer where the recovered ball path descends, bounces, and the predicted continuation strikes the stumps for an OUT verdict (right).
-
-\section*{Appendix C: LBW Decision Engine (Pseudocode)}
+\section*{Appendix B: LBW Decision Engine (Pseudocode)}
 
 The Rule-36 decision engine in \texttt{server/app/pipeline/process\_job.py} is reproduced below in concise pseudocode. \texttt{BALL\_RADIUS\_M} is $0.036$, \texttt{WICKET\_HALF\_WIDTH\_M} is half the stump width, \texttt{WICKET\_GUARD\_M} adds one ball radius, and the umpire's-call bands are one ball radius horizontally and one ball diameter vertically (to absorb the monocular depth noise floor).
 

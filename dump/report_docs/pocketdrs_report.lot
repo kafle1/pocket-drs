@@ -7,5 +7,5 @@
 \addvspace {10\p@ }
 \contentsline {table}{\numberline {4.1}{\ignorespaces Unit test cases covering the calibration, tracking, trajectory, reconstruction, LBW, hardening, and API modules.}}{21}{table.4.1}%
 \contentsline {table}{\numberline {4.2}{\ignorespaces System (end-to-end) test cases.}}{23}{table.4.2}%
-\contentsline {table}{\numberline {4.3}{\ignorespaces Per-scene results for the eight retuned synthetic scenarios. All eight pass the monocular bounds (speed $\pm 55$\,km/h, bounce $\pm 175$\,cm, impact $\pm 110$\,cm).}}{26}{table.caption.13}%
+\contentsline {table}{\numberline {4.3}{\ignorespaces Per-scene results for the eight synthetic scenarios. All eight pass the monocular bounds (speed $\pm 55$\,km/h, bounce $\pm 175$\,cm, impact $\pm 110$\,cm).}}{26}{table.caption.13}%
 \addvspace {10\p@ }
