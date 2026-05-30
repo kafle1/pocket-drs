@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../analysis/ball_track_models.dart';
 import '../api/analysis_result.dart';
 import '../theme/app_colors.dart';
 import '../utils/app_settings.dart';
@@ -150,6 +151,7 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
               CustomPaint(
                 painter: _OverlayPainter(
                   overlay: overlay,
+                  track: widget.result.track.points,
                   imageWidth: imgW,
                   imageHeight: imgH,
                   nowMs: nowMs,
@@ -191,12 +193,18 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
 class _OverlayPainter extends CustomPainter {
   _OverlayPainter({
     required this.overlay,
+    required this.track,
     required this.imageWidth,
     required this.imageHeight,
     required this.nowMs,
   });
 
   final TrajectoryOverlay overlay;
+
+  /// Raw on-ball detections (pixel space) — the literal track the detector
+  /// saw. Drawn as the flight line so it sits on the ball, instead of the
+  /// fit projection which can drift near impact.
+  final List<BallTrackPoint> track;
   final double imageWidth;
   final double imageHeight;
   final int nowMs;
@@ -209,6 +217,12 @@ class _OverlayPainter extends CustomPainter {
     final sx = size.width / imageWidth;
     final sy = size.height / imageHeight;
     Offset map(Offset p) => Offset(p.dx * sx, p.dy * sy);
+
+    // Ball-path stroke, scaled to the display. The test3 reference renders the
+    // path at 5 px on the full 1080-wide frame; matching that *relative* width
+    // (5 * sx) keeps the line as thin and clean as the broadcast overlay on any
+    // screen, instead of the previously fixed (and on phones much thicker) 4.5.
+    final pathW = (5.0 * sx).clamp(1.5, 5.0);
 
     // ---- calibrated ground geometry (drawn under the ball path) ----
     // Full pitch outline — blue (proves the pitch calibration).
@@ -242,48 +256,78 @@ class _OverlayPainter extends CustomPainter {
     }
 
     // ---- ball path ----
-    // Tracked path = solid red (release → bounce → bat impact); the predicted
-    // continuation (post-impact to the stumps) is the SAME solid red line.
-    // The whole ball path is one clean red curve — no glow gradient, no
-    // dashes, no yellow — to match the clean test3_sample broadcast look.
-    final flight = [
-      for (final p in overlay.path)
-        if (!p.predicted) map(p.px),
-    ];
-    _drawPolyline(canvas, flight, AppColors.signalRed, 4.5);
-    final predictedPts = [
-      for (final p in overlay.path)
-        if (p.predicted) map(p.px),
-    ];
-    if (predictedPts.isNotEmpty && flight.isNotEmpty) {
-      final start = overlay.impact == null
-          ? flight.last
-          : map(overlay.impact!.px);
-      // One clean, continuous solid red line through the prediction — same
-      // style and width as the tracked flight, so the whole ball path reads
-      // as a single clear curve (no dashes), matching the test3 reference.
+    // Draw the RAW on-ball detections as the flight line — exactly like the
+    // test3 validation render (server/scripts/test3_e2e.py). The smooth fit
+    // projection (overlay.path phase=flight) can drift ~100 px off the real
+    // ball near impact on phone footage, so the literal track is what sits on
+    // the ball. Only the server's PREDICTED continuation is kept, anchored to
+    // the last detection so it flows straight out of the ball — no jump, no
+    // kink. One clean solid red curve, the broadcast look.
+    final raw = List<BallTrackPoint>.of(track)
+      ..sort((a, b) => a.t.compareTo(b.t));
+    if (raw.length >= 2) {
       _drawPolyline(
         canvas,
-        <Offset>[start, ...predictedPts],
+        [for (final p in raw) map(p.p)],
         AppColors.signalRed,
-        4.5,
+        pathW,
+      );
+    } else {
+      // Fallback when the raw track is unavailable: the fit-projected flight.
+      _drawPolyline(
+        canvas,
+        [for (final p in overlay.path) if (!p.predicted) map(p.px)],
+        AppColors.signalRed,
+        pathW,
       );
     }
+
+    final predicted = [for (final p in overlay.path) if (p.predicted) p];
+    var shift = Offset.zero;
+    if (predicted.isNotEmpty && raw.isNotEmpty) {
+      // Anchor: translate the predicted polyline by the residual between the
+      // last detection and the first predicted pixel, == _anchored_prediction_px.
+      shift = raw.last.p - predicted.first.px;
+      _drawPolyline(
+        canvas,
+        <Offset>[
+          map(raw.last.p),
+          for (final p in predicted) map(p.px + shift),
+        ],
+        AppColors.signalRed,
+        pathW,
+      );
+    }
+
     if (overlay.bounce != null) {
       _drawBouncePin(canvas, map(overlay.bounce!.px));
     }
-    if (overlay.impact != null) {
-      _drawDot(canvas, map(overlay.impact!.px), AppColors.signalRed, 5.0);
-    }
 
-    final ball = _ballAt(overlay.path, map, nowMs);
+    // Moving ball rides the raw flight, then the anchored prediction, so the
+    // cursor follows the whole visible curve to the stumps.
+    final cursorPath = <OverlayPoint>[
+      for (final p in raw) OverlayPoint(tMs: p.t, px: p.p, predicted: false),
+      if (raw.isNotEmpty)
+        for (final p in predicted)
+          OverlayPoint(tMs: p.tMs, px: p.px + shift, predicted: true),
+    ];
+    final ball = _ballAt(
+      cursorPath.isNotEmpty ? cursorPath : overlay.path,
+      map,
+      nowMs,
+    );
     if (ball != null) {
+      // Crisp white ball with a red ring — matches the validation render's
+      // moving ball, no soft halo.
+      canvas.drawCircle(ball, 8.5, Paint()..color = AppColors.bone);
       canvas.drawCircle(
         ball,
-        11.0,
-        Paint()..color = AppColors.bone.withValues(alpha: 0.25),
+        8.5,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..color = AppColors.signalRed
+          ..strokeWidth = 2.5,
       );
-      canvas.drawCircle(ball, 6.0, Paint()..color = AppColors.bone);
     }
   }
 
@@ -320,18 +364,9 @@ class _OverlayPainter extends CustomPainter {
     final half = (0.16 * (base.dy - top.dy).abs()).clamp(4.0, 70.0);
     final width = prominent ? 4.0 : 3.0;
     const offs = <double>[-1, 0, 1];
-    if (prominent) {
-      for (final k in offs) {
-        canvas.drawLine(
-          base.translate(k * half, 0),
-          top.translate(k * half, 0),
-          Paint()
-            ..color = _yellow.withValues(alpha: 0.25)
-            ..strokeCap = StrokeCap.round
-            ..strokeWidth = width + 6.0,
-        );
-      }
-    }
+    // No glow halo on either wicket — the striker (near-batsman) stumps used
+    // to draw a soft yellow halo that read as "glowing"; both ends now render
+    // as clean solid stumps, matching the bowler-end look.
     final stumpPaint = Paint()
       ..color = _yellow
       ..strokeCap = StrokeCap.round
@@ -398,19 +433,10 @@ class _OverlayPainter extends CustomPainter {
     );
   }
 
-  /// Bounce point — a solid red dot, no label.
+  /// Bounce point — a flat solid red dot, no glow halo (matches the clean
+  /// broadcast reference; the soft halo read as a "glow" at the bounce).
   void _drawBouncePin(Canvas canvas, Offset c) {
-    canvas.drawCircle(
-      c,
-      6.0,
-      Paint()..color = AppColors.signalRed.withValues(alpha: 0.30),
-    );
     canvas.drawCircle(c, 4.0, Paint()..color = AppColors.signalRed);
-  }
-
-  void _drawDot(Canvas canvas, Offset c, Color color, double r) {
-    canvas.drawCircle(c, r + 3, Paint()..color = color.withValues(alpha: 0.25));
-    canvas.drawCircle(c, r, Paint()..color = color);
   }
 
   @override

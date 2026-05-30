@@ -194,7 +194,10 @@ function stumps(x, color, scale, glow) {
   const bgeo = new THREE.CylinderGeometry(0.01, 0.01, STUMP_DX + 0.02, 12);
   for (const off of [-STUMP_DX / 2, STUMP_DX / 2]) {
     const b = new THREE.Mesh(bgeo, bmat); b.position.set(x, off, STUMP_H + 0.015);
-    b.rotation.z = Math.PI / 2; b.castShadow = true; grp.add(b);
+    // Bails lie ACROSS the three stumps (along world Y, the stump line). The
+    // default cylinder axis is already Y; the previous rotation.z=PI/2 turned
+    // them onto X (pointing down the pitch) — the "opposite way" the bails sat.
+    b.castShadow = true; grp.add(b);
   }
   return grp;
 }

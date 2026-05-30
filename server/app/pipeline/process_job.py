@@ -76,6 +76,7 @@ _log = logging.getLogger("pocket_drs.pipeline")
 WICKET_HALF_WIDTH_M = 0.2286 / 2.0      # one stump line is ±wicket_half_width from centre
 WICKET_GUARD_M = WICKET_HALF_WIDTH_M + BALL_RADIUS_M
 UMPIRES_CALL_BAND_M = 0.050             # ±50 mm on the edge → umpire's call
+REGULATION_PITCH_LENGTH_M = 20.12       # ICC pitch length (22 yd); pinned when the client omits it
 
 # Calibration is rejected above this reprojection error. The fractional bound
 # (~3% of frame width, ≈32 px on 1080p) keeps it resolution-independent; the
@@ -525,12 +526,18 @@ def run_pipeline(
         pitch_width_m = float(dims.get("width"))
     except (TypeError, ValueError):
         raise ValueError("calibration.pitch_dimensions_m.width required")
-    # Length is optional: when omitted the solver geometry-fits it from
-    # the stump marks. When supplied it becomes the authoritative length
-    # the pose is built around.
+    # Length is optional in the request, but monocular geometry cannot recover
+    # absolute scale from the taps alone: the (FOV x length x camera-height)
+    # trade-off is degenerate, so the solver's "best reprojection" length can be
+    # several metres wrong (test3 auto-fits 16 m for a true 20.12 m net, which
+    # flips a clear miss into a spurious umpire's call). A known real-world
+    # length is therefore mandatory. When the client omits it we pin the ICC
+    # regulation pitch length (22 yd = 20.12 m) — the same value test3_e2e.py
+    # supplies — so the app reproduces the validated offline result. A genuinely
+    # non-regulation net must send its measured length explicitly.
     length_raw = dims.get("length")
     if length_raw is None:
-        pitch_length_m = 0.0  # signal "let solver derive"
+        pitch_length_m = REGULATION_PITCH_LENGTH_M
     else:
         try:
             pitch_length_m = float(length_raw)

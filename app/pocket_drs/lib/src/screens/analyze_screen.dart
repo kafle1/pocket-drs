@@ -62,10 +62,16 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   // Normalized stump cluster quads: top-left, top-right, bottom-right, bottom-left.
   List<Offset>? _strikerStumps;
   List<Offset>? _bowlerStumps;
-  // Pitch length is geometry-fit on the server from the stump marks.
-  // Width barely affects the ball reconstruction; a regulation default
-  // is sent so the in-line LBW corridor renders at the right scale.
+  // Regulation pitch dimensions, both PINNED in the request. Monocular taps
+  // cannot recover absolute scale on their own (the FOV×length×height
+  // trade-off is degenerate), so letting the server geometry-fit the length
+  // produced a wrong scale — e.g. test3 fit 16 m for a true 20.12 m net,
+  // flipping a clear miss into a spurious umpire's call. Pinning the ICC
+  // length (22 yd = 20.12 m) makes the app reproduce the validated offline
+  // analysis exactly. Width barely affects the reconstruction but sizes the
+  // in-line LBW corridor correctly.
   static const double _pitchWidthM = 3.05;
+  static const double _pitchLengthM = 20.12;
 
   // Trimmed segment (whole clip by default). Backend honours these as
   // ``segment.{start_ms, end_ms}`` so it only decodes what the user
@@ -304,10 +310,14 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
             pt(bw[2]),
             pt(bw[3]),
           ],
-          // Only width is sent — pitch length is geometry-fit on the
-          // server from the marked stump rectangle so non-regulation
-          // indoor / practice nets are handled correctly out of the box.
-          'pitch_dimensions_m': <String, Object?>{'width': _pitchWidthM},
+          // Width AND length are pinned: the server cannot reliably recover
+          // absolute scale from taps alone, so the regulation length is sent
+          // to disambiguate it (see _pitchLengthM). A measured field for
+          // non-regulation nets can override this later.
+          'pitch_dimensions_m': <String, Object?>{
+            'width': _pitchWidthM,
+            'length': _pitchLengthM,
+          },
         },
         'tracking': <String, Object?>{'sample_fps': 60, 'max_frames': 180},
       };
