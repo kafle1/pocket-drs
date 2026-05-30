@@ -1016,6 +1016,110 @@ It is honest about its limits. A single phone cannot triangulate depth the way s
 \end{enumerate}
 
 % =====================================================================
+% REFERENCES (IEEE)
+% =====================================================================
+\addcontentsline{toc}{chapter}{References}
+\begin{thebibliography}{99}
+
+\bibitem{owens2003} N. Owens, C. Harris, and C. Stennett, ``Hawk-eye tennis system,'' in \textit{Proc. Int. Conf. Visual Information Engineering (VIE)}, Surrey, U.K., Jul. 2003, pp. 182--185.
+
+\bibitem{zhang2000} Z. Zhang, ``A flexible new technique for camera calibration,'' \textit{IEEE Trans. Pattern Anal. Mach. Intell.}, vol. 22, no. 11, pp. 1330--1334, Nov. 2000.
+
+\bibitem{fischler1981} M. A. Fischler and R. C. Bolles, ``Random sample consensus: A paradigm for model fitting with applications to image analysis and automated cartography,'' \textit{Commun. ACM}, vol. 24, no. 6, pp. 381--395, Jun. 1981.
+
+\bibitem{triggs2000} B. Triggs, P. F. McLauchlan, R. I. Hartley, and A. W. Fitzgibbon, ``Bundle adjustment: A modern synthesis,'' in \textit{Vision Algorithms: Theory and Practice} (Lecture Notes in Computer Science, vol. 1883). Berlin, Germany: Springer, 2000, pp. 298--372.
+
+\bibitem{hartley2004} R. Hartley and A. Zisserman, \textit{Multiple View Geometry in Computer Vision}, 2nd ed. Cambridge, U.K.: Cambridge Univ. Press, 2004.
+
+\bibitem{ponglertnapakorn2025} P. Ponglertnapakorn and S. Suwajanakorn, ``Where is the ball: 3D ball trajectory estimation from 2D monocular tracking,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition Workshops (CVPRW)}, 2025, pp. 6168--6177.
+
+\bibitem{bradski2008} G. Bradski and A. Kaehler, \textit{Learning OpenCV: Computer Vision with the OpenCV Library}. Sebastopol, CA, USA: O'Reilly Media, 2008.
+
+\bibitem{bochinski2017} E. Bochinski, V. Eiselein, and T. Sikora, ``High-speed tracking-by-detection without using image information,'' in \textit{Proc. IEEE Int. Conf. Advanced Video and Signal Based Surveillance (AVSS)}, Lecce, Italy, Aug.--Sep. 2017, pp. 1--6.
+
+\bibitem{zivkovic2004} Z. Zivkovic, ``Improved adaptive Gaussian mixture model for background subtraction,'' in \textit{Proc. 17th Int. Conf. Pattern Recognition (ICPR)}, Cambridge, U.K., Aug. 2004, vol. 2, pp. 28--31.
+
+\bibitem{redmon2016} J. Redmon, S. Divvala, R. Girshick, and A. Farhadi, ``You only look once: Unified, real-time object detection,'' in \textit{Proc. IEEE Conf. Computer Vision and Pattern Recognition (CVPR)}, Las Vegas, NV, USA, Jun. 2016, pp. 779--788.
+
+\bibitem{ultralytics2023} G. Jocher, A. Chaurasia, and J. Qiu, ``Ultralytics YOLOv8.'' Ultralytics, 2023. Accessed: May 2026. [Online]. Available: \url{https://github.com/ultralytics/ultralytics}
+
+\bibitem{scipy2020} P. Virtanen \textit{et al.}, ``SciPy 1.0: Fundamental algorithms for scientific computing in Python,'' \textit{Nature Methods}, vol. 17, no. 3, pp. 261--272, Mar. 2020.
+
+\bibitem{fastapi} S. Ram\'{\i}rez, ``FastAPI: Modern, fast (high-performance) web framework for building APIs with Python.'' Tiangolo. Accessed: May 2026. [Online]. Available: \url{https://fastapi.tiangolo.com}
+
+\bibitem{flutter} Google, ``Flutter: Build apps for any screen.'' Google. Accessed: May 2026. [Online]. Available: \url{https://flutter.dev}
+
+\bibitem{threejs} R. Cabello and contributors, ``Three.js: JavaScript 3D library.'' Accessed: May 2026. [Online]. Available: \url{https://threejs.org}
+
+\bibitem{firebase} Google, ``Firebase: App development platform.'' Google. Accessed: May 2026. [Online]. Available: \url{https://firebase.google.com}
+
+\bibitem{icc} Marylebone Cricket Club, ``The Laws of Cricket (2017 Code, 3rd edition, 2022): Law 36 -- Leg Before Wicket.'' MCC. Accessed: May 2026. [Online]. Available: \url{https://www.lords.org/mcc/the-laws-of-cricket}
+
+\end{thebibliography}
+
+% =====================================================================
+% APPENDICES
+% =====================================================================
+\clearpage
+\chapter*{Appendices}
+\addcontentsline{toc}{chapter}{Appendices}
+
+\section*{Appendix A: REST API Summary}
+
+The mobile client communicates with the backend through a small REST surface. Each request and response payload is JSON. The principal fields are summarised below.
+
+\textbf{Analysis request} (\texttt{POST /analyses}) carries: \texttt{user\_id} (Firebase UID), \texttt{video\_path} (Cloud Storage URI), \texttt{pitch\_corners\_px} (the four tapped corners as \{x, y\} pairs), optional \texttt{stump\_bases\_px} and \texttt{stump\_tops\_px}, \texttt{trim\_start\_ms}, \texttt{trim\_end\_ms}, and \texttt{ball\_color} (\texttt{"red"} or \texttt{"white"}).
+
+\textbf{Analysis response} reports: \texttt{job\_id}, \texttt{status}, \texttt{video} metadata (duration, fps), the recovered \texttt{calibration} (intrinsics $K$, rotation \texttt{rvec}, translation \texttt{tvec}, reprojection error in pixels), the \texttt{track} (per-frame image points, RANSAC inlier count, image-space RMS), the \texttt{world\_trajectory} (3D points plus the projectile-fit parameters and metric RMS), the detected \texttt{events} (bounce and impact in pitch coordinates), the \texttt{lbw} decision (verdict, plain-English reason, the three Rule-36 check booleans, and the predicted strike coordinates at the stump plane), and a \texttt{diagnostics} block with warnings and a log identifier.
+
+\section*{Appendix B: Application Screenshots}
+
+\renewcommand{\thefigure}{B.\arabic{figure}}
+\setcounter{figure}{0}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[height=0.32\textheight,keepaspectratio]{figures/app_calibration.png}
+    \hspace{6pt}
+    \includegraphics[height=0.32\textheight,keepaspectratio]{figures/app_result_out.png}
+    \caption{Left: pitch calibration recovering a valid above-ground camera pose ($8.6$\,px reprojection error). Right: result screen with the reconstructed trajectory and an OUT verdict.}
+    \label{fig:app_screens}
+\end{figure}
+
+Figure~\ref{fig:app_screens} shows the calibration step on a real practice-net clip (left), and the 3D result viewer where the recovered ball path descends, bounces, and the predicted continuation strikes the stumps for an OUT verdict (right).
+
+\section*{Appendix C: LBW Decision Engine (Pseudocode)}
+
+The Rule-36 decision engine in \texttt{server/app/pipeline/process\_job.py} is reproduced below in concise pseudocode. \texttt{BALL\_RADIUS\_M} is $0.036$, \texttt{WICKET\_HALF\_WIDTH\_M} is half the stump width, \texttt{WICKET\_GUARD\_M} adds one ball radius, and the umpire's-call bands are one ball radius horizontally and one ball diameter vertically (to absorb the monocular depth noise floor).
+
+\begin{lstlisting}[language=Python]
+def decide_lbw(bounce, impact, pred_y, pred_z, stump_x_m):
+    checks = {"pitching": True, "impact": True, "hitting": False}
+    reasons = []
+    # 1. Pitched in line: allow one stump width outside leg.
+    if bounce and abs(bounce.y) > WICKET_HALF_WIDTH_M + 0.1143:
+        checks["pitching"] = False
+        reasons.append(f"Pitched outside leg ({bounce.y*100:+.1f}cm)")
+    # 2. Impact in line: must be inside stump line + ball radius (off side).
+    if impact and impact.y > WICKET_GUARD_M + 0.05:
+        checks["impact"] = False
+        reasons.append(f"Impact outside off ({impact.y*100:+.1f}cm)")
+    # 3. Hitting stumps: per-axis umpire's-call bands.
+    if pred_y is not None and pred_z is not None:
+        hits_h = abs(pred_y) <= WICKET_GUARD_M
+        hits_v = 0.0 <= pred_z <= STUMP_HEIGHT_M + BALL_RADIUS_M
+        if hits_h and hits_v:
+            checks["hitting"] = True
+            in_band = (WICKET_GUARD_M - abs(pred_y) <= BALL_RADIUS_M or
+                       (STUMP_HEIGHT_M + BALL_RADIUS_M) - pred_z <= 2 * BALL_RADIUS_M or
+                       pred_z <= 2 * BALL_RADIUS_M)
+    decision = ("umpires_call" if in_band else "out") if all(checks.values()) else "not_out"
+    return {"decision": decision, "checks": checks,
+            "reason": "; ".join(reasons) or "Hitting stumps"}
+\end{lstlisting}
+
+
+% =====================================================================
 % PROJECT LOG BOOK (BIT syllabus appendix: supervisor's visit log)
 % =====================================================================
 \clearpage
@@ -1045,7 +1149,7 @@ The BIT 7\textsuperscript{th}-semester project syllabus requires a project log b
 % Single-entry log-sheet macro. One call renders one page.
 % Arguments: {meeting_no}{date}{start_time}{finish_time}{topics}{achievements}{problems}{next_task}
 \newcommand{\logentry}[8]{%
-\begingroup\setlength{\parskip}{5pt}%
+\clearpage\begingroup\setlength{\parskip}{5pt}%
 \begin{center}\textbf{\fontsize{15}{18}\selectfont Project Log Book Entry Sheet}\end{center}
 \vspace{0.5cm}
 \noindent
@@ -1082,8 +1186,7 @@ Niraj Kafle
 \begin{minipage}[t]{0.46\textwidth}\raggedleft
 \textbf{\large Supervisor Signature}
 \end{minipage}
-\par\endgroup
-\newpage}
+\par\endgroup}
 
 \logentry{01}{5 April 2026}{10:00 AM}{11:00 AM}%
 {\begin{lblist}
@@ -1204,108 +1307,5 @@ Niraj Kafle
 \end{lblist}}%
 {\begin{lblist}\item None\end{lblist}}%
 {\begin{lblist}\item Submit the final report, prepare the defense slide deck, and rehearse the live demo on the project laptop\end{lblist}}
-
-% =====================================================================
-% REFERENCES (IEEE)
-% =====================================================================
-\addcontentsline{toc}{chapter}{References}
-\begin{thebibliography}{99}
-
-\bibitem{owens2003} N. Owens, C. Harris, and C. Stennett, ``Hawk-eye tennis system,'' in \textit{Proc. Int. Conf. Visual Information Engineering (VIE)}, Surrey, U.K., Jul. 2003, pp. 182--185.
-
-\bibitem{zhang2000} Z. Zhang, ``A flexible new technique for camera calibration,'' \textit{IEEE Trans. Pattern Anal. Mach. Intell.}, vol. 22, no. 11, pp. 1330--1334, Nov. 2000.
-
-\bibitem{fischler1981} M. A. Fischler and R. C. Bolles, ``Random sample consensus: A paradigm for model fitting with applications to image analysis and automated cartography,'' \textit{Commun. ACM}, vol. 24, no. 6, pp. 381--395, Jun. 1981.
-
-\bibitem{triggs2000} B. Triggs, P. F. McLauchlan, R. I. Hartley, and A. W. Fitzgibbon, ``Bundle adjustment: A modern synthesis,'' in \textit{Vision Algorithms: Theory and Practice} (Lecture Notes in Computer Science, vol. 1883). Berlin, Germany: Springer, 2000, pp. 298--372.
-
-\bibitem{hartley2004} R. Hartley and A. Zisserman, \textit{Multiple View Geometry in Computer Vision}, 2nd ed. Cambridge, U.K.: Cambridge Univ. Press, 2004.
-
-\bibitem{ponglertnapakorn2025} P. Ponglertnapakorn and S. Suwajanakorn, ``Where is the ball: 3D ball trajectory estimation from 2D monocular tracking,'' in \textit{Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition Workshops (CVPRW)}, 2025, pp. 6168--6177.
-
-\bibitem{bradski2008} G. Bradski and A. Kaehler, \textit{Learning OpenCV: Computer Vision with the OpenCV Library}. Sebastopol, CA, USA: O'Reilly Media, 2008.
-
-\bibitem{bochinski2017} E. Bochinski, V. Eiselein, and T. Sikora, ``High-speed tracking-by-detection without using image information,'' in \textit{Proc. IEEE Int. Conf. Advanced Video and Signal Based Surveillance (AVSS)}, Lecce, Italy, Aug.--Sep. 2017, pp. 1--6.
-
-\bibitem{zivkovic2004} Z. Zivkovic, ``Improved adaptive Gaussian mixture model for background subtraction,'' in \textit{Proc. 17th Int. Conf. Pattern Recognition (ICPR)}, Cambridge, U.K., Aug. 2004, vol. 2, pp. 28--31.
-
-\bibitem{redmon2016} J. Redmon, S. Divvala, R. Girshick, and A. Farhadi, ``You only look once: Unified, real-time object detection,'' in \textit{Proc. IEEE Conf. Computer Vision and Pattern Recognition (CVPR)}, Las Vegas, NV, USA, Jun. 2016, pp. 779--788.
-
-\bibitem{ultralytics2023} G. Jocher, A. Chaurasia, and J. Qiu, ``Ultralytics YOLOv8.'' Ultralytics, 2023. Accessed: May 2026. [Online]. Available: \url{https://github.com/ultralytics/ultralytics}
-
-\bibitem{scipy2020} P. Virtanen \textit{et al.}, ``SciPy 1.0: Fundamental algorithms for scientific computing in Python,'' \textit{Nature Methods}, vol. 17, no. 3, pp. 261--272, Mar. 2020.
-
-\bibitem{fastapi} S. Ram\'{\i}rez, ``FastAPI: Modern, fast (high-performance) web framework for building APIs with Python.'' Tiangolo. Accessed: May 2026. [Online]. Available: \url{https://fastapi.tiangolo.com}
-
-\bibitem{flutter} Google, ``Flutter: Build apps for any screen.'' Google. Accessed: May 2026. [Online]. Available: \url{https://flutter.dev}
-
-\bibitem{threejs} R. Cabello and contributors, ``Three.js: JavaScript 3D library.'' Accessed: May 2026. [Online]. Available: \url{https://threejs.org}
-
-\bibitem{firebase} Google, ``Firebase: App development platform.'' Google. Accessed: May 2026. [Online]. Available: \url{https://firebase.google.com}
-
-\bibitem{icc} Marylebone Cricket Club, ``The Laws of Cricket (2017 Code, 3rd edition, 2022): Law 36 -- Leg Before Wicket.'' MCC. Accessed: May 2026. [Online]. Available: \url{https://www.lords.org/mcc/the-laws-of-cricket}
-
-\end{thebibliography}
-
-% =====================================================================
-% APPENDICES
-% =====================================================================
-\clearpage
-\chapter*{Appendices}
-\addcontentsline{toc}{chapter}{Appendices}
-
-\section*{Appendix A: REST API Summary}
-
-The mobile client communicates with the backend through a small REST surface. Each request and response payload is JSON. The principal fields are summarised below.
-
-\textbf{Analysis request} (\texttt{POST /analyses}) carries: \texttt{user\_id} (Firebase UID), \texttt{video\_path} (Cloud Storage URI), \texttt{pitch\_corners\_px} (the four tapped corners as \{x, y\} pairs), optional \texttt{stump\_bases\_px} and \texttt{stump\_tops\_px}, \texttt{trim\_start\_ms}, \texttt{trim\_end\_ms}, and \texttt{ball\_color} (\texttt{"red"} or \texttt{"white"}).
-
-\textbf{Analysis response} reports: \texttt{job\_id}, \texttt{status}, \texttt{video} metadata (duration, fps), the recovered \texttt{calibration} (intrinsics $K$, rotation \texttt{rvec}, translation \texttt{tvec}, reprojection error in pixels), the \texttt{track} (per-frame image points, RANSAC inlier count, image-space RMS), the \texttt{world\_trajectory} (3D points plus the projectile-fit parameters and metric RMS), the detected \texttt{events} (bounce and impact in pitch coordinates), the \texttt{lbw} decision (verdict, plain-English reason, the three Rule-36 check booleans, and the predicted strike coordinates at the stump plane), and a \texttt{diagnostics} block with warnings and a log identifier.
-
-\section*{Appendix B: Application Screenshots}
-
-\renewcommand{\thefigure}{B.\arabic{figure}}
-\setcounter{figure}{0}
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[height=0.32\textheight,keepaspectratio]{figures/app_calibration.png}
-    \hspace{6pt}
-    \includegraphics[height=0.32\textheight,keepaspectratio]{figures/app_result_out.png}
-    \caption{Left: pitch calibration recovering a valid above-ground camera pose ($8.6$\,px reprojection error). Right: result screen with the reconstructed trajectory and an OUT verdict.}
-    \label{fig:app_screens}
-\end{figure}
-
-Figure~\ref{fig:app_screens} shows the calibration step on a real practice-net clip (left), and the 3D result viewer where the recovered ball path descends, bounces, and the predicted continuation strikes the stumps for an OUT verdict (right).
-
-\section*{Appendix C: LBW Decision Engine (Pseudocode)}
-
-The Rule-36 decision engine in \texttt{server/app/pipeline/process\_job.py} is reproduced below in concise pseudocode. \texttt{BALL\_RADIUS\_M} is $0.036$, \texttt{WICKET\_HALF\_WIDTH\_M} is half the stump width, \texttt{WICKET\_GUARD\_M} adds one ball radius, and the umpire's-call bands are one ball radius horizontally and one ball diameter vertically (to absorb the monocular depth noise floor).
-
-\begin{lstlisting}[language=Python]
-def decide_lbw(bounce, impact, pred_y, pred_z, stump_x_m):
-    checks = {"pitching": True, "impact": True, "hitting": False}
-    reasons = []
-    # 1. Pitched in line: allow one stump width outside leg.
-    if bounce and abs(bounce.y) > WICKET_HALF_WIDTH_M + 0.1143:
-        checks["pitching"] = False
-        reasons.append(f"Pitched outside leg ({bounce.y*100:+.1f}cm)")
-    # 2. Impact in line: must be inside stump line + ball radius (off side).
-    if impact and impact.y > WICKET_GUARD_M + 0.05:
-        checks["impact"] = False
-        reasons.append(f"Impact outside off ({impact.y*100:+.1f}cm)")
-    # 3. Hitting stumps: per-axis umpire's-call bands.
-    if pred_y is not None and pred_z is not None:
-        hits_h = abs(pred_y) <= WICKET_GUARD_M
-        hits_v = 0.0 <= pred_z <= STUMP_HEIGHT_M + BALL_RADIUS_M
-        if hits_h and hits_v:
-            checks["hitting"] = True
-            in_band = (WICKET_GUARD_M - abs(pred_y) <= BALL_RADIUS_M or
-                       (STUMP_HEIGHT_M + BALL_RADIUS_M) - pred_z <= 2 * BALL_RADIUS_M or
-                       pred_z <= 2 * BALL_RADIUS_M)
-    decision = ("umpires_call" if in_band else "out") if all(checks.values()) else "not_out"
-    return {"decision": decision, "checks": checks,
-            "reason": "; ".join(reasons) or "Hitting stumps"}
-\end{lstlisting}
 
 \end{document}
