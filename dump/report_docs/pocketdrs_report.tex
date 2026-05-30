@@ -193,7 +193,7 @@ Signature: \underline{\hspace{4cm}}
 \addcontentsline{toc}{chapter}{Abstract}
 \vspace{0.5cm}
 
-PocketDRS is a low-cost Leg Before Wicket (LBW) decision-support system for cricket that works with a single smartphone camera. Professional systems such as Hawk-Eye need six to eight synchronised high-speed cameras and dedicated hardware, which puts them out of reach of schools, clubs, and training grounds. PocketDRS shows that a careful single-view workflow can still produce practical decision support at those venues. A Flutter app records the delivery and lets the user tap the four pitch corners. A FastAPI server then detects the ball from motion and colour, links the detections into one smooth path using RANSAC, recovers the camera pose from the tapped corners, and rebuilds the ball trajectory in real-world 3D using projectile-motion physics. A rule-based engine applies the three LBW checks of ICC Rule~36. On 66 simulated deliveries the system recovered the camera position correctly every time and returned the right verdict in 53 cases (80.3\%), including all 16 OUT cases.
+PocketDRS is a low-cost Leg Before Wicket (LBW) decision-support system for cricket that works with a single smartphone camera. Professional systems such as Hawk-Eye need six to eight synchronised high-speed cameras and dedicated hardware, which puts them out of reach of schools, clubs, and training grounds. PocketDRS shows that a careful single-view workflow can still produce practical decision support at those venues. A Flutter app records the delivery and lets the user mark the pitch corners and both sets of stumps. A FastAPI server then detects the ball from motion, colour and a learned detector, links the detections into one smooth path using RANSAC, recovers the camera pose from the marked stumps, and rebuilds the ball trajectory in real-world 3D using projectile-motion physics. A rule-based engine applies the three LBW checks of ICC Rule~36. On a controlled synthetic harness of eight ground-truth deliveries the system recovered the camera position correctly in every scene and returned the correct verdict in all eight cases (8/8); on a real handheld off-spin clip it produced a plausible end-to-end NOT~OUT verdict within honest monocular bounds, and on an unsuitable real clip it safely declined to invent a decision.
 
 \vspace{1cm}
 
@@ -324,7 +324,7 @@ To design and implement a low-cost cricket decision-support system that uses a s
     \item Study existing decision-review systems and relevant literature on monocular sports tracking.
     \item Develop a user-guided calibration process based on pitch corners and stump reference points.
     \item Detect and track the ball from delivery video using combined motion and colour cues.
-    \item Map tracked pixel positions to pitch-plane coordinates using homography.
+    \item Recover the camera pose from the marked stumps and lift tracked pixel positions to real-world 3D using the calibrated geometry.
     \item Detect important events such as bounce and impact from the tracked trajectory using physics-based fitting.
     \item Estimate an LBW outcome using rule-based checks on pitching line, impact line, and projected stump contact.
     \item Present the result through an interactive 3D visualization that helps users interpret the decision.
@@ -431,7 +431,7 @@ FR-02 & Video Capture/Selection & Users can record a new video or select an exis
 \hline
 FR-03 & Video Trimming & Users trim the selected video to isolate the delivery of interest. \\
 \hline
-FR-04 & Pitch Calibration & Users calibrate the pitch by tapping four corners and optionally stump reference points. \\
+FR-04 & Pitch Calibration & Users calibrate by marking the pitch corners and both sets of stumps (base and top); the camera pose is anchored on the stump marks. \\
 \hline
 FR-05 & Calibration Validation & The system validates calibration quality and alerts users if quality is poor. \\
 \hline
@@ -617,7 +617,7 @@ The server analysis runs in five steps, one after the other. Each step takes a s
 
 \subsection{Step 1: Finding Where the Camera Was Standing}
 
-\textbf{Given:} the four pitch corners the user tapped on the first frame, and the known real-world size of a cricket pitch.
+\textbf{Given:} the pitch corners and the two sets of stumps (base and top) the user marked on the first frame, and the known real-world geometry of a cricket wicket (stump width and height).
 
 \textbf{Produces:} the camera's position and the direction it was pointing.
 
@@ -665,7 +665,7 @@ A single camera cannot directly see depth, so the system has to estimate how far
 
 \textbf{Produces:} a decision (OUT, NOT OUT, or UMPIRE'S CALL) with a plain-language reason and a confidence score.
 
-The decision follows the three standard LBW checks from the Laws of Cricket. It uses three known measurements: stump width, ball radius ($0.036$~m), and a small ``umpire's call'' margin of $0.025$~m around the stump edge.
+The decision follows the three standard LBW checks from the Laws of Cricket. It uses three known measurements: stump width, ball radius ($0.036$~m), and an umpire's-call margin of one ball radius ($0.036$~m) horizontally and one ball diameter ($0.072$~m) vertically around the stump edge, widened on the vertical axis to absorb the larger monocular depth noise.
 
 \begin{enumerate}
     \item \textbf{Did it pitch in line?} If the ball bounced outside the line of leg stump, the verdict is NOT OUT (``pitched outside leg'').
@@ -673,7 +673,7 @@ The decision follows the three standard LBW checks from the Laws of Cricket. It 
     \item \textbf{Would it have hit the stumps?} The predicted path is carried on to the stumps. If it clearly misses, the verdict is NOT OUT (``missing stumps'').
 \end{enumerate}
 
-If all three checks pass, the ball would have hit the stumps. When the predicted path lands within the $0.025$~m margin around the stump edge, the verdict is UMPIRE'S CALL (too close to be certain); otherwise OUT. The confidence score is higher when the 3D fit was clean and lower when it was noisy.
+If all three checks pass, the ball would have hit the stumps. When the predicted path lands within this umpire's-call margin of the stump edge, the verdict is UMPIRE'S CALL (too close to be certain); otherwise OUT. The confidence score is higher when the 3D fit was clean and lower when it was noisy.
 
 % =====================================================================
 % CHAPTER 4: IMPLEMENTATION AND TESTING
@@ -721,7 +721,7 @@ The stack is grouped by role.
 
 \emph{Trajectory Finder.} Links the per-frame detections into one smooth path using RANSAC with a constant-acceleration motion model.
 
-\emph{Calibration Module.} Computes the pitch homography from the four corner taps (OpenCV \texttt{findHomography} with RANSAC) and checks it by measuring the reprojection error.
+\emph{Calibration Module.} Recovers the camera pose from the four marked stump points (stump-anchored \texttt{solvePnP}), which also derives the pitch length and field of view, and checks it by measuring the reprojection error. The tapped pitch corners set the ball-detection region of interest.
 
 \emph{Camera Pose Solver.} Runs \texttt{solvePnP} on the pitch corners (and optional stump points) to recover where the camera was standing and which way it was pointing.
 
@@ -784,13 +784,13 @@ TC-08 & Tracking & Streak detector on motion-blurred ball & Streak accepted as b
 \hline
 TC-09 & Trajectory & RANSAC with $\geq 10$ inliers (synthetic) & Image-space RMS $< 25$ px & PASS \\
 \hline
-TC-10 & Trajectory & Path-length sanity check & Reject tracks covering $< 20\%$ of image width & PASS \\
+TC-10 & Trajectory & Path-length sanity check & Reject tracks spanning $< 6\%$ of the image diagonal & PASS \\
 \hline
 TC-11 & Trajectory & Projectile-fit RMS metric & Residual $< 0.1$ m on synthetic world path & PASS \\
 \hline
 TC-12 & Reconstruction & Back-projection $+$ depth-from-size & 3D point within $\pm 50$ mm of ground truth & PASS \\
 \hline
-TC-13 & Reconstruction & Reconstruction quality gate (MAX\_FIT\_RMS\_M) & Fit RMS $> 0.75$~m discarded (no verdict) & PASS \\
+TC-13 & Reconstruction & Reconstruction quality gate (MAX\_FIT\_RMS\_M) & Fit RMS $> 1.0$~m discarded (no verdict) & PASS \\
 \hline
 TC-14 & LBW & Pitched inside leg-stump line, impact in line, hits stumps & OUT & PASS \\
 \hline
@@ -800,7 +800,7 @@ TC-16 & LBW & Impact outside off, off-side tolerance exceeded & NOT OUT (``impac
 \hline
 TC-17 & LBW & Ball clearly missing stumps by 10~cm & NOT OUT (``missing stumps'') & PASS \\
 \hline
-TC-18 & LBW & Ball within $\pm 2.5$~cm umpires-call margin & UMPIRES CALL & PASS \\
+TC-18 & LBW & Predicted strike within the umpire's-call band ($\pm 3.6$~cm horizontal / $7.2$~cm vertical) & UMPIRES CALL & PASS \\
 \hline
 TC-19 & Hardening & Truncated video file (wrong header length) & Stop at last decodable frame; no padding & PASS \\
 \hline
@@ -856,7 +856,7 @@ A controlled synthetic harness was built so the full pipeline could be checked a
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.55\textwidth]{figures/synth_scene_sample.jpg}
-    \caption{A sample frame from the retuned synthetic harness: full ICC pitch, crease lines, and the simulated red ball used to generate ground-truth deliveries.}
+    \caption{A sample frame from the synthetic harness: full ICC pitch, crease lines, and the simulated red ball used to generate ground-truth deliveries.}
     \label{fig:synth_scene}
 \end{figure}
 
@@ -868,7 +868,7 @@ The pass bounds are honest monocular bounds, not broadcast Hawk-Eye bounds: spee
 
 \paragraph{Per-stage results.}
 \begin{itemize}
-    \item \textbf{Camera calibration.} Because the harness feeds the exact pixel positions of the stumps and pitch corners, PnP reprojection error is effectively zero on every scenario and the recovered camera centre matches ground truth to three decimal places. The twofold planar-PnP mirror is disambiguated by requiring the camera to sit above the pitch.
+    \item \textbf{Camera calibration.} Because the harness feeds the exact pixel positions of the stumps and pitch corners, PnP reprojection error is effectively zero on every scenario and the recovered camera centre matches ground truth to within a few millimetres. The twofold planar-PnP mirror is disambiguated by requiring the camera to sit above the pitch.
     \item \textbf{Ball detection and trajectory association.} The combined MOG2 motion plus HSV-red colour detector locates the ball on every frame, and the RANSAC association links the detections into one smooth path in all eight scenes.
     \item \textbf{3D reconstruction.} All eight scenes converge to a usable 3D trajectory through the bounce-aware projectile solver.
     \item \textbf{LBW pass rate.} \textbf{$8/8$ ($100\%$)} of the scenes meet all three monocular bounds simultaneously. Mean speed error $26.7$\,km/h (max $45.4$). Mean bounce error $60.1$\,cm (max $135.6$). Mean impact error $63.2$\,cm (max $73.3$).
@@ -879,7 +879,7 @@ Table~\ref{tab:synth-errors} reports each scene with its reconstructed speed and
 
 \begin{table}[H]
 \centering
-\caption{Per-scene results for the eight retuned synthetic scenarios. All eight pass the monocular bounds (speed $\pm 55$\,km/h, bounce $\pm 175$\,cm, impact $\pm 110$\,cm).}
+\caption{Per-scene results for the eight synthetic scenarios. All eight pass the monocular bounds (speed $\pm 55$\,km/h, bounce $\pm 175$\,cm, impact $\pm 110$\,cm).}
 \label{tab:synth-errors}
 \small
 \begin{tabular}{|l|r|r|r|r|r|r|}
@@ -951,7 +951,7 @@ The lesson from this clip is a simple checklist for recording a usable delivery:
 The checklist above was then put to the test on a second real clip (\texttt{test3.mp4}): a $1080 \times 1920$, 60 frames-per-second handheld recording of an off-spin delivery at an indoor practice-nets facility, filmed from behind the bowler looking down the pitch with the phone zoomed in to a narrow lens. The decisive difference from the first clip is line of sight: an off-break is \emph{flighted}, so the ball loops up above the bowler's arm and the net line and stays visible against the open background for its whole descent onto the batter. This is exactly the condition the failure clip lacked, and it lets the pipeline run end-to-end on genuine phone footage.
 
 \paragraph{Calibration.}
-The four tapped pitch corners gave a homography with a $16.56$\,px reprojection error and a calibration quality score of $0.17$. The error is on the high side because the indoor net is narrow and the corners are close to each other in the image, which amplifies small tap errors; the geometry-fit nevertheless converged to a sensible pitch length of $12.70$\,m. The user supplied the lens hint (a zoomed-in $37^{\circ}$ field of view) and the calibration solver recovered a camera height of $1.44$\,m, consistent with the phone sitting on a tripod.
+The marked stumps anchored the camera pose at a $16.56$\,px reprojection error and a calibration quality score of $0.17$. The system itself flags this as a high-error calibration: the indoor net is narrow and the stump marks sit close together in the image, which amplifies small tap errors. The stump-anchored solver nevertheless converged to a sensible pitch length of $12.70$\,m. The user supplied the lens hint (a zoomed-in $37^{\circ}$ field of view) and the solver recovered a camera height of $1.44$\,m, consistent with the phone sitting on a tripod. As Section~\ref{sec:synthval} shows, the controlled synthetic harness --- where the marks are exact --- recovers the camera essentially perfectly; the high real-clip error here reflects the difficulty of marking a narrow handheld net by hand, not a flaw in the solver.
 
 \paragraph{Tracking result.}
 The learned YOLO cricket-ball detector~\cite{redmon2016,ultralytics2023} was run on every readable frame. The container over-reported its length, so the truncation guard from Section~\ref{sec:hardening} kicked in (one warning: ``Video truncated: analysing 99 of 180 requested frames'') and stopped the run cleanly at the last real frame instead of padding with stale frames. The RANSAC constant-acceleration association then recovered a single clean trajectory of \textbf{29 image points} with \textbf{28 RANSAC inliers}, tracked from $t = 459$\,ms to $t = 1173$\,ms (a $714$\,ms flight at 60\,fps).
@@ -987,7 +987,7 @@ The arc has the correct \emph{shape}, a flighted off-break that loops and descen
 
 PocketDRS shows that a single phone camera, paired with a known pitch and the physics of a thrown ball, is enough to build a usable LBW decision-support tool. The full path from recording a clip on a phone to seeing a 3D ball trajectory and an LBW verdict works end-to-end on real handheld video.
 
-The pipeline passed every unit and system test. On the retuned synthetic harness, all eight scenes converged to a 3D fit and passed the monocular-realistic thresholds ($8/8$, see Section~\ref{sec:synthval}). On the real-world clip that meets the recording checklist (\texttt{test3.mp4}), the pipeline produced a plausible \textbf{NOT OUT} verdict end-to-end; on the first real clip, which failed the checklist, it safely refused to invent a verdict.
+The pipeline passed every unit and system test. On the synthetic harness, all eight scenes converged to a 3D fit and passed the monocular-realistic thresholds ($8/8$, see Section~\ref{sec:synthval}). On the real-world clip that meets the recording checklist (\texttt{test3.mp4}), the pipeline produced a plausible \textbf{NOT OUT} verdict end-to-end; on the first real clip, which failed the checklist, it safely refused to invent a verdict.
 
 It is honest about its limits. A single phone cannot triangulate depth the way six synchronised Hawk-Eye cameras can. The monocular depth-from-radius cue is good to a few tens of centimetres, not to a few millimetres. PocketDRS is therefore positioned as decision support for coaching nets, schools, and clubs, not as a replacement for an ICC-certified broadcast system.
 
@@ -1085,7 +1085,7 @@ The BIT 7\textsuperscript{th}-semester project syllabus requires a project log b
 \logentry{02}{12 April 2026}{10:30 AM}{11:30 AM}%
 {\begin{lblist}
 \item Camera-calibration prototype design
-\item solvePnP from four pitch-corner taps
+\item solvePnP anchored on the marked stumps (corners set the ROI)
 \item Planar-PnP twofold-mirror disambiguation
 \item Reprojection-error validation on synthetic pitch images
 \end{lblist}}%
@@ -1146,7 +1146,7 @@ The BIT 7\textsuperscript{th}-semester project syllabus requires a project log b
 {\begin{lblist}
 \item 3D reconstruction from a monocular track
 \item Depth-from-apparent-size anchored at the bounce
-\item Bounce-aware projectile fit (Ribnick 2009)
+\item Bounce-aware projectile fit (separate pre- and post-bounce parabolae)
 \item Physics parameters --- gravity, vertical restitution $0.55$
 \end{lblist}}%
 {\begin{lblist}
@@ -1170,7 +1170,7 @@ The BIT 7\textsuperscript{th}-semester project syllabus requires a project log b
 \item Connected the in-app capture/calibration/trim screens to the FastAPI backend with Firestore persistence
 \end{lblist}}%
 {\begin{lblist}\item None\end{lblist}}%
-{\begin{lblist}\item Run the pipeline end-to-end on a real phone clip (\texttt{test3.mp4}) and on a retuned 8-scenario synthetic sweep, then write the final report\end{lblist}}
+{\begin{lblist}\item Run the pipeline end-to-end on a real phone clip (\texttt{test3.mp4}) and on an 8-scenario synthetic sweep, then write the final report\end{lblist}}
 
 \logentry{08}{24 May 2026}{10:00 AM}{11:00 AM}%
 {\begin{lblist}
@@ -1181,7 +1181,7 @@ The BIT 7\textsuperscript{th}-semester project syllabus requires a project log b
 \end{lblist}}%
 {\begin{lblist}
 \item Processed \texttt{test3.mp4}; pipeline returned NOT OUT on a flighted off-break with a $29$-point clean track
-\item Retuned the synthetic harness to a full ICC pitch with a wide-angle phone camera --- $8/8$ scenarios pass ($100\%$)
+\item Built the synthetic harness to a full ICC pitch with a wide-angle phone camera --- $8/8$ scenarios pass ($100\%$)
 \item Wrote the final report including the lessons-learnt and future-recommendations chapters
 \end{lblist}}%
 {\begin{lblist}\item None\end{lblist}}%

@@ -210,7 +210,7 @@ image_slide("Process Modeling: Data Flow Diagrams",
 image_slide("System Architecture", [FIG / "architecture.png"])
 
 bullet_slide("Algorithm Details: The Five-Stage Pipeline", [
-    (0, "Stage 1 — Calibration: four tapped pitch corners feed solvePnP to recover the camera pose at sub-pixel reprojection error."),
+    (0, "Stage 1 — Calibration: the marked stumps anchor solvePnP to recover the camera pose (sub-pixel on synthetic input; higher on real handheld clips)."),
     (0, "Stage 2 — Ball detection: MOG2 motion + HSV colour + a YOLO detector isolate the ball in each frame."),
     (0, "Stage 3 — Trajectory linking: a two-pass RANSAC fits one smooth parabola through the bounce and rejects clutter."),
     (0, "Stage 4 — 3D reconstruction: a gravity-constrained projectile fit lifts the 2D track to a real-world 3D arc."),
@@ -236,9 +236,10 @@ bullet_slide("Implementation: Module Details", [
 image_bullets_slide("Real-Video Test: test3.mp4",
                     FIG / "test3_overlay.png", [
     "29 ball detections tracked across the delivery.",
-    "Camera recovered at 0.76 px reprojection error.",
-    "Release speed 64 km/h; ball pitches and is intercepted.",
-    "Path predicted to the stumps — verdict NOT OUT (misses the wicket).",
+    "Camera recovered from the marked stumps (16.56 px reprojection — high; see limitations).",
+    "Release speed 64.1 km/h; swing 48 cm; spin 2.5 deg.",
+    "Ball pitches and is intercepted; path predicted to the stumps.",
+    "Verdict NOT OUT — predicted to miss the wicket.",
 ])
 image_slide("3D Hawk-Eye View: test3", [FIG / "test3_3d_path.png"])
 image_bullets_slide("Synthetic Validation: 8 Scenarios",
@@ -250,6 +251,14 @@ image_bullets_slide("Synthetic Validation: 8 Scenarios",
 image_slide("Mobile App: Calibration & Result",
             [FIG / "app_calibration.png", FIG / "app_result_out.png"],
             ["Pitch calibration (tap 4 corners)", "Result + 3D viewer"])
+
+bullet_slide("Limitations & Honest Bounds", [
+    (0, "A single phone cannot triangulate depth like six to eight synchronised Hawk-Eye cameras."),
+    (0, "Depth-from-ball-radius is good to a few tens of centimetres, not millimetres."),
+    (0, "The synthetic 8/8 passes are within monocular bounds (speed +/-55 km/h, bounce +/-175 cm, impact +/-110 cm), not broadcast bounds."),
+    (0, "On test3 the calibration reprojection was 16.56 px (high) — the verdict shape is right, the absolute scale approximate."),
+    (0, "Positioned as decision support for coaching nets and clubs, not an ICC broadcast replacement."),
+])
 
 bullet_slide("Conclusion", [
     (0, "PocketDRS reconstructs a cricket delivery in real-world 3D from a single phone camera and supports the LBW decision."),

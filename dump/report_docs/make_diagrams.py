@@ -92,7 +92,7 @@ ARCHITECTURE = _HEAD.format(rankdir="TB") + """
       label="CV Pipeline";
       style=filled; fillcolor="#ffeedd"; fontname="Helvetica";
       p1 [label="Calibration\\n(solvePnP)"];
-      p2 [label="Ball Detection\\n(motion + colour + streak)"];
+      p2 [label="Ball Detection\\n(motion + colour + YOLO)"];
       p3 [label="Trajectory\\n(RANSAC)"];
       p4 [label="3D Reconstruction\\n(projectile fit)"];
       p5 [label="LBW Decision\\n(ICC Rule 36)"];
