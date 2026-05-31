@@ -76,7 +76,6 @@ _log = logging.getLogger("pocket_drs.pipeline")
 WICKET_HALF_WIDTH_M = 0.2286 / 2.0      # one stump line is ±wicket_half_width from centre
 WICKET_GUARD_M = WICKET_HALF_WIDTH_M + BALL_RADIUS_M
 UMPIRES_CALL_BAND_M = 0.050             # ±50 mm on the edge → umpire's call
-REGULATION_PITCH_LENGTH_M = 20.12       # ICC pitch length (22 yd); pinned when the client omits it
 
 # Calibration is rejected above this reprojection error. The fractional bound
 # (~3% of frame width, ≈32 px on 1080p) keeps it resolution-independent; the
@@ -89,9 +88,19 @@ CALIB_REJECT_REPROJ_FRAC = 0.03
 # Synthetic footage fits to ~0.02-0.22 m; real handheld clips carry more
 # depth-from-size noise and land around 0.5-0.9 m even when correct, so the
 # bound gives real footage headroom while still firmly rejecting clutter fits
-# (which run several metres). Above this the 3D path does not explain the
-# observations, so we discard it rather than render a fabricated trajectory.
+# (which run several metres). Below this the fit is trusted with no caveat.
+# Between this and MAX_FIT_RMS_M_HARD (scaled to the trajectory's own span)
+# the fit is still used but flagged low-confidence — a delivery shot more
+# end-on (ball moving along the camera axis) reconstructs looser because
+# monocular depth is noisier there, and refusing it outright is worse than a
+# best-effort tracked result with a warning. Above the hard ceiling the 3D
+# path does not explain the observations, so we discard it.
 MAX_FIT_RMS_M = 1.0
+MAX_FIT_RMS_M_HARD = 2.0
+# Fraction of the trajectory's down-pitch span allowed as fit RMS before the
+# hard ceiling. 0.14 passes a ~12 m end-on net delivery at ~1.3 m RMS while a
+# ~5 m synthetic/clean arc stays bound at the 1.0 m floor.
+FIT_RMS_SPAN_FRAC = 0.14
 
 
 ProgressFn = Callable[[int, str], None]
@@ -526,18 +535,19 @@ def run_pipeline(
         pitch_width_m = float(dims.get("width"))
     except (TypeError, ValueError):
         raise ValueError("calibration.pitch_dimensions_m.width required")
-    # Length is optional in the request, but monocular geometry cannot recover
-    # absolute scale from the taps alone: the (FOV x length x camera-height)
-    # trade-off is degenerate, so the solver's "best reprojection" length can be
-    # several metres wrong (test3 auto-fits 16 m for a true 20.12 m net, which
-    # flips a clear miss into a spurious umpire's call). A known real-world
-    # length is therefore mandatory. When the client omits it we pin the ICC
-    # regulation pitch length (22 yd = 20.12 m) — the same value test3_e2e.py
-    # supplies — so the app reproduces the validated offline result. A genuinely
-    # non-regulation net must send its measured length explicitly.
+    # Length is optional. When the caller pins it (a known regulation 20.12 m
+    # match pitch) it becomes the authoritative scale the pose is built around.
+    # When omitted we geometry-fit it from the stump marks, so non-regulation
+    # indoor / practice nets (test4/test5 are far shorter than 20.12 m)
+    # calibrate to their real length instead of being forced to 20.12 m — which
+    # over-constrains the pose and spikes the reprojection error (test4 jumps
+    # from ~4 px geometry-fit to 45 px when forced to 20.12 m + a pinned FOV).
+    # NOTE: monocular scale from taps alone is weakly observable (the
+    # FOV x length trade-off is near-degenerate), so for the most accurate
+    # absolute scale on a known full pitch the client should still pin length.
     length_raw = dims.get("length")
     if length_raw is None:
-        pitch_length_m = REGULATION_PITCH_LENGTH_M
+        pitch_length_m = 0.0  # signal "let the solver geometry-fit the length"
     else:
         try:
             pitch_length_m = float(length_raw)
@@ -748,13 +758,36 @@ def run_pipeline(
                 )
             except Exception as e:  # noqa: BLE001
                 warnings.append(f"Colour detector '{colour}' failed: {e}")
+        yolo_result: tuple[list, object | None] | None = None
         if yolo_weights:
             try:
                 detector = YoloBallDetector(str(yolo_weights), conf=float(track_req.get("yolo_conf", 0.2)))
-                candidates_results.append(_track_with(detector, None))
+                yolo_result = _track_with(detector, None)
+                candidates_results.append(yolo_result)
             except Exception as e:  # noqa: BLE001 — missing ultralytics/torch or bad weights
                 warnings.append(f"Learned detector unavailable, used motion+colour ({e})")
-        if not candidates_results:
+        # Prefer the ball-specific YOLO track when it forms a solid arc. The
+        # colour/motion detectors rank by image span, which a near-camera
+        # bowler's run-up (large, fast foreground motion of white kit/limbs)
+        # can win over the small, far real ball — so "most ball-like by span"
+        # silently locks onto the bowler. YOLO only fires on ball-like objects,
+        # so a confident YOLO arc is the trustworthy one; fall back to the
+        # span ranking only when YOLO is absent or too sparse to trust.
+        yolo_fit = yolo_result[1] if yolo_result else None
+        yolo_solid = (
+            yolo_fit is not None
+            and len(getattr(yolo_fit, "points", []) or []) >= 8
+            and getattr(yolo_fit, "inliers", 0) >= 6
+        )
+        if yolo_solid:
+            detections_per_frame, fit = yolo_result  # type: ignore[assignment]
+            if any(_ball_likeness(c) > _ball_likeness(yolo_result) for c in candidates_results if c is not yolo_result):
+                warnings.append(
+                    "Preferred the learned ball detector over a higher-span "
+                    "colour/motion track (likely foreground clutter such as the "
+                    "bowler's run-up)."
+                )
+        elif not candidates_results:
             detections_per_frame, fit = ([], None)
         else:
             best = max(candidates_results, key=_ball_likeness)
@@ -838,7 +871,26 @@ def run_pipeline(
             prefer_linear=True,
         )
 
-        if recon.world_points and recon.fit is not None and recon.fit.rms_m <= MAX_FIT_RMS_M:
+        # Adaptive acceptance: scale the RMS bound to the trajectory's own
+        # down-pitch span so harder, more end-on deliveries are not refused
+        # outright. Tight fits pass silently; loose-but-usable fits pass with a
+        # low-confidence warning; only fits above the hard ceiling are dropped.
+        fit_ok = bool(recon.world_points) and recon.fit is not None
+        if fit_ok:
+            _xs = [p.x_m for p in recon.world_points]
+            _span_m = max(_xs) - min(_xs)
+            _rms_limit = min(
+                MAX_FIT_RMS_M_HARD, max(MAX_FIT_RMS_M, FIT_RMS_SPAN_FRAC * _span_m)
+            )
+            fit_ok = recon.fit.rms_m <= _rms_limit
+            if fit_ok and recon.fit.rms_m > MAX_FIT_RMS_M:
+                warnings.append(
+                    f"3D trajectory fit is loose ({recon.fit.rms_m:.2f} m RMS over "
+                    f"a {_span_m:.1f} m path) — this camera angle is more end-on, "
+                    "so depth recovery is less certain; treat speed and the line/"
+                    "height decision as indicative rather than exact."
+                )
+        if fit_ok:
             t0_ms = recon.world_points[0].t_ms
             world_trajectory_payload = {
                 "points_m": [
@@ -954,11 +1006,14 @@ def run_pipeline(
             # ---------------------------- video overlay ----------------------------
             # Project the full path + prediction + stumps into image pixels so the
             # client can draw the Hawk-Eye overlay straight onto the source video.
-            impact_t_rel = (
-                recon.world_points[recon.impact_index].t_ms - t0_ms
-                if recon.impact_index is not None
-                else recon.world_points[-1].t_ms - t0_ms
-            )
+            # The flight overlay spans the whole reconstructed arc (release →
+            # last reconstructed point). For a normal delivery the points are
+            # truncated at impact, so this IS the release→impact segment; but
+            # when the impact resolves to the very first frame (a degenerate or
+            # very early direction change, as on some net clips) keying off the
+            # impact index collapsed the flight to nothing — the last
+            # reconstructed point always gives a drawable arc.
+            impact_t_rel = recon.world_points[-1].t_ms - t0_ms
             overlay_payload = build_overlay_px(
                 pose=pose,
                 fit=recon.fit,
