@@ -394,19 +394,19 @@ with $g = 9.81$~m/s$^2$. The ball moves at a steady speed sideways and forward, 
 
 \section{Literature Review}
 
-Owens \textit{et al.}~\cite{owens2003} described the original Hawk-Eye ball tracker. It uses six to eight synchronised cameras and custom calibration to rebuild ball paths to a few millimetres. \textbf{Why this matters for PocketDRS:} this is the benchmark PocketDRS is compared against, and the source of the multi-camera cost problem the project tries to side-step.
+Owens \textit{et al.}~\cite{owens2003} described the original Hawk-Eye ball tracker. It uses six to eight synchronised cameras and custom calibration to rebuild ball paths to a few millimetres. It is the benchmark PocketDRS is compared against, and the source of the multi-camera cost problem the project tries to side-step.
 
-Zhang~\cite{zhang2000} introduced a flexible camera-calibration method using a printed checkerboard. It removed the need for expensive calibration rigs and is still the textbook way to measure focal length and principal point. \textbf{Why this matters for PocketDRS:} the same intrinsic-parameter model is what $K$ in our pinhole equation refers to, even though we estimate $K$ from FOV instead of running the full checkerboard.
+Zhang~\cite{zhang2000} introduced a flexible camera-calibration method using a printed checkerboard. It removed the need for expensive calibration rigs and is still the textbook way to measure focal length and principal point. The same intrinsic-parameter model is what $K$ in our pinhole equation refers to, even though we estimate $K$ from FOV instead of running the full checkerboard.
 
-Fischler and Bolles~\cite{fischler1981} proposed RANSAC, a way to fit a model when many of the data points are wrong. It samples small random subsets, fits a candidate, and keeps the one that explains the most points. \textbf{Why this matters for PocketDRS:} we use RANSAC twice, once for the pitch homography and once to link noisy per-frame ball detections into one trajectory.
+Fischler and Bolles~\cite{fischler1981} proposed RANSAC, a way to fit a model when many of the data points are wrong. It samples small random subsets, fits a candidate, and keeps the one that explains the most points. PocketDRS uses RANSAC twice, once for the pitch homography and once to link noisy per-frame ball detections into one trajectory.
 
-Hartley and Zisserman~\cite{hartley2004} wrote the standard reference on multiple-view geometry, including homography and projective reconstruction. \textbf{Why this matters for PocketDRS:} the single-view geometry used to map pitch pixels to metres comes straight from this text.
+Hartley and Zisserman~\cite{hartley2004} wrote the standard reference on multiple-view geometry, including homography and projective reconstruction. The single-view geometry used to map pitch pixels to metres comes straight from this text.
 
-Triggs \textit{et al.}~\cite{triggs2000} formalised bundle adjustment as the joint least-squares refinement of camera parameters and 3D structure. \textbf{Why this matters for PocketDRS:} the projectile-fit step uses the same least-squares idea, only with a physics-based parametric curve instead of a free 3D point cloud.
+Triggs \textit{et al.}~\cite{triggs2000} formalised bundle adjustment as the joint least-squares refinement of camera parameters and 3D structure. The projectile-fit step uses the same least-squares idea, only with a physics-based parametric curve instead of a free 3D point cloud.
 
-Ponglertnapakorn and Suwajanakorn~\cite{ponglertnapakorn2025} recovered 3D ball trajectories from a single 2D track by using the physics of ball motion as the constraint. \textbf{Why this matters for PocketDRS:} this is the closest published prior work and is the direct evidence that monocular 3D ball reconstruction is feasible at all.
+Ponglertnapakorn and Suwajanakorn~\cite{ponglertnapakorn2025} recovered 3D ball trajectories from a single 2D track by using the physics of ball motion as the constraint. This is the closest published prior work and is the direct evidence that monocular 3D ball reconstruction is feasible at all.
 
-Bochinski \textit{et al.}~\cite{bochinski2017} showed that high-quality multi-frame tracking is possible by linking detections frame-to-frame using simple bounding-box overlap (IoU). \textbf{Why this matters for PocketDRS:} the same detection-linking idea is used here, with a projectile-motion model in place of plain box overlap to reject background clutter.
+Bochinski \textit{et al.}~\cite{bochinski2017} showed that high-quality multi-frame tracking is possible by linking detections frame-to-frame using simple bounding-box overlap (IoU). The same detection-linking idea is used here, with a projectile-motion model in place of plain box overlap to reject background clutter.
 
 \textbf{Synthesis.} Single-view sports analysis becomes possible when two things hold: the scene contains a known geometric reference (the pitch) and the motion follows a strong rule (projectile flight). PocketDRS uses both, and adds the mobile capture, cloud processing, and visualisation needed to make it usable end-to-end.
 
@@ -457,14 +457,7 @@ FR-12 & Decision History & Users view past analyses and decisions saved to Fires
 \hline
 \end{longtable}
 
-The table above specifies the functional requirements of the system. The same requirements are summarised graphically as a use-case diagram in Figure~\ref{fig:usecase}, showing the two principal actors (the User and the PocketDRS System) and the primary actions they perform. As the project follows the structured approach, the system's processes are modelled in detail by the data flow diagrams that follow, rather than by the object-oriented class, sequence, state, or deployment diagrams.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.85\textwidth,height=0.40\textheight,keepaspectratio]{figures/use_case_diagram.png}
-    \caption{Use-case diagram showing the actors (User, System) and primary actions (capture video, tap calibration, view 3D result).}
-    \label{fig:usecase}
-\end{figure}
+The table above specifies the functional requirements of the system. As the project follows the structured approach, these requirements are modelled in detail by the data flow diagrams that follow, rather than by the object-oriented class, sequence, state, or deployment diagrams.
 
 \subsubsection{Non-functional Requirements}
 
