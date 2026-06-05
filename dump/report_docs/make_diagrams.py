@@ -249,8 +249,8 @@ DFD0 = _HEAD.format(rankdir="LR") + """
   node [fontsize=11];
   user  [shape=box, style=filled, fillcolor="#eef4ff", label="User"];
   fbase [shape=box, style=filled, fillcolor="#eef4ff", label="Firebase"];
-  sys   [shape=box, style="rounded,filled", fillcolor="#fff6ee", width=1.8,
-         height=1.0, label="0\\nPocketDRS System"];
+  sys   [shape=Mrecord, style=filled, fillcolor="#fff6ee",
+         label="{ 0 | PocketDRS System }"];
 
   user -> sys [label="delivery video,\\ncalibration taps"];
   sys -> user [label="LBW decision,\\n3D visualisation"];
@@ -268,10 +268,11 @@ DFD0 = _HEAD.format(rankdir="LR") + """
 DFD1 = _HEAD.format(rankdir="TB") + """
   node [fontsize=11];
   user  [shape=box, style=filled, fillcolor="#eef4ff", label="User"];
-  p1 [shape=box, style="rounded,filled", fillcolor="#fff6ee", label="1\\nCapture & Trim"];
-  p2 [shape=box, style="rounded,filled", fillcolor="#fff6ee", label="2\\nCalibrate Pitch"];
-  p3 [shape=box, style="rounded,filled", fillcolor="#fff6ee", label="3\\nAnalyse Delivery"];
-  p4 [shape=box, style="rounded,filled", fillcolor="#fff6ee", label="4\\nPresent Result"];
+  node [shape=Mrecord, style=filled, fillcolor="#fff6ee"];
+  p1 [label="{ 1.0 | Capture & Trim }"];
+  p2 [label="{ 2.0 | Calibrate Pitch }"];
+  p3 [label="{ 3.0 | Analyse Delivery }"];
+  p4 [label="{ 4.0 | Present Result }"];
   d1 [shape=plaintext, label=""" + _datastore("D1", "Calibration Store") + """];
   d2 [shape=plaintext, label=""" + _datastore("D2", "Job / Result Store") + """];
 
@@ -296,14 +297,11 @@ DFD1 = _HEAD.format(rankdir="TB") + """
 PHYSICAL_DFD = _HEAD.format(rankdir="TB") + """
   node [fontsize=11];
   user [shape=box, style=filled, fillcolor="#eef4ff", label="User\\n(smartphone)"];
-  p1 [shape=box, style="rounded,filled", fillcolor="#fff6ee",
-      label="1\\nFlutter Mobile App\\n(Android / iOS)"];
-  p2 [shape=box, style="rounded,filled", fillcolor="#fff6ee",
-      label="2\\nFastAPI Service\\n(Google Cloud Run)"];
-  p3 [shape=box, style="rounded,filled", fillcolor="#fff6ee",
-      label="3\\nCV Pipeline\\n(OpenCV / SciPy, Cloud Run)"];
-  p4 [shape=box, style="rounded,filled", fillcolor="#fff6ee",
-      label="4\\nThree.js WebView Viewer\\n(on device)"];
+  node [shape=Mrecord, style=filled, fillcolor="#fff6ee"];
+  p1 [label="{ 1.0 | Flutter Mobile App\\n(Android / iOS) }"];
+  p2 [label="{ 2.0 | FastAPI Service\\n(Google Cloud Run) }"];
+  p3 [label="{ 3.0 | CV Pipeline\\n(OpenCV / SciPy, Cloud Run) }"];
+  p4 [label="{ 4.0 | Three.js WebView Viewer\\n(on device) }"];
   d1 [shape=plaintext, label=""" + _datastore("D1", "Cloud Firestore") + """];
   d2 [shape=plaintext, label=""" + _datastore("D2", "Cloud Storage (video files)") + """];
 
