@@ -405,8 +405,13 @@ def detection_to_world(
     if not (radius_px >= 0.5):
         raise ValueError("Detection radius invalid for depth estimation")
     depth = (pose.fx * ball_radius_m) / float(radius_px)
-    ray = _backproject_ray(pose, u, v)  # unit, camera frame
-    point_cam = ray * depth
+    ray = _backproject_ray(pose, u, v)  # unit ray, camera frame, optical axis = +z
+    # `depth` is the optical-axis (camera-Z) distance from depth-from-size, not a
+    # Euclidean range. Scale the ray so its z-component equals `depth`; using the
+    # unit ray directly places off-axis balls too close by sqrt(1 + x^2 + y^2)
+    # (0 at frame centre, ~15-20% at the edge). ray[2] = 1/||[x, y, 1]|| lies in
+    # (0, 1] for any real pixel, so the divide is safe (== 1 at image centre).
+    point_cam = (ray / ray[2]) * depth
     world = _camera_to_world(pose, point_cam)
     return world, float(depth)
 

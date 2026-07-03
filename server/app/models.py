@@ -142,6 +142,8 @@ class CreateJobRequest(BaseModel):
     calibration: CalibrationRequest
     tracking: TrackingRequest
     overrides: OverridesRequest | None = None
+    # Batsman handedness sets which side is leg vs off for the LBW rules.
+    batsman_handedness: Literal["right", "left"] = "right"
 
 
 class ProgressInfo(BaseModel):

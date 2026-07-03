@@ -1,16 +1,16 @@
 """Generate all PocketDRS report diagrams from their textual sources.
 
 Produces real, project-specific diagrams for a pure structured-analysis
-report: architecture, use-case (UML), ER (crow's-foot), DFD level 0/1, and
-a physical DFD. Reproducible: re-run after any design change.
+report: architecture, ER (crow's-foot), DFD level 0/1, and a physical DFD.
+Reproducible: re-run after any design change.
 
 Notation choices (all textbook-standard):
-  * Use-case  -> PlantUML standard UML (stick-figure actors + system box).
   * ER        -> PlantUML crow's-foot / Information Engineering notation.
-  * DFD L0/L1 -> Graphviz, Gane-Sarson convention (rounded-rectangle numbered
-                 processes, external entities as plain rectangles, data stores
-                 drawn as the standard open-ended rectangle glyph).
-  * Physical  -> Gane-Sarson DFD mapped onto physical implementation nodes.
+  * DFD L0/L1 -> Graphviz, Gane-Sarson / Yourdon structured-analysis symbols:
+                 rounded-rectangle numbered processes (number/name split),
+                 plain-rectangle external entities, open-ended-rectangle data
+                 stores. Vertical layout, labelled directed data-flow arrows.
+  * Physical  -> Same symbol set mapped onto physical implementation nodes.
 
 Requires graphviz (`dot`) and plantuml on PATH.
 """
@@ -55,17 +55,28 @@ def render_puml(name: str, puml: str) -> None:
     print(f"  {name}.png")
 
 
-# Standard Gane-Sarson data-store glyph: an HTML-like table with borders only
-# on the top and bottom edges, split into a narrow "Dn" cell and the store
-# name. This reproduces the open-ended rectangle used in textbook DFDs.
+# Gane-Sarson data-store glyph: an open-ended rectangle split into a narrow
+# bold "Dn" cell and the store name, with borders on the top and bottom edges
+# only. This is the standard data-store symbol used in structured DFDs.
 def _datastore(ident: str, name: str) -> str:
     return (
         '<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6">'
         '<TR>'
-        f'<TD SIDES="TB" BORDER="1" BGCOLOR="#eefbf0"><B>{ident}</B></TD>'
-        f'<TD SIDES="TBL" BORDER="1" BGCOLOR="#eefbf0">{name}</TD>'
+        f'<TD SIDES="TB" BORDER="1" BGCOLOR="#eef7ee"><B>{ident}</B></TD>'
+        f'<TD SIDES="TBL" BORDER="1" BGCOLOR="#eef7ee">{name}</TD>'
         '</TR></TABLE>>'
     )
+
+
+# Shared DFD symbol styles (classic Gane-Sarson / Yourdon structured-analysis
+# notation, matching the reference report): a process is a rounded rectangle
+# (Mrecord) split into a number cell and a name cell; an external entity is a
+# plain rectangle (light blue for a person, pink for a third-party service);
+# a data store is the open-ended rectangle glyph above. Vertical (top-down)
+# layout, labelled directed data-flow arrows.
+PROCESS_STYLE = 'shape=Mrecord, style=filled, fillcolor="#eef2fb", color="#5b7fbd"'
+ENTITY_STYLE = 'shape=box, style=filled, fillcolor="#eef2fb", color="#5b7fbd"'
+EXT_STYLE = 'shape=box, style=filled, fillcolor="#fde8e8", color="#cf8d8d"'
 
 
 # ---------------------------------------------------------------------------
@@ -240,70 +251,67 @@ Pitch    ||--|| Calib   : defines
 """
 
 # ---------------------------------------------------------------------------
-# 4. DFD Level 0 (context diagram) -- Gane-Sarson convention
+# 4. DFD Level 0 (context diagram) -- Gane-Sarson symbols
 #
-# External entities = plain rectangles. The single context process is a
-# numbered rounded rectangle (process 0). No data stores at context level.
+# External entities = plain rectangles (User blue, Firebase pink). The single
+# context process is a rounded numbered process (process 0). No data stores.
 # ---------------------------------------------------------------------------
-DFD0 = _HEAD.format(rankdir="LR") + """
+DFD0 = _HEAD.format(rankdir="LR") + f"""
   node [fontsize=11];
-  user  [shape=box, style=filled, fillcolor="#eef4ff", label="User"];
-  fbase [shape=box, style=filled, fillcolor="#eef4ff", label="Firebase"];
-  sys   [shape=Mrecord, style=filled, fillcolor="#fff6ee",
-         label="{ 0 | PocketDRS System }"];
+  user  [{ENTITY_STYLE}, label="User"];
+  fbase [{EXT_STYLE}, label="Firebase"];
+  sys   [{PROCESS_STYLE}, label="{{ 0 | PocketDRS System }}"];
 
   user -> sys [label="delivery video,\\ncalibration taps"];
   sys -> user [label="LBW decision,\\n3D visualisation"];
   sys -> fbase [label="auth token,\\nanalysis docs"];
   fbase -> sys [label="user identity,\\nstored results"];
-}
+}}
 """
 
 # ---------------------------------------------------------------------------
-# 5. DFD Level 1 -- Gane-Sarson convention
+# 5. DFD Level 1 -- Gane-Sarson symbols
 #
-# Numbered rounded-rectangle processes (1..4), external entity as a plain
-# rectangle, data stores drawn with the standard open-ended rectangle glyph.
+# Rounded numbered processes (1.0..4.0, number/name split), plain-rectangle
+# external entity, open-ended-rectangle data stores. Vertical (top-down).
 # ---------------------------------------------------------------------------
-DFD1 = _HEAD.format(rankdir="TB") + """
+DFD1 = _HEAD.format(rankdir="TB") + f"""
   node [fontsize=11];
-  user  [shape=box, style=filled, fillcolor="#eef4ff", label="User"];
-  node [shape=Mrecord, style=filled, fillcolor="#fff6ee"];
-  p1 [label="{ 1.0 | Capture & Trim }"];
-  p2 [label="{ 2.0 | Calibrate Pitch }"];
-  p3 [label="{ 3.0 | Analyse Delivery }"];
-  p4 [label="{ 4.0 | Present Result }"];
-  d1 [shape=plaintext, label=""" + _datastore("D1", "Calibration Store") + """];
-  d2 [shape=plaintext, label=""" + _datastore("D2", "Job / Result Store") + """];
+  user [{ENTITY_STYLE}, label="User"];
+  p1 [{PROCESS_STYLE}, label="{{ 1.0 | Capture & Trim }}"];
+  p2 [{PROCESS_STYLE}, label="{{ 2.0 | Calibrate Pitch }}"];
+  p3 [{PROCESS_STYLE}, label="{{ 3.0 | Analyse Delivery }}"];
+  p4 [{PROCESS_STYLE}, label="{{ 4.0 | Present Result }}"];
+  d1 [shape=plaintext, label={_datastore("D1", "Calibration Store")}];
+  d2 [shape=plaintext, label={_datastore("D2", "Job / Result Store")}];
 
-  user -> p1 [label="raw video  ", labeldistance=2];
-  user -> p2 [label="  corner taps"];
-  p1 -> p3 [label="trimmed clip"];
+  user -> p1 [label="raw video"];
+  user -> p2 [label="corner taps"];
   p2 -> d1 [label="calibration"];
+  p1 -> p3 [label="trimmed clip"];
   d1 -> p3 [label="pitch geometry"];
   p3 -> d2 [label="job status,\\n3D result"];
   d2 -> p4 [label="trajectory,\\ndecision"];
   p4 -> user [label="3D view + verdict"];
-}
+}}
 """
 
 # ---------------------------------------------------------------------------
-# 6. Physical DFD -- Gane-Sarson convention mapped onto implementation nodes
+# 6. Physical DFD -- same symbol set mapped onto implementation nodes
 #
-# Same notation as the logical DFDs (numbered rounded-rectangle processes,
-# plain-rectangle external entity, open-ended data-store glyphs) but the
-# processes are the real physical components and stores are the real services.
+# Same notation as the logical DFDs (numbered 3D-box processes, 3D-box external
+# entity, cylinder data stores) but the processes are the real physical
+# components and the stores are the real services.
 # ---------------------------------------------------------------------------
-PHYSICAL_DFD = _HEAD.format(rankdir="TB") + """
+PHYSICAL_DFD = _HEAD.format(rankdir="TB") + f"""
   node [fontsize=11];
-  user [shape=box, style=filled, fillcolor="#eef4ff", label="User\\n(smartphone)"];
-  node [shape=Mrecord, style=filled, fillcolor="#fff6ee"];
-  p1 [label="{ 1.0 | Flutter Mobile App\\n(Android / iOS) }"];
-  p2 [label="{ 2.0 | FastAPI Service\\n(Google Cloud Run) }"];
-  p3 [label="{ 3.0 | CV Pipeline\\n(OpenCV / SciPy, Cloud Run) }"];
-  p4 [label="{ 4.0 | Three.js WebView Viewer\\n(on device) }"];
-  d1 [shape=plaintext, label=""" + _datastore("D1", "Cloud Firestore") + """];
-  d2 [shape=plaintext, label=""" + _datastore("D2", "Cloud Storage (video files)") + """];
+  user [{ENTITY_STYLE}, label="User\\n(smartphone)"];
+  p1 [{PROCESS_STYLE}, label="{{ 1.0 | Flutter Mobile App\\n(Android / iOS) }}"];
+  p2 [{PROCESS_STYLE}, label="{{ 2.0 | FastAPI Service\\n(Google Cloud Run) }}"];
+  p3 [{PROCESS_STYLE}, label="{{ 3.0 | CV Pipeline\\n(OpenCV / SciPy, Cloud Run) }}"];
+  p4 [{PROCESS_STYLE}, label="{{ 4.0 | Three.js WebView Viewer\\n(on device) }}"];
+  d1 [shape=plaintext, label={_datastore("D1", "Cloud Firestore")}];
+  d2 [shape=plaintext, label={_datastore("D2", "Cloud Storage (video files)")}];
 
   user -> p1 [label="video + taps"];
   p1 -> p2 [label="HTTPS upload"];
@@ -314,7 +322,7 @@ PHYSICAL_DFD = _HEAD.format(rankdir="TB") + """
   d1 -> p1 [label="read history"];
   p1 -> p4 [label="3D payload"];
   p4 -> user [label="3D view + verdict"];
-}
+}}
 """
 
 # Graphviz-rendered diagrams.
@@ -325,9 +333,9 @@ DIAGRAMS = {
     "physical_dfd": PHYSICAL_DFD,
 }
 
-# PlantUML-rendered diagrams.
+# PlantUML-rendered diagrams. (No use-case diagram: PocketDRS uses the
+# structured approach, so it is modelled with DFDs, not UML use cases.)
 PUML_DIAGRAMS = {
-    "use_case_diagram": USECASE_PUML,
     "er_diagram": ER_PUML,
 }
 

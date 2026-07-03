@@ -8,3 +8,6 @@ opencv-python-headless==4.10.0.84
 httpx==0.28.1
 pytest==8.3.4
 firebase-admin==6.6.0
+ultralytics==8.4.52
+torch==2.12.0
+torchvision==0.27.0

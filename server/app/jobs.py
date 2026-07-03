@@ -153,6 +153,44 @@ class JobStore:
             raise RuntimeError("Job result unavailable (empty result file)")
         return json.loads(raw)
 
+    def recover_interrupted_jobs(self) -> list[str]:
+        """Mark jobs left ``queued``/``running`` by a previous process as ``failed``.
+
+        Called once at startup. The in-memory executor that owned those jobs is
+        gone after a restart, so their status would otherwise never advance and
+        clients would poll a queued/running job forever. Job dirs with a
+        missing/corrupt status.json are skipped.
+        """
+        jobs_root = self._data_dir / "jobs"
+        if not jobs_root.exists():
+            return []
+        recovered: list[str] = []
+        for job_dir in sorted(jobs_root.iterdir()):
+            if not job_dir.is_dir():
+                continue
+            paths = self.job_paths(job_dir.name)
+            try:
+                status = self.read_status(paths).get("status")
+            except Exception:  # noqa: BLE001 - missing/corrupt status.json -> skip
+                continue
+            if status not in (JobStatus.queued.value, JobStatus.running.value):
+                continue
+            try:
+                self.write_status(
+                    paths,
+                    status=JobStatus.failed,
+                    progress=ProgressInfo(pct=100, stage="failed"),
+                    error=ApiError(
+                        code="INTERNAL_ERROR",
+                        message="interrupted by server restart",
+                        details=None,
+                    ),
+                )
+                recovered.append(job_dir.name)
+            except Exception:  # noqa: BLE001 - unwritable job dir -> skip
+                continue
+        return recovered
+
 
 def default_job_store() -> JobStore:
     base = os.environ.get("POCKET_DRS_DATA_DIR")

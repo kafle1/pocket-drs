@@ -32,7 +32,7 @@
 % subsection 12pt, all bold
 \titleformat{\chapter}[display]
   {\normalfont\fontsize{16}{19}\bfseries\centering}
-  {\MakeUppercase{\chaptertitlename}\ \thechapter}
+  {\chaptertitlename\ \thechapter:}
   {0.6em}
   {\MakeUppercase}
 \titlespacing*{\chapter}{0pt}{0pt}{24pt}
@@ -86,33 +86,31 @@
 % =====================================================================
 \begin{titlepage}
 \begin{center}
+\vspace*{0.4cm}
 
-\textbf{\fontsize{14}{17}\selectfont Lincoln University College}\\[4pt]
-\textbf{\fontsize{12}{15}\selectfont Faculty of Computer Science and Multimedia}\\[28pt]
+\textbf{\fontsize{18}{22}\selectfont Lincoln University College}\\[28pt]
 
-\textbf{\fontsize{16}{19}\selectfont PocketDRS: A Single-View 3D Trajectory\\
-Reconstruction and Decision Review System for Cricket}\\[24pt]
+\textbf{\fontsize{15}{18}\selectfont Faculty of Computer Science and Multimedia}\\[34pt]
 
-\textbf{\fontsize{14}{17}\selectfont A PROJECT REPORT}\\[10pt]
-\fontsize{12}{15}\selectfont
-Submitted to\\[4pt]
-Department of Information Technology\\
-Phoenix College of Management\\
-Maitidevi, Kathmandu\\[20pt]
+\textbf{\fontsize{17}{21}\selectfont PocketDRS: A Single-View 3D Trajectory\\
+Reconstruction and Decision Review System for Cricket}\\[16pt]
 
-In partial fulfilment of the requirements for the\\
-\textbf{Bachelor in Information Technology (BIT)}\\[24pt]
+\textbf{\fontsize{15}{18}\selectfont A PROJECT REPORT}\\[24pt]
 
-Submitted by\\[8pt]
-\textbf{Niraj Kafle}\\
-BIT 7th Semester\\
-University ID: LC0003001674\\[18pt]
+\fontsize{13}{16}\selectfont
+Submitted to\\[22pt]
+Department of Information Technology\\[22pt]
+Phoenix College of Management\\[22pt]
+Maitidevi, Kathmandu\\[26pt]
 
-Under the Supervision of\\[6pt]
-\textbf{Mr. Saishab Bhattarai}\\
-Project Supervisor\\[24pt]
+In partial fulfilment of the requirements for the Bachelor in Information\\
+Technology (BIT)\\[26pt]
 
-\vfill
+Submitted by\\[22pt]
+\textbf{Niraj Kafle}\\[6pt]
+BIT 7th Semester\\[6pt]
+University ID : LC0003001674\\[24pt]
+
 \textbf{2026/05/30}
 
 \end{center}
@@ -327,13 +325,10 @@ To design and implement a low-cost cricket decision-support system that uses a s
 \subsection{Specific Objectives}
 
 \begin{enumerate}
-    \item Study existing decision-review systems and relevant literature on monocular sports tracking.
-    \item Develop a user-guided calibration process based on pitch corners and stump reference points.
-    \item Detect and track the ball from delivery video using combined motion and colour cues.
-    \item Recover the camera pose from the marked stumps and lift tracked pixel positions to real-world 3D using the calibrated geometry.
-    \item Detect important events such as bounce and impact from the tracked trajectory using physics-based fitting.
-    \item Estimate an LBW outcome using rule-based checks on pitching line, impact line, and projected stump contact.
-    \item Present the result through an interactive 3D visualisation that helps users interpret the decision.
+    \item To develop a user-guided calibration process that marks the pitch corners and stumps to recover the camera pose.
+    \item To detect and track the ball from a single-camera delivery video and reconstruct its path in real-world 3D using physics-based fitting.
+    \item To estimate an LBW outcome using rule-based checks on the pitching line, impact line, and projected stump contact.
+    \item To present the result through an interactive 3D visualisation that helps users interpret the decision.
 \end{enumerate}
 
 \section{Scope and Limitation}
@@ -365,7 +360,17 @@ PocketDRS followed an incremental, agile approach: requirement analysis (from li
 
 \section{Report Organisation}
 
-Chapter~2 presents the background and literature review. Chapter~3 covers system analysis and design (requirements, feasibility, ER, DFD, architecture, and the five-step algorithm). Chapter~4 details implementation and testing, including unit / system tests, synthetic validation, and real-world clips. Chapter~5 concludes with lessons learnt and future recommendations. References and appendices follow.
+The report is organised into five chapters:
+
+\begin{itemize}
+    \item \textbf{Chapter 1: Introduction} introduces the project, the problem statement, the objectives, the scope and limitations, the development methodology, and the organisation of the report.
+    \item \textbf{Chapter 2: Background Study and Literature Review} presents the underlying theory (camera geometry, projectile motion, RANSAC, ICC Rule~36) and reviews the related work.
+    \item \textbf{Chapter 3: System Analysis and Design} covers the functional and non-functional requirements, feasibility analysis, ER model, data flow diagrams, system architecture, and the five-step algorithm.
+    \item \textbf{Chapter 4: Implementation and Testing} details the implementation of the modules, the unit and system tests, the synthetic validation, and the real-world clips.
+    \item \textbf{Chapter 5: Conclusion and Future Recommendations} summarises the outcome, the lessons learnt, and the recommendations for future work.
+\end{itemize}
+
+The references and the appendices follow Chapter~5.
 
 % =====================================================================
 % CHAPTER 2: BACKGROUND STUDY AND LITERATURE REVIEW
@@ -421,39 +426,39 @@ Bochinski \textit{et al.}~\cite{bochinski2017} showed that high-quality multi-fr
 
 \subsubsection{Functional Requirements}
 
-\begin{longtable}{|p{1.3cm}|p{4cm}|p{7.2cm}|}
+\begin{longtable}{|p{4.5cm}|p{9.3cm}|}
 \caption{Functional requirements of the PocketDRS system.}\\
 \hline
-\textbf{ID} & \textbf{Requirement} & \textbf{Description} \\
+\textbf{Requirement} & \textbf{Description} \\
 \hline
 \endfirsthead
 \hline
-\textbf{ID} & \textbf{Requirement} & \textbf{Description} \\
+\textbf{Requirement} & \textbf{Description} \\
 \hline
 \endhead
-FR-01 & User Authentication & Users sign in via Firebase Authentication with email/password or social login. \\
+User Authentication & Users sign in via Firebase Authentication with email/password or social login. \\
 \hline
-FR-02 & Video Capture/Selection & Users can record a new video or select an existing video from the gallery. \\
+Video Capture/Selection & Users can record a new video or select an existing video from the gallery. \\
 \hline
-FR-03 & Video Trimming & Users trim the selected video to isolate the delivery of interest. \\
+Video Trimming & Users trim the selected video to isolate the delivery of interest. \\
 \hline
-FR-04 & Pitch Calibration & Users calibrate by marking the pitch corners and both sets of stumps (base and top); the camera pose is anchored on the stump marks. \\
+Pitch Calibration & Users calibrate by marking the pitch corners and both sets of stumps (base and top); the camera pose is anchored on the stump marks. \\
 \hline
-FR-05 & Calibration Validation & The system validates calibration quality and alerts users if quality is poor. \\
+Calibration Validation & The system validates calibration quality and alerts users if quality is poor. \\
 \hline
-FR-06 & Save Pitch Config & Calibration data is saved locally and to Firestore for reuse on the same ground. \\
+Save Pitch Config & Calibration data is saved locally and to Firestore for reuse on the same ground. \\
 \hline
-FR-07 & Job Submission & The user submits the trimmed video and calibration for server-side processing. \\
+Job Submission & The user submits the trimmed video and calibration for server-side processing. \\
 \hline
-FR-08 & Ball Detection & The server detects ball candidates using motion and colour cues. \\
+Ball Detection & The server detects ball candidates using motion and colour cues. \\
 \hline
-FR-09 & 3D Reconstruction & The server recovers the ball trajectory in world coordinates using physics fitting. \\
+3D Reconstruction & The server recovers the ball trajectory in world coordinates using physics fitting. \\
 \hline
-FR-10 & LBW Decision & The server evaluates and returns a decision (OUT / NOT OUT / UMPIRE'S CALL) with rationale. \\
+LBW Decision & The server evaluates and returns a decision (OUT / NOT OUT / UMPIRE'S CALL) with rationale. \\
 \hline
-FR-11 & 3D Visualisation & The client displays an interactive 3D trajectory using Three.js in a WebView. \\
+3D Visualisation & The client displays an interactive 3D trajectory using Three.js in a WebView. \\
 \hline
-FR-12 & Decision History & Users view past analyses and decisions saved to Firestore. \\
+Decision History & Users view past analyses and decisions saved to Firestore. \\
 \hline
 \end{longtable}
 
@@ -535,7 +540,7 @@ The Level 1 DFD splits the system into four processes: (1) Capture \& Trim Deliv
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.62\textwidth,height=0.5\textheight,keepaspectratio]{figures/dfd_level1.png}
+    \includegraphics[width=0.6\textwidth,height=0.62\textheight,keepaspectratio]{figures/dfd_level1.png}
     \caption{Level 1 DFD.}
     \label{fig:dfd1}
 \end{figure}
@@ -607,7 +612,7 @@ The physical DFD maps the logical processes onto the real, deployed infrastructu
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.78\textwidth]{figures/physical_dfd.png}
+    \includegraphics[width=0.62\textwidth,height=0.62\textheight,keepaspectratio]{figures/physical_dfd.png}
     \caption{Physical DFD of the deployed system.}
     \label{fig:physdfd}
 \end{figure}

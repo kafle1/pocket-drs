@@ -83,6 +83,10 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   // can optionally delete it after analysis to save phone storage).
   bool _videoFromCamera = false;
 
+  // Batsman handedness — sets which side is leg vs off for the LBW decision.
+  // Sent as the request's ``batsman_handedness`` ('right' or 'left').
+  String _batsmanHandedness = 'right';
+
   // Processing / result state.
   int? _progressPct;
   String? _progressStage;
@@ -320,6 +324,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
           },
         },
         'tracking': <String, Object?>{'sample_fps': 60, 'max_frames': 180},
+        'batsman_handedness': _batsmanHandedness,
       };
 
       final bytes = await video.readAsBytes();
@@ -392,6 +397,10 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         await Future.delayed(const Duration(seconds: 1));
         continue;
       }
+      // Healthy poll — clear the accumulated blip count so failures must be
+      // CONSECUTIVE (not merely cumulative over the multi-minute window) to
+      // abort an otherwise-progressing job.
+      transient = 0;
       if (mounted) {
         setState(() {
           _progressPct = status.pct;
@@ -399,7 +408,21 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
           _progressError = status.errorMessage;
         });
       }
-      if (status.status == 'succeeded') return api.getJobResult(jobId);
+      if (status.status == 'succeeded') {
+        // A single network blip at the finish line must not discard a fully
+        // completed analysis — retry the result fetch under the same transient
+        // tolerance the status polls use.
+        while (true) {
+          if (!mounted) throw StateError('Cancelled');
+          try {
+            return await api.getJobResult(jobId);
+          } catch (e) {
+            if (e is StateError) rethrow;
+            if (++transient >= maxTransient) rethrow;
+            await Future.delayed(const Duration(seconds: 1));
+          }
+        }
+      }
       if (status.status == 'failed') {
         throw StateError(status.errorMessage ?? 'Server analysis failed');
       }
@@ -518,7 +541,17 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         ? const EdgeInsets.only(right: AppSpacing.md)
         : const EdgeInsets.only(left: AppSpacing.md);
 
-    return Scaffold(
+    return PopScope(
+      // Route the Android hardware back button through the same one-stage
+      // step-back the in-app arrow uses, so back never backgrounds/exits the
+      // app mid-flow. At the first step (upload) there is nothing to step back
+      // to, so canPop lets the OS handle the pop (exit).
+      canPop: _step == _Step.upload,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _back();
+      },
+      child: Scaffold(
       backgroundColor: isResults ? AppColors.inkBlack : scheme.surface,
       appBar: showHeader
           ? PreferredSize(
@@ -602,13 +635,18 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
             )
           : null,
       body: _body(),
+      ),
     );
   }
 
   Widget _body() {
     switch (_step) {
       case _Step.upload:
-        return _UploadStep(onPick: _pickVideo);
+        return _UploadStep(
+          onPick: _pickVideo,
+          handedness: _batsmanHandedness,
+          onHandednessChanged: (h) => setState(() => _batsmanHandedness = h),
+        );
       case _Step.trim:
         final v = _video;
         return v == null
@@ -734,8 +772,14 @@ class _StepBar extends StatelessWidget {
 }
 
 class _UploadStep extends StatelessWidget {
-  const _UploadStep({required this.onPick});
+  const _UploadStep({
+    required this.onPick,
+    required this.handedness,
+    required this.onHandednessChanged,
+  });
   final void Function(ImageSource) onPick;
+  final String handedness;
+  final void Function(String) onHandednessChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -768,6 +812,21 @@ class _UploadStep extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
+                Text(
+                  'BATSMAN',
+                  style: AppTypography.mono(theme.textTheme.labelMedium)
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'right', label: Text('Right-handed')),
+                    ButtonSegment(value: 'left', label: Text('Left-handed')),
+                  ],
+                  selected: {handedness},
+                  onSelectionChanged: (s) => onHandednessChanged(s.first),
+                ),
+                const SizedBox(height: AppSpacing.xl),
                 DrsButton(
                   label: 'RECORD VIDEO',
                   icon: Icons.videocam_outlined,

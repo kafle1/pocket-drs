@@ -233,7 +233,9 @@ make server-test  # Run backend tests
 
 ## 📝 License
 
-Research/Educational project - See LICENSE file
+**Proprietary — All Rights Reserved.** Copyright (c) 2025-2026 Niraj Kafle.
+No copying, use, modification, distribution, or ML training on any part of
+this repository without prior written permission. See [LICENSE](LICENSE).
 
 ---
 

@@ -1,0 +1,56 @@
+PocketDRS — Proprietary License
+Copyright (c) 2025-2026 Niraj Kafle. All Rights Reserved.
+
+1. OWNERSHIP
+   This software, including all source code, object code, models, weights,
+   datasets, documentation, diagrams, reports, validation artifacts, and any
+   derived or associated materials (collectively, the "Software"), is the
+   exclusive property of Niraj Kafle (the "Owner").
+
+2. NO LICENSE GRANTED
+   No license, right, or interest in the Software is granted to any person or
+   entity, whether by implication, estoppel, or otherwise. Publication or
+   availability of the Software in any repository, paper, or presentation does
+   NOT constitute a grant of rights.
+
+3. PROHIBITED ACTS
+   Without the Owner's prior written permission, you may NOT:
+   (a) copy, reproduce, or duplicate the Software, in whole or in part;
+   (b) use the Software or any part of it for any purpose, commercial or
+       non-commercial, including research, teaching, or evaluation;
+   (c) modify, adapt, translate, or create derivative works of the Software;
+   (d) distribute, sublicense, sell, rent, lease, lend, or otherwise transfer
+       the Software or access to it;
+   (e) reverse engineer, decompile, or disassemble any compiled or trained
+       component of the Software, including machine-learning model weights;
+   (f) use the Software or its outputs to train, fine-tune, evaluate, or
+       benchmark any machine-learning system;
+   (g) remove, alter, or obscure any copyright, license, or attribution
+       notice contained in the Software.
+
+4. ACADEMIC SUBMISSION
+   The Software is submitted in partial fulfilment of academic requirements.
+   Examination bodies may retain and inspect the Software solely for
+   assessment and plagiarism-detection purposes. No other rights accrue.
+
+5. THIRD-PARTY COMPONENTS
+   Third-party open-source components used by the Software remain governed by
+   their own licenses. This license applies only to the original work of the
+   Owner.
+
+6. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED. THE SOFTWARE IS NOT CERTIFIED FOR OFFICIATING ANY FORM OF
+   COMPETITIVE CRICKET AND ITS OUTPUTS ARE NOT BINDING DECISIONS.
+
+7. LIABILITY
+   IN NO EVENT SHALL THE OWNER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+   LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.
+
+8. ENFORCEMENT
+   Any unauthorized use terminates automatically whatever permission you may
+   claim and may be prosecuted under applicable copyright law, including the
+   Copyright Act, 2059 (2002) of Nepal and international treaties (Berne
+   Convention, TRIPS).
+
+Contact for permissions: contact.me.kafle@gmail.com

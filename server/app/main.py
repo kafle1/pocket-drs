@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from firebase_admin import firestore as fb_firestore
 
-from .jobs import JobStore, default_job_store
+from .jobs import JobPaths, JobStore, default_job_store
 from .job_logging import job_log_context
 from .logging_setup import configure_logging, request_id_ctx
 from .firebase_config import initialize_firebase, verify_user_token, get_firestore
@@ -102,6 +102,19 @@ def _startup() -> None:
         raise RuntimeError(f"Firestore is not reachable: {e}. Check internet connectivity, that the service account project_id matches your Firebase project, and that Firestore is enabled in the Firebase console.")
     _log.info("Firebase initialized and Firestore reachable")
 
+    # Any job still marked queued/running belongs to a previous process whose
+    # worker executor is gone; fail them so clients stop polling forever.
+    try:
+        recovered = _store.recover_interrupted_jobs()
+        if recovered:
+            _log.warning(
+                "Marked %d interrupted job(s) as failed on startup: %s",
+                len(recovered),
+                ", ".join(recovered),
+            )
+    except Exception:  # noqa: BLE001
+        _log.exception("Startup job recovery failed")
+
 _cors_origins_raw = os.environ.get("POCKET_DRS_CORS_ORIGINS", "").strip()
 _cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
 if _cors_origins:
@@ -175,93 +188,126 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _write_failed_status_safe(paths: JobPaths, message: str) -> None:
+    """Best-effort ``failed`` status write that never raises.
+
+    Last line of defense for the background worker: if job setup (creating the
+    log dir / opening a per-job FileHandler) or the inner failure handler itself
+    throws, the ThreadPoolExecutor future is never awaited and the exception is
+    silently dropped — leaving status.json stuck at queued/running forever. This
+    forces a terminal ``failed`` status and swallows any error doing so.
+    """
+    try:
+        _store.write_status(
+            paths,
+            status=JobStatus.failed,
+            progress=ProgressInfo(pct=100, stage="failed"),
+            error=ApiError(code="INTERNAL_ERROR", message=message or "Job failed", details=None),
+        )
+    except Exception:  # noqa: BLE001
+        try:
+            _log.exception("Could not write failed-status for job_id=%s", paths.job_dir.name)
+        except Exception:
+            pass
+
+
 def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], artifacts_dir: Path, user_id: str | None = None) -> None:
     paths = _store.job_paths(job_id)
+    try:
+        last_stage: str | None = None
+        last_pct: int | None = None
+        # The pipeline calls `progress(pct, stage)` per decoded frame; writing the
+        # status JSON to disk on every call serialises the worker on a hot atomic
+        # rename and visibly stalls the client at the first decode checkpoint
+        # (typically ~6%) when the file is on slow storage. Coalesce updates: only
+        # flush to disk when the integer percent moves or the stage label changes.
+        # Internal frame-level updates still call this; the worker just batches
+        # them between the meaningful boundaries the client polls for.
+        last_written_pct: int | None = None
+        last_written_stage: str | None = None
 
-    last_stage: str | None = None
-    last_pct: int | None = None
-    # The pipeline calls `progress(pct, stage)` per decoded frame; writing the
-    # status JSON to disk on every call serialises the worker on a hot atomic
-    # rename and visibly stalls the client at the first decode checkpoint
-    # (typically ~6%) when the file is on slow storage. Coalesce updates: only
-    # flush to disk when the integer percent moves or the stage label changes.
-    # Internal frame-level updates still call this; the worker just batches
-    # them between the meaningful boundaries the client polls for.
-    last_written_pct: int | None = None
-    last_written_stage: str | None = None
+        with job_log_context(job_id=job_id, artifacts_dir=artifacts_dir) as job_log:
+            job_log.info(
+                "Processing job_id=%s user_id=%s video=%s size=%dMB",
+                job_id,
+                user_id or "anonymous",
+                video_path.name,
+                video_path.stat().st_size // (1024 * 1024) if video_path.exists() else 0,
+            )
 
-    with job_log_context(job_id=job_id, artifacts_dir=artifacts_dir) as job_log:
-        job_log.info(
-            "Processing job_id=%s user_id=%s video=%s size=%dMB",
-            job_id,
-            user_id or "anonymous",
-            video_path.name,
-            video_path.stat().st_size // (1024 * 1024) if video_path.exists() else 0,
-        )
+            def progress(pct: int, stage: str) -> None:
+                nonlocal last_stage, last_pct, last_written_pct, last_written_stage
+                if pct != last_written_pct or stage != last_written_stage:
+                    _store.write_status(
+                        paths,
+                        status=JobStatus.running,
+                        progress=ProgressInfo(pct=pct, stage=stage),
+                        error=None,
+                    )
+                    last_written_pct = pct
+                    last_written_stage = stage
 
-        def progress(pct: int, stage: str) -> None:
-            nonlocal last_stage, last_pct, last_written_pct, last_written_stage
-            if pct != last_written_pct or stage != last_written_stage:
+                if stage != last_stage or last_pct is None or abs(pct - last_pct) >= 10:
+                    job_log.info("Progress: %d%% - %s", pct, stage)
+                    last_stage = stage
+                    last_pct = pct
+
+            try:
+                progress(1, "starting")
+                out = run_pipeline(
+                    video_path=video_path,
+                    request_json=request_json,
+                    artifacts_dir=artifacts_dir,
+                    progress=progress,
+                )
+                _store.write_result(paths, out.result)
                 _store.write_status(
                     paths,
-                    status=JobStatus.running,
-                    progress=ProgressInfo(pct=pct, stage=stage),
+                    status=JobStatus.succeeded,
+                    progress=ProgressInfo(pct=100, stage="succeeded"),
                     error=None,
                 )
-                last_written_pct = pct
-                last_written_stage = stage
+                warnings = out.result.get("diagnostics", {}).get("warnings", [])
+                n_points = len(out.result.get("track", {}).get("points", []))
+                job_log.info("✓ Completed: %d tracking points, %d warnings", n_points, len(warnings) if isinstance(warnings, list) else 0)
 
-            if stage != last_stage or last_pct is None or abs(pct - last_pct) >= 10:
-                job_log.info("Progress: %d%% - %s", pct, stage)
-                last_stage = stage
-                last_pct = pct
+                # Store in Firestore if user is authenticated
+                if user_id:
+                    try:
+                        db = get_firestore()
+                        pitch_id = request_json.get("calibration", {}).get("pitch_id")
+                        db.collection('users').document(user_id).collection('analyses').add({
+                            'jobId': job_id,
+                            'pitchId': pitch_id,
+                            'result': _sanitize_for_firestore(out.result),
+                            'createdAt': fb_firestore.SERVER_TIMESTAMP,
+                        })
+                        job_log.info("✓ Saved to Firestore for user %s", user_id)
+                    except Exception as e:
+                        job_log.warning("Failed to save to Firestore: %s", str(e))
 
+            except Exception as e:  # noqa: BLE001
+                tb = traceback.format_exc()
+                error_type = e.__class__.__name__
+                error_msg = str(e) if str(e) else error_type
+                job_log.error("✗ Failed with %s: %s\n%s", error_type, error_msg, tb)
+                err = map_exception_to_api_error(e)
+                _store.write_status(
+                    paths,
+                    status=JobStatus.failed,
+                    progress=ProgressInfo(pct=100, stage="failed"),
+                    error=err,
+                )
+    except Exception as e:  # noqa: BLE001
+        # Anything that escaped the inner handler — e.g. job_log_context failing
+        # to create the log dir / open a FileHandler, or the failure handler's
+        # own write_status raising — must still land as "failed", or the dropped
+        # worker future leaves the job stuck in queued/running forever.
         try:
-            progress(1, "starting")
-            out = run_pipeline(
-                video_path=video_path,
-                request_json=request_json,
-                artifacts_dir=artifacts_dir,
-                progress=progress,
-            )
-            _store.write_result(paths, out.result)
-            _store.write_status(
-                paths,
-                status=JobStatus.succeeded,
-                progress=ProgressInfo(pct=100, stage="succeeded"),
-                error=None,
-            )
-            warnings = out.result.get("diagnostics", {}).get("warnings", [])
-            n_points = len(out.result.get("track", {}).get("points", []))
-            job_log.info("✓ Completed: %d tracking points, %d warnings", n_points, len(warnings) if isinstance(warnings, list) else 0)
-            
-            # Store in Firestore if user is authenticated
-            if user_id:
-                try:
-                    db = get_firestore()
-                    pitch_id = request_json.get("calibration", {}).get("pitch_id")
-                    db.collection('users').document(user_id).collection('analyses').add({
-                        'jobId': job_id,
-                        'pitchId': pitch_id,
-                        'result': _sanitize_for_firestore(out.result),
-                        'createdAt': fb_firestore.SERVER_TIMESTAMP,
-                    })
-                    job_log.info("✓ Saved to Firestore for user %s", user_id)
-                except Exception as e:
-                    job_log.warning("Failed to save to Firestore: %s", str(e))
-                    
-        except Exception as e:  # noqa: BLE001
-            tb = traceback.format_exc()
-            error_type = e.__class__.__name__
-            error_msg = str(e) if str(e) else error_type
-            job_log.error("✗ Failed with %s: %s\n%s", error_type, error_msg, tb)
-            err = map_exception_to_api_error(e)
-            _store.write_status(
-                paths,
-                status=JobStatus.failed,
-                progress=ProgressInfo(pct=100, stage="failed"),
-                error=err,
-            )
+            _log.exception("Job worker crashed for job_id=%s", job_id)
+        except Exception:
+            pass
+        _write_failed_status_safe(paths, f"Job worker crashed: {e.__class__.__name__}: {e}")
 
 
 @app.post("/v1/jobs", response_model=CreateJobResponse)

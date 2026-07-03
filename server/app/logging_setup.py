@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import logging.config
 import os
+import re
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
@@ -13,12 +14,43 @@ from typing import Any
 request_id_ctx: ContextVar[str] = ContextVar("request_id_ctx", default="-")
 
 
+# Matches a `token` query parameter and captures its `?token=` / `&token=`
+# prefix; the value runs until the next `&`, whitespace, or quote (the access
+# log wraps the request line in quotes and the URL is space-delimited from the
+# HTTP version). Case-insensitive so `Token=` is covered too.
+_TOKEN_QUERY_RE = re.compile(r"""(?i)([?&]token=)[^&\s"']*""")
+
+
 class RequestIdFilter(logging.Filter):
     """Attach the current request id from the ContextVar onto every record."""
 
     def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
         if not hasattr(record, "req_id") or not getattr(record, "req_id", None):
             record.req_id = request_id_ctx.get()
+        return True
+
+
+class RedactTokenFilter(logging.Filter):
+    """Redact the value of a `token` query parameter from a log line.
+
+    The `/three-d` route accepts the Firebase ID token as `?token=...` so it can
+    be opened in a new browser tab, and uvicorn's access logger writes the full
+    request line (path + query) to access.log on disk. Replace the token value
+    with ``REDACTED`` so the secret never lands on disk, keeping the rest of the
+    line intact. Applied in the logging layer so it covers any route.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+        try:
+            msg = record.getMessage()
+        except Exception:  # noqa: BLE001 - never let logging break a request
+            return True
+        if "token=" in msg.lower():
+            # Collapse args into the redacted, already-rendered message so the
+            # handler's formatter re-renders nothing (empty args is falsy, so no
+            # further %-interpolation of any literal % in the URL).
+            record.msg = _TOKEN_QUERY_RE.sub(r"\1REDACTED", msg)
+            record.args = ()
         return True
 
 
@@ -77,6 +109,9 @@ def build_uvicorn_log_config(*, log_level: str = "info") -> dict[str, Any]:
             "req_id": {
                 "()": "app.logging_setup.RequestIdFilter",
             },
+            "redact_token": {
+                "()": "app.logging_setup.RedactTokenFilter",
+            },
         },
         "formatters": {
             "default": {
@@ -127,7 +162,7 @@ def build_uvicorn_log_config(*, log_level: str = "info") -> dict[str, Any]:
                 "maxBytes": 10 * 1024 * 1024,
                 "backupCount": 3,
                 "encoding": "utf-8",
-                "filters": ["req_id"],
+                "filters": ["redact_token", "req_id"],
             },
         },
         "loggers": {

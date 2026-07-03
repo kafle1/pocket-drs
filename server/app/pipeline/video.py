@@ -31,6 +31,9 @@ class VideoReader:
     """
 
     _MAX_CONSECUTIVE_STALE = 3
+    # Safety margin (in frames) on top of ``target_idx`` bounding the forward
+    # scan after a seek, so a stuck/mislabelled stream can never loop forever.
+    _MAX_SEEK_SCAN = 300
 
     def __init__(self, video_path: str):
         self._cap = cv2.VideoCapture(video_path)
@@ -71,19 +74,35 @@ class VideoReader:
         if self._meta.frame_count > 0:
             target_idx = min(target_idx, max(0, self._meta.frame_count - 1))
 
-        # If the target is forward of (or equal to) the current cursor, read
-        # frames sequentially until we land on it. Sequential decode is the
-        # codec's fast path — no keyframe rescan, no MSEC ambiguity. We jump
-        # only when the gap is large enough that scanning would be slower
-        # than a one-off frame-index seek.
+        # Already parked on the requested frame — hand back the cached copy.
+        if target_idx == self._cursor_idx and self._last_frame is not None:
+            return self._last_frame.copy()
+
+        # If the target is close and forward of the cursor, decode
+        # sequentially (the codec's fast path — no keyframe rescan, no MSEC
+        # ambiguity). Otherwise do a one-off frame-index seek. On long-GOP
+        # HEVC ``set(POS_FRAMES, N)`` lands on the nearest keyframe <= N, so we
+        # must never assume the next frame *is* N: we read forward and trust
+        # the container's real POS_FRAMES to tell us which frame we hold.
         gap = target_idx - self._cursor_idx
         if gap < 0 or gap > 16:
             self._cap.set(cv2.CAP_PROP_POS_FRAMES, float(target_idx))
+            # Provisional; the true index is re-derived from POS_FRAMES after
+            # the first read below, which corrects for a keyframe landing.
             self._cursor_idx = target_idx - 1
 
+        # Bound the forward scan: from any keyframe we need at most
+        # ``target_idx`` reads to reach the target, plus a margin to absorb
+        # POS_FRAMES reporting jitter. Guarantees termination even if the
+        # container's position never advances.
+        budget = target_idx + self._MAX_SEEK_SCAN
+        reads = 0
         frame = None
         while self._cursor_idx < target_idx:
+            if reads >= budget:
+                break  # give up cleanly; return the best frame decoded so far
             ok, raw = self._cap.read()
+            reads += 1
             if not ok or raw is None:
                 if self._last_frame is None:
                     raise VideoDecodeError(f"Failed to decode frame at {t_ms}ms")
@@ -94,13 +113,23 @@ class VideoReader:
                         f"(decoding failed for {self._consecutive_stale} "
                         "consecutive frames)"
                     )
+                # One frame failed to decode. Re-anchor the cursor to the
+                # container's real position so a single skip can't offset the
+                # index/timestamp of every later frame.
+                pos = int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
+                if pos > 0:
+                    self._cursor_idx = pos - 1
                 return self._last_frame.copy()
-            self._cursor_idx += 1
+            # Trust the container's real frame index rather than a virtual +1,
+            # so a keyframe landing or a dropped frame can't drift the
+            # labelling. Fall back to +1 only if POS_FRAMES is unavailable.
+            pos = int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
+            self._cursor_idx = (pos - 1) if pos > 0 else (self._cursor_idx + 1)
             frame = raw
 
         if frame is None:
-            # target_idx equals cursor_idx and we already returned that frame
-            # earlier; the cached last_frame is the correct response.
+            # Cursor already at/after target but nothing decoded this call;
+            # the cached last_frame is the correct response.
             return (self._last_frame.copy() if self._last_frame is not None
                     else self._read_nonseek_fallback(t_ms))
 

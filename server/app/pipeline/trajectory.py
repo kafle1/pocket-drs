@@ -93,20 +93,38 @@ def _suppress_static_clutter(
         [(float(d["x"]), float(d["y"])) for d in dets] for _, dets in frames
     ]
 
+    # A truly static object (net post, cone) leaves near-neighbour hits spread
+    # across the WHOLE clip — from the first frames to the last. A genuinely
+    # slow / near-axial ball (umpire-POV release phase moving a few px/frame)
+    # only lingers in a neighbourhood for a contiguous window and then moves on,
+    # so its hits stay temporally clustered even when numerous. Gate suppression
+    # on temporal SPAN, not merely count, so a slow early track is not deleted.
+    span_frac = 0.60
     cleaned: list[tuple[int, list[dict]]] = []
     for fi, (t_ms, dets) in enumerate(frames):
         kept: list[dict] = []
         for d in dets:
             dx0, dy0 = float(d["x"]), float(d["y"])
             occ = 0
+            first_hit: int | None = None
+            last_hit = 0
             for fj in range(n_frames):
                 if fj == fi:
                     continue
                 for (px, py) in pts_per_frame[fj]:
                     if (px - dx0) ** 2 + (py - dy0) ** 2 <= r2:
                         occ += 1
+                        if first_hit is None:
+                            first_hit = fj
+                        last_hit = fj
                         break
-            if occ <= occupancy_frac * n_frames:
+            # fj is iterated in ascending order, so first_hit/last_hit bound the
+            # frame range over which the neighbourhood stayed occupied.
+            span = 0 if first_hit is None else (last_hit - first_hit + 1)
+            is_static = (
+                occ > occupancy_frac * n_frames and span >= span_frac * n_frames
+            )
+            if not is_static:
                 kept.append(d)
         cleaned.append((t_ms, kept))
     return cleaned

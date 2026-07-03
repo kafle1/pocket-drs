@@ -1,0 +1,97 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{owens2003hawkeye,thomas2017cvsports}
+\@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{section.1}\protected@file@percent }
+\citation{owens2003hawkeye}
+\citation{hartley2004mvg}
+\citation{thomas2017cvsports}
+\citation{ribnick2009projectiles}
+\citation{redmon2016yolo,jocher2023ultralytics}
+\citation{huang2019tracknet}
+\citation{bradski2000opencv}
+\citation{zhang2000calibration}
+\citation{hartley2004mvg}
+\citation{fischler1981ransac}
+\citation{more1978lm,virtanen2020scipy}
+\citation{bailey2006cricket}
+\citation{mcc2017laws}
+\@writefile{toc}{\contentsline {section}{\numberline {II}Related Work}{2}{section.2}\protected@file@percent }
+\newlabel{sec:related}{{II}{2}{Related Work}{section.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-A}}Multi-camera ball tracking and DRS}{2}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-B}}Monocular 3-D from projectile priors}{2}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-C}}Sports object detection}{2}{subsection.2.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Operating point: multi-camera broadcast DRS versus PocketDRS.}}{2}{table.caption.3}\protected@file@percent }
+\newlabel{tab:compare}{{I}{2}{Operating point: multi-camera broadcast DRS versus PocketDRS}{table.caption.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-D}}Calibration, robust fitting, and cricket analytics}{2}{subsection.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {III}System Overview}{2}{section.3}\protected@file@percent }
+\newlabel{sec:overview}{{III}{2}{System Overview}{section.3}{}}
+\citation{fischler1981ransac}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces PocketDRS processing pipeline. A single portrait clip and a small set of user taps on the pitch corners and the two stump sets drive a stump-anchored PnP calibration. A hybrid detector and a RANSAC projectile filter isolate the ball's 2-D arc, which is lifted to metric 3-D under physical priors (gravity, a known-radius ball, a single restitution-governed bounce, and the regulation pitch length) and refined by bundle adjustment. The post-bounce trajectory is forward-integrated to the stump plane and adjudicated under ICC Rule~36.}}{3}{figure.caption.1}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:pipeline}{{1}{3}{PocketDRS processing pipeline. A single portrait clip and a small set of user taps on the pitch corners and the two stump sets drive a stump-anchored PnP calibration. A hybrid detector and a RANSAC projectile filter isolate the ball's 2-D arc, which is lifted to metric 3-D under physical priors (gravity, a known-radius ball, a single restitution-governed bounce, and the regulation pitch length) and refined by bundle adjustment. The post-bounce trajectory is forward-integrated to the stump plane and adjudicated under ICC Rule~36}{figure.caption.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {IV}Method}{3}{section.4}\protected@file@percent }
+\newlabel{sec:method}{{IV}{3}{Method}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}Camera model and stump-anchored calibration}{3}{subsection.4.1}\protected@file@percent }
+\newlabel{sec:calib}{{\mbox  {IV-A}}{3}{Camera model and stump-anchored calibration}{subsection.4.1}{}}
+\newlabel{eq:proj}{{2}{3}{Camera model and stump-anchored calibration}{equation.4.2}{}}
+\newlabel{eq:focal}{{3}{3}{Camera model and stump-anchored calibration}{equation.4.3}{}}
+\newlabel{eq:pnp}{{4}{3}{Camera model and stump-anchored calibration}{equation.4.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-B}}Ball detection}{3}{subsection.4.2}\protected@file@percent }
+\newlabel{sec:detect}{{\mbox  {IV-B}}{3}{Ball detection}{subsection.4.2}{}}
+\citation{ribnick2009projectiles}
+\citation{more1978lm,virtanen2020scipy}
+\citation{mcc2017laws}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-C}}Robust 2-D arc extraction}{4}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-D}}Physics-constrained 3-D reconstruction}{4}{subsection.4.4}\protected@file@percent }
+\newlabel{sec:recon}{{\mbox  {IV-D}}{4}{Physics-constrained 3-D reconstruction}{subsection.4.4}{}}
+\newlabel{eq:depthsize}{{6}{4}{Physics-constrained 3-D reconstruction}{equation.4.6}{}}
+\newlabel{eq:proj_motion}{{7}{4}{Gravity-constrained linear solve}{equation.4.7}{}}
+\newlabel{eq:restitution}{{8}{4}{Single restitution-governed bounce}{equation.4.8}{}}
+\newlabel{eq:ba}{{9}{4}{Bundle adjustment}{equation.4.9}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-E}}Depth-error sensitivity}{4}{subsection.4.5}\protected@file@percent }
+\newlabel{sec:sensitivity}{{\mbox  {IV-E}}{4}{Depth-error sensitivity}{subsection.4.5}{}}
+\newlabel{eq:sens_rel}{{10}{4}{Depth-error sensitivity}{equation.4.10}{}}
+\newlabel{eq:sens_abs}{{11}{4}{Depth-error sensitivity}{equation.4.11}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-F}}Prediction to the stump plane}{4}{subsection.4.6}\protected@file@percent }
+\citation{bradski2000opencv}
+\citation{jocher2023ultralytics}
+\citation{virtanen2020scipy}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces ICC Rule~36 decision with monocular bands}}{5}{algorithm.1}\protected@file@percent }
+\newlabel{alg:lbw}{{1}{5}{ICC Rule~36 decision with monocular bands}{algorithm.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-G}}LBW decision}{5}{subsection.4.7}\protected@file@percent }
+\newlabel{sec:lbw}{{\mbox  {IV-G}}{5}{LBW decision}{subsection.4.7}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {V}Experimental Setup}{5}{section.5}\protected@file@percent }
+\newlabel{sec:setup}{{V}{5}{Experimental Setup}{section.5}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Results}{5}{section.6}\protected@file@percent }
+\newlabel{sec:results}{{VI}{5}{Results}{section.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-A}}Synthetic ground-truth accuracy}{5}{subsection.6.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Synthetic ground-truth validation (8 deliveries, 115\,km/h, 60\,fps, camera behind striker).}}{6}{table.caption.11}\protected@file@percent }
+\newlabel{tab:synth}{{II}{6}{Synthetic ground-truth validation (8 deliveries, 115\,km/h, 60\,fps, camera behind striker)}{table.caption.11}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Real single-phone net clips (end-to-end, overlay rendered). Reproj.\ is the calibration RMS reprojection error.}}{6}{table.caption.12}\protected@file@percent }
+\newlabel{tab:real}{{III}{6}{Real single-phone net clips (end-to-end, overlay rendered). Reproj.\ is the calibration RMS reprojection error}{table.caption.12}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-B}}Real hand-held clips}{6}{subsection.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-C}}Generalization to unseen footage}{6}{subsection.6.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Qualitative output on the indoor red-ball leg-spin clip (test4). The overlay shows the tracked 2-D arc; the 3-D view shows the reconstructed metric trajectory forward-integrated to the stump plane, which here pitches and impacts outside the leg line, giving \textsc  {not out}.}}{6}{figure.caption.13}\protected@file@percent }
+\newlabel{fig:overlay}{{2}{6}{Qualitative output on the indoor red-ball leg-spin clip (test4). The overlay shows the tracked 2-D arc; the 3-D view shows the reconstructed metric trajectory forward-integrated to the stump plane, which here pitches and impacts outside the leg line, giving \textsc {not out}}{figure.caption.13}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {VII}Discussion and Limitations}{6}{section.7}\protected@file@percent }
+\newlabel{sec:discussion}{{VII}{6}{Discussion and Limitations}{section.7}{}}
+\bibcite{zhang2000calibration}{1}
+\bibcite{hartley2004mvg}{2}
+\bibcite{ribnick2009projectiles}{3}
+\bibcite{fischler1981ransac}{4}
+\bibcite{redmon2016yolo}{5}
+\bibcite{jocher2023ultralytics}{6}
+\bibcite{huang2019tracknet}{7}
+\bibcite{owens2003hawkeye}{8}
+\bibcite{thomas2017cvsports}{9}
+\bibcite{bradski2000opencv}{10}
+\bibcite{more1978lm}{11}
+\bibcite{virtanen2020scipy}{12}
+\bibcite{bailey2006cricket}{13}
+\bibcite{mcc2017laws}{14}
+\@writefile{toc}{\contentsline {section}{\numberline {VIII}Conclusion and Future Work}{7}{section.8}\protected@file@percent }
+\newlabel{sec:conclusion}{{VIII}{7}{Conclusion and Future Work}{section.8}{}}
+\@writefile{toc}{\contentsline {section}{References}{7}{section*.21}\protected@file@percent }
+\gdef \@abspage@last{7}

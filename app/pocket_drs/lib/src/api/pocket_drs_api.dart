@@ -85,6 +85,10 @@ class PocketDrsApi {
       body = await res.stream.bytesToString();
     } on SocketException {
       throw ApiException(ApiErrorKind.network, 'Cannot reach server');
+    } on http.ClientException {
+      throw ApiException(ApiErrorKind.network, 'Cannot reach server');
+    } on HttpException {
+      throw ApiException(ApiErrorKind.network, 'Cannot reach server');
     } on TimeoutException {
       throw ApiException(ApiErrorKind.timeout, 'Server did not respond');
     }
@@ -113,6 +117,10 @@ class PocketDrsApi {
           .timeout(const Duration(seconds: 15));
     } on SocketException {
       throw ApiException(ApiErrorKind.network, 'Cannot reach server');
+    } on http.ClientException {
+      throw ApiException(ApiErrorKind.network, 'Cannot reach server');
+    } on HttpException {
+      throw ApiException(ApiErrorKind.network, 'Cannot reach server');
     } on TimeoutException {
       throw ApiException(ApiErrorKind.timeout, 'Server did not respond');
     }
@@ -137,6 +145,10 @@ class PocketDrsApi {
           .get(_u('/v1/jobs/$jobId/result'), headers: await _authHeaders())
           .timeout(const Duration(seconds: 30));
     } on SocketException {
+      throw ApiException(ApiErrorKind.network, 'Cannot reach server');
+    } on http.ClientException {
+      throw ApiException(ApiErrorKind.network, 'Cannot reach server');
+    } on HttpException {
       throw ApiException(ApiErrorKind.network, 'Cannot reach server');
     } on TimeoutException {
       throw ApiException(ApiErrorKind.timeout, 'Server did not respond');

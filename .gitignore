@@ -68,3 +68,6 @@ dump/validation/
 # Generated documentation
 site/
 
+
+# Third-party test clips (downloaded, not for distribution)
+dump/internet_tests/

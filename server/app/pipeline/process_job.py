@@ -112,6 +112,34 @@ def _default_yolo_weights() -> str | None:
     return str(p) if p.exists() else None
 
 
+def _finite_or_none(result):
+    """Return a copy of the result with every non-finite float (NaN/Inf)
+    replaced by None and numpy scalars/arrays coerced to plain Python, while
+    preserving the list/dict structure exactly.
+
+    A degenerate reconstruction can leave a NaN in the result (e.g. a stump
+    prediction). ``json.dumps`` happily writes it as a bare ``NaN`` token, but
+    Starlette's ``JSONResponse`` and the Three.js viewer both serialise with
+    ``allow_nan=False`` and 500 on it — so a job that *succeeded* would fail
+    every ``/result`` and ``/three-d`` poll forever. Scrubbing here, at the one
+    place the result is built, guarantees a clean, structure-identical payload
+    to disk, API, and viewer alike. Unlike the Firestore sanitiser it does not
+    reshape nested arrays or stringify, so on-disk JSON keeps its schema."""
+    if isinstance(result, float):
+        return result if math.isfinite(result) else None
+    if isinstance(result, (bool, int, str)) or result is None:
+        return result
+    if isinstance(result, np.generic):
+        return _finite_or_none(result.item())
+    if isinstance(result, np.ndarray):
+        return [_finite_or_none(x) for x in result.tolist()]
+    if isinstance(result, dict):
+        return {k: _finite_or_none(v) for k, v in result.items()}
+    if isinstance(result, (list, tuple)):
+        return [_finite_or_none(x) for x in result]
+    return result
+
+
 def _progress(fn: ProgressFn | None, pct: int, stage: str) -> None:
     if fn is not None:
         fn(int(max(0, min(100, pct))), stage)
@@ -174,6 +202,36 @@ def _decode_stump_quads(req: dict, frame_width: int, frame_height: int) -> list[
     )
 
 
+def _quad_area(pts: list[tuple[float, float]]) -> float:
+    """Shoelace area of a polygon given as (x, y) points."""
+    a = 0.0
+    n = len(pts)
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        a += x1 * y2 - x2 * y1
+    return abs(a) * 0.5
+
+
+def _leg_side_sign(stump_quads_px: list[tuple[float, float]], handedness: str) -> float:
+    """Return +1 if the recovered world +y is the batsman's leg side, else -1.
+
+    Leg vs off cannot be read from the pitch geometry alone — it depends on the
+    batsman's handedness AND which end the camera is at. The near (larger) of
+    the two tapped stump rectangles marks the camera's end: behind the striker
+    the recovered +y points to the leg side for a right-hander; behind the
+    bowler the view is mirrored, so +y points to the off side. Left-handedness
+    flips it once more. Validated on the synthetic set (camera behind striker,
+    right-hander: recovered +y matches the leg-side ground truth) and on the
+    real behind-the-bowler clips (test4 leg, test5 off).
+    """
+    striker_area = _quad_area(stump_quads_px[0:4])
+    bowler_area = _quad_area(stump_quads_px[4:8])
+    end_sign = 1.0 if striker_area >= bowler_area else -1.0
+    hand_sign = -1.0 if str(handedness).lower().startswith("l") else 1.0
+    return end_sign * hand_sign
+
+
 def _decide_lbw(
     *,
     bounce: tuple[float, float, float] | None,
@@ -182,31 +240,40 @@ def _decide_lbw(
     pred_z_at_stumps: float | None,
     stump_x_m: float,
     fit_rms_m: float,
+    leg_side_sign: float,
 ) -> dict:
     """ICC-Rule-36-flavoured LBW decision from a real 3D reconstruction.
 
     Conventions: world Y centred on stump line.  ±WICKET_HALF_WIDTH is the
     stump width; +BALL_RADIUS_M each side is the ball-touching tolerance.
+    ``leg_side_sign`` (+1 or -1) says which world-Y direction is the batsman's
+    leg side (see _leg_side_sign), so off and leg are handled per the laws
+    rather than symmetrically.
     """
     checks = {"pitching_in_line": True, "impact_in_line": True, "wickets_hitting": False}
     reason_parts: list[str] = []
 
     if bounce is not None:
         bx, by, _ = bounce
-        # Pitched in line: |y| within ~stump-half-width + 1 stump (one full stump leg-side margin).
-        # The "leg-stump line" rule allows ball pitching up to one stump width outside leg.
+        # Pitching outside LEG is not out; pitching outside OFF is legal and can
+        # still be out. ``by * leg_side_sign`` is the signed distance onto the
+        # leg side, so only a leg-side pitch beyond one stump-width is rejected.
         leg_line_limit = WICKET_HALF_WIDTH_M + 0.1143  # one stump width outside leg
-        if abs(by) > leg_line_limit:
+        if by * leg_side_sign > leg_line_limit:
             checks["pitching_in_line"] = False
-            reason_parts.append(f"Pitched outside leg ({by*100:+.1f}cm)")
+            reason_parts.append(f"Pitched outside leg ({abs(by)*100:.1f}cm)")
 
     if impact is not None:
         ix, iy, iz = impact
-        # Impact in line: must be within stump line + ball radius on the off side
-        # (leg side allowed wider per laws — ignored here).
-        if iy > WICKET_GUARD_M + 0.05:
+        # Impact must be in line with the stumps. Impact outside leg is always
+        # not-out; impact outside off is not-out unless a shot was offered,
+        # which we cannot detect — so an impact beyond the line on either side
+        # is treated as not-in-line. That is the batsman-favouring default and
+        # never manufactures a false out.
+        if abs(iy) > WICKET_GUARD_M + 0.05:
             checks["impact_in_line"] = False
-            reason_parts.append(f"Impact outside off ({iy*100:+.1f}cm)")
+            side = "leg" if iy * leg_side_sign > 0 else "off"
+            reason_parts.append(f"Impact outside {side} ({abs(iy)*100:.1f}cm)")
 
     # Monocular depth-from-size on phone footage is precise to roughly
     # ±5 cm in Y at the stump plane and ±15 cm in Z. We widen the umpire's-
@@ -229,11 +296,13 @@ def _decide_lbw(
             checks["wickets_hitting"] = True
             margin_y = WICKET_GUARD_M - abs(pred_y_at_stumps)
             margin_z_top = (DEFAULT_STUMP_HEIGHT_M + BALL_RADIUS_M) - pred_z_at_stumps
-            margin_z_bot = pred_z_at_stumps
-            # Per-axis umpire's-call bands; the tightest axis decides.
+            # Per-axis umpire's-call bands; the tightest axis decides. Only the
+            # top of the stumps (bail height) has a marginal band — the ground
+            # backs the base, so a ball predicted low is a clean hit, never an
+            # umpire's call, and its distance to the ground is not a margin.
             in_y_band = margin_y <= MARGIN_Y_UMP
-            in_z_band = (margin_z_top <= MARGIN_Z_UMP) or (margin_z_bot <= MARGIN_Z_UMP)
-            margin = min(margin_y, margin_z_top, margin_z_bot)
+            in_z_band = margin_z_top <= MARGIN_Z_UMP
+            margin = min(margin_y, margin_z_top)
             if in_y_band or in_z_band:
                 margin_text = f" (margin {margin*100:.1f}cm umpires_band)"
             else:
@@ -267,7 +336,13 @@ def _decide_lbw(
     else:
         if not reason_parts:
             reason_parts.append("Missing stumps")
-        if margin_text and "just missing" in margin_text:
+        # Umpire's call on a marginal miss only applies when the ball was
+        # legally in line at pitch and impact. Pitching outside leg or impact
+        # outside off is a definitive not-out no matter where the predicted
+        # path runs, so we must not upgrade those to umpire's call (and must
+        # keep their real reason, not overwrite it).
+        if (checks["pitching_in_line"] and checks["impact_in_line"]
+                and margin_text and "just missing" in margin_text):
             decision = "umpires_call"
             reason_parts[-1] = "Umpire's call" + margin_text
 
@@ -524,6 +599,7 @@ def run_pipeline(
     if max_frames < 1:
         raise ValueError("tracking.max_frames must be >= 1")
     ball_color = str(track_req.get("ball_color") or "red")
+    batsman_handedness = str(request_json.get("batsman_handedness") or "right").lower()
 
     rotation_deg = int(((request_json.get("video") or {}).get("rotation_deg")) or 0)
 
@@ -619,6 +695,10 @@ def run_pipeline(
             "(8 points: striker TL/TR/BR/BL then bowler TL/TR/BR/BL) is required"
         )
 
+    # Which world-Y direction is the batsman's leg side (for the LBW off/leg
+    # rules) — determined from handedness and the camera's end of the pitch.
+    leg_side_sign = _leg_side_sign(stump_quads_px, batsman_handedness)
+
     # Camera horizontal FOV — optional override. When the caller does not
     # supply one (the usual case from the app), the calibration solver
     # auto-fits FOV jointly with pitch length from the stump marks, so a
@@ -706,11 +786,11 @@ def run_pipeline(
     # YOLO runs without the pitch ROI mask — it already rejects non-ball pixels
     # and the airborne arc rises out of the pitch quad.
     detector_kind = str(track_req.get("detector") or "auto").lower()
-    yolo_weights = (
-        track_req.get("yolo_weights")
-        or os.environ.get("POCKET_DRS_YOLO_WEIGHTS")
-        or _default_yolo_weights()
-    )
+    # Weights are resolved server-side only. A request must never choose the
+    # file loaded here: ultralytics.YOLO() on a .pt runs torch.load (pickle),
+    # so an attacker-controlled path would be arbitrary code execution. Any
+    # ``yolo_weights`` in the request is ignored.
+    yolo_weights = os.environ.get("POCKET_DRS_YOLO_WEIGHTS") or _default_yolo_weights()
 
     def _track_with(detector, detect_mask) -> tuple[list[tuple[int, list[dict]]], object | None]:
         dets_pf: list[tuple[int, list[dict]]] = []
@@ -732,6 +812,34 @@ def run_pipeline(
         ys = [p.y_px for p in fit_.points]
         span = math.hypot(max(xs) - min(xs), max(ys) - min(ys))
         return (span, fit_.inliers, -fit_.rms_px)
+
+    def _track_span(fit_) -> float:
+        if fit_ is None or not getattr(fit_, "points", None):
+            return 0.0
+        xs = [p.x_px for p in fit_.points]
+        ys = [p.y_px for p in fit_.points]
+        return math.hypot(max(xs) - min(xs), max(ys) - min(ys))
+
+    def _colour_track_beats_yolo(colour_fit, yolo_fit_) -> bool:
+        """A colour track overrides a solid YOLO track only when it is both
+        markedly longer (covers more of the flight) AND an absolutely tight
+        projectile arc — a clean ball path, not a large-span clutter track (a
+        bowler's run-up, skin/kit tones) that merely out-spans the small far
+        ball. The tightness gate is absolute (a fraction of the image
+        diagonal), not relative to YOLO: on an end-on clip a clutter track can
+        sit only slightly looser than YOLO yet still be geometric nonsense, so
+        a ratio gate lets it through. Verified across every validation clip —
+        the synthetic ball arcs (rms ~7 px) win where YOLO caught only a
+        fragment, while test5's 58-point pink clutter (rms ~39 px) is rejected
+        in favour of the true 35-point YOLO arc."""
+        if colour_fit is None or not getattr(colour_fit, "points", None):
+            return False
+        yolo_span = _track_span(yolo_fit_)
+        if yolo_span <= 0.0:
+            return True
+        longer = _track_span(colour_fit) >= 1.5 * yolo_span
+        tight = colour_fit.rms_px <= 0.007 * image_diag
+        return longer and tight
 
     def _combined_result() -> tuple[list[tuple[int, list[dict]]], object | None]:
         return _track_with(CombinedBallDetector(ball_color=ball_color), roi_mask)
@@ -766,13 +874,15 @@ def run_pipeline(
                 candidates_results.append(yolo_result)
             except Exception as e:  # noqa: BLE001 — missing ultralytics/torch or bad weights
                 warnings.append(f"Learned detector unavailable, used motion+colour ({e})")
-        # Prefer the ball-specific YOLO track when it forms a solid arc. The
-        # colour/motion detectors rank by image span, which a near-camera
-        # bowler's run-up (large, fast foreground motion of white kit/limbs)
-        # can win over the small, far real ball — so "most ball-like by span"
-        # silently locks onto the bowler. YOLO only fires on ball-like objects,
-        # so a confident YOLO arc is the trustworthy one; fall back to the
-        # span ranking only when YOLO is absent or too sparse to trust.
+        # The ball-specific YOLO track is the trusted default: colour/motion
+        # ranks by image span, and a near-camera bowler's run-up (large, fast
+        # foreground motion) can out-span the small, far real ball, so plain
+        # span ranking can silently lock onto the bowler. YOLO only fires on
+        # ball-like objects. But YOLO can also catch only a fragment of a clean
+        # arc (e.g. a plain-background or synthetic ball it was not trained on),
+        # in which case a colour track that is both markedly longer and just as
+        # tight is the fuller, true ball path and should win. Clutter is loose,
+        # so the tightness gate keeps it out.
         yolo_fit = yolo_result[1] if yolo_result else None
         yolo_solid = (
             yolo_fit is not None
@@ -780,13 +890,19 @@ def run_pipeline(
             and getattr(yolo_fit, "inliers", 0) >= 6
         )
         if yolo_solid:
-            detections_per_frame, fit = yolo_result  # type: ignore[assignment]
-            if any(_ball_likeness(c) > _ball_likeness(yolo_result) for c in candidates_results if c is not yolo_result):
+            best_colour = max(
+                (c for c in candidates_results if c is not yolo_result),
+                key=_ball_likeness,
+                default=None,
+            )
+            if best_colour is not None and _colour_track_beats_yolo(best_colour[1], yolo_fit):
+                detections_per_frame, fit = best_colour
                 warnings.append(
-                    "Preferred the learned ball detector over a higher-span "
-                    "colour/motion track (likely foreground clutter such as the "
-                    "bowler's run-up)."
+                    "Used the colour/motion track over a shorter learned-detector "
+                    "arc (the colour track is a longer, equally tight ball path)."
                 )
+            else:
+                detections_per_frame, fit = yolo_result  # type: ignore[assignment]
         elif not candidates_results:
             detections_per_frame, fit = ([], None)
         else:
@@ -1001,6 +1117,7 @@ def run_pipeline(
                 pred_z_at_stumps=z_at_stumps,
                 stump_x_m=stump_x_m,
                 fit_rms_m=recon.fit.rms_m,
+                leg_side_sign=leg_side_sign,
             )
 
             # ---------------------------- video overlay ----------------------------
@@ -1082,6 +1199,10 @@ def run_pipeline(
         "metrics": metrics_payload,
         "diagnostics": {"warnings": warnings, "log_id": "server.log"},
     }
+
+    # Guarantee a JSON-clean result (no NaN/Inf, no numpy) before it reaches
+    # disk, the API, or the 3D viewer — see _finite_or_none.
+    result = _finite_or_none(result)
 
     try:
         (artifacts_dir / "result_debug.json").write_text(json.dumps(result, indent=2, default=str))
