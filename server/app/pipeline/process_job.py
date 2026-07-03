@@ -525,8 +525,14 @@ def _compute_metrics(
 ) -> dict:
     """Broadcast delivery metrics — Speed, Swing, Spin — from the fit + track.
 
-    * Speed  — release speed |v0| (km/h + mph). Accuracy follows the
-      calibrated scale; stump-anchored PnP lands within a few percent.
+    * Speed  — release speed |v0| (km/h + mph). The horizontal (down-pitch)
+      component dominates and is constant for a projectile, so it is estimated
+      from the ball's down-pitch travel across the whole reconstructed arc
+      rather than the fit's extrapolated release vx: averaging over the arc is
+      markedly less sensitive to the monocular depth noise that otherwise
+      biases the single-point release velocity low. The fit's small lateral and
+      vertical components are recombined with it. Falls back to |v0| when the
+      arc is too short to average reliably.
     * Swing  — the ball's sideways (across-pitch) movement in the air before it
       pitches, in centimetres: the change in world Y from release to the bounce
       point. (Measured on the ground plane so it is true lateral movement, not
@@ -535,6 +541,18 @@ def _compute_metrics(
       the pitch (drift / turn), in degrees, from the fitted velocity.
     """
     speed_ms = math.sqrt(fit.vx ** 2 + fit.vy ** 2 + fit.vz ** 2)
+    try:
+        if world_points and len(world_points) >= 4:
+            p0, p1 = world_points[0], world_points[-1]
+            dt_s = (float(p1.t_ms) - float(p0.t_ms)) / 1000.0
+            span_x = abs(float(p1.x_m) - float(p0.x_m))
+            # Need enough elapsed time and down-pitch travel for the average to
+            # be meaningful; a near-end-on clip with little x-motion keeps |v0|.
+            if dt_s > 0.05 and span_x > 1.0:
+                vx_robust = span_x / dt_s
+                speed_ms = math.sqrt(vx_robust ** 2 + fit.vy ** 2 + fit.vz ** 2)
+    except Exception:  # noqa: BLE001 — metric is best-effort, never fatal
+        pass
     spin_deg = (
         abs(math.degrees(math.atan2(fit.vy, abs(fit.vx))))
         if abs(fit.vx) > 1e-3 else 0.0
