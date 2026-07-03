@@ -1453,14 +1453,23 @@ def build_overlay_px(
         # Trace the measured ball through the flight. Detections already run to
         # the interception (they carry the extension past the RANSAC arc), so
         # this is the true release->impact curve on the ball.
+        clean: list[tuple[int, float, float]] = []
         for p in obs:
             try:
-                path.append({
-                    "t_ms": int(p["t_ms"]), "phase": "flight",
-                    "u": round(float(p["u"]), 2), "v": round(float(p["v"]), 2),
-                })
+                clean.append((int(p["t_ms"]), float(p["u"]), float(p["v"])))
             except (KeyError, TypeError, ValueError):
                 continue
+        # A dim or near-end-on clip yields the odd detection that jumps to
+        # background clutter for a single frame. A 3-point median on (u,v)
+        # removes those single-sample spikes while leaving an already-smooth
+        # arc unchanged and preserving the endpoints (release and impact).
+        n = len(clean)
+        for i, (t, u, v) in enumerate(clean):
+            if 0 < i < n - 1:
+                u = sorted((clean[i - 1][1], u, clean[i + 1][1]))[1]
+                v = sorted((clean[i - 1][2], v, clean[i + 1][2]))[1]
+            path.append({"t_ms": t, "phase": "flight",
+                         "u": round(u, 2), "v": round(v, 2)})
     elif impact_s > 1e-3:
         for i in range(steps + 1):
             ts = impact_s * i / steps
