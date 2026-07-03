@@ -667,6 +667,18 @@ these intermediate quantities: the geometry that matters for LBW (lateral line
 and height at the stumps) is precisely the geometry the stump-anchored
 calibration constrains best.
 
+Decomposing the bounce and impact errors by axis makes this explicit. The
+lateral ($y$) component of each averages only $0.5$\,cm; essentially the entire
+$54.7$ and $48.8$\,cm sits on the down-pitch ($x$) axis, the least observable
+coordinate on a near-axial view. The bounce depth error is moreover
+statistically unbiased---its signed mean is $-3.7$\,cm against a $54.6$\,cm
+absolute mean---so it is zero-mean measurement noise arising from the
+depth-from-apparent-size variance of Eq.~\eqref{eq:sens_abs} rather than a
+systematic offset that a calibration or bias correction could remove. This is
+the empirical signature of the monocular depth limit, and it is why a second
+viewpoint, not further single-view processing, is the route to tightening these
+intermediate quantities.
+
 \subsection{Real hand-held clips}
 Table~\ref{tab:real} summarizes three representative single-phone clips. All
 were tracked end-to-end and produced a coherent verdict with a plausible
