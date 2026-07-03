@@ -48,7 +48,7 @@ College of Management (Lincoln University), Maitidevi, Kathmandu, Nepal
 \thanks{Manuscript prepared July 2026.}}
 
 \markboth{Manuscript submitted for publication, 2026}%
-{Kafle: PocketDRS --- Monocular 3-D Reconstruction for Cricket LBW Review}
+{Kafle: PocketDRS: Monocular 3-D Reconstruction for Cricket LBW Review}
 
 \maketitle
 
@@ -105,7 +105,7 @@ developmental value.
 This paper asks whether a \emph{useful} LBW review can be produced from the
 hardware a grassroots player already owns: a single smartphone. The proposition
 is deliberately modest. Recovering a metric 3-D trajectory from one viewpoint is
-fundamentally ill-posed---a single camera cannot triangulate depth---so a
+fundamentally ill-posed, a single camera cannot triangulate depth, so a
 monocular system cannot, and should not claim to, match multi-camera
 triangulation. Our contribution is to show how far physical priors specific to
 cricket (a known pitch and stump geometry, gravity, and a single characterized
@@ -129,7 +129,7 @@ custom-trained YOLO detector with a classical colour/motion detector and prefers
 the learned track except where a markedly longer, geometrically tight colour arc
 demonstrably beats it (Section~\ref{sec:detect}).
 \item \textbf{An ICC Rule~36 decision layer with monocular uncertainty bands}:
-handedness- and camera-end--aware off/leg discrimination and per-axis umpire's-
+handedness-aware and camera-end-aware off/leg discrimination and per-axis umpire's-
 call margins that are wider vertically than laterally, reflecting the anisotropy
 of monocular error (Section~\ref{sec:lbw}).
 \item \textbf{An honest evaluation}: synthetic ground-truth validation, real
@@ -150,9 +150,9 @@ experimental setup (Section~\ref{sec:setup}) and results
 \subsection{Multi-camera ball tracking and DRS}
 Commercial ball-tracking DRS grew out of multi-view tracking systems first
 demonstrated for tennis~\cite{owens2003hawkeye}. They rely on the classical
-multiple-view geometry pipeline---intrinsic and extrinsic calibration,
+multiple-view geometry pipeline, intrinsic and extrinsic calibration,
 detection in each view, and triangulation of corresponding
-detections~\cite{hartley2004mvg}---to obtain a metric 3-D track whose accuracy is
+detections~\cite{hartley2004mvg}, to obtain a metric 3-D track whose accuracy is
 underwritten by wide camera baselines. Surveys of computer vision in
 sport~\cite{thomas2017cvsports} document the breadth of such systems but also
 their cost and installation burden, which is precisely the barrier PocketDRS
@@ -175,21 +175,21 @@ that the residual depth ambiguity is the dominant error source.
 Two properties of cricket make the projectile prior unusually strong. First,
 the delivery is genuinely ballistic between release, bounce, and impact, so the
 parabolic model is not an approximation but the actual physics. Second, the
-scene contains a rigid, regulation-sized calibration target---the stumps and the
-pitch---that is always present, removing the need for a separate calibration
+scene contains a rigid, regulation-sized calibration target, the stumps and the
+pitch, that is always present, removing the need for a separate calibration
 step. General monocular depth estimation, whether geometric (structure from
 motion, which requires camera or scene motion and a static world) or learned
 (single-image depth networks, which regress relative depth without metric
 scale), does not exploit either property and would not, on its own, deliver the
 metric, physically consistent trajectory an LBW verdict requires. Our system can
 be seen as a domain-specialized alternative that trades generality for the
-metric reliability the task demands on the one coordinate---lateral position at
-the stumps---that the verdict actually needs.
+metric reliability the task demands on the one coordinate, lateral position at
+the stumps, that the verdict actually needs.
 
 \subsection{Sports object detection}
 Real net footage is cluttered with moving people, so colour and motion cues
-alone are unreliable. Learned detectors---the single-stage YOLO
-family~\cite{redmon2016yolo,jocher2023ultralytics}---and sport-specific
+alone are unreliable. Learned detectors, the single-stage YOLO
+family~\cite{redmon2016yolo,jocher2023ultralytics}, and sport-specific
 small-object trackers such as TrackNet~\cite{huang2019tracknet} substantially
 improve ball localization in such scenes. PocketDRS uses a custom-trained YOLO
 detector as its primary cue, retaining a classical colour/motion
@@ -283,7 +283,7 @@ Table~\ref{tab:compare} contrasts PocketDRS with a conventional multi-camera
 DRS. The comparison is deliberately unflattering on accuracy: a single view
 cannot triangulate, and our system's estimates of any depth-dependent quantity
 are correspondingly weaker. What the table is meant to convey is a difference in
-\emph{operating point}---a broadcast DRS optimizes officiating-grade accuracy at
+\emph{operating point}, a broadcast DRS optimizes officiating-grade accuracy at
 high cost and fixed installation, whereas PocketDRS optimizes accessibility and
 zero marginal cost at review-not-officiate accuracy.
 
@@ -367,7 +367,7 @@ otherwise a stumps-only solution is trusted. In production the pitch length is
 pinned to the regulation $20.12$\,m; the unpinned auto-fit is retained for
 non-regulation surfaces. Finally, the camera \emph{end} (behind the bowler
 versus behind the striker) is inferred from which stump rectangle subtends the
-larger image area---the near end---which in turn fixes the sign convention used
+larger image area, the near end, which in turn fixes the sign convention used
 by the decision layer.
 
 \subsection{Ball detection}
@@ -376,8 +376,8 @@ by the decision layer.
 Detection produces, per frame, a set of candidate balls with pixel centre
 $(u,v)$, pixel radius $r$, and a confidence weight. Two detectors run:
 \begin{itemize}
-\item a \emph{learned} detector---a custom-trained Ultralytics YOLO model
-(\emph{cricket\_ball.pt})---which is robust to the moving people and net
+\item a \emph{learned} detector, a custom-trained Ultralytics YOLO model
+(\emph{cricket\_ball.pt}), which is robust to the moving people and net
 clutter that dominate real footage; and
 \item a \emph{classical} detector combining HSV colour thresholding (by ball
 hue) with frame-difference motion blobs, which needs no weights and is effective
@@ -387,8 +387,8 @@ An automatic selector prefers the learned track. A candidate track is scored by
 how well it forms a single long, smooth projectile arc rather than a
 large-span clutter track (e.g.\ a bowler's diagonal run-up). The colour track
 \emph{overrides} the learned track only when it is both markedly longer
-\emph{and} an absolutely tight projectile arc in an absolute sense---not merely
-looser than YOLO---because on near end-on views a clutter track can sit only
+\emph{and} an absolutely tight projectile arc in an absolute sense, not merely
+looser than YOLO, because on near end-on views a clutter track can sit only
 slightly looser than the true ball yet be geometric nonsense. This guards
 against locking onto the run-up or onto a second moving object.
 
@@ -495,8 +495,8 @@ quadratically with distance for a fixed radius-measurement noise $\delta r$:
 \end{equation}
 A ball twice as far away therefore incurs roughly four times the depth error
 from the same sub-pixel detection noise. Because the bounce, the impact, and
-the release all occur down the pitch---far from a camera behind either
-batter---their longitudinal (depth) coordinates, and the release speed derived
+the release all occur down the pitch, far from a camera behind either
+batter, their longitudinal (depth) coordinates, and the release speed derived
 by differencing them, inherit this amplification. The lateral coordinate at the
 stumps, by contrast, is fixed by the calibrated stump \emph{projection}
 in~\eqref{eq:proj} rather than by apparent size, and so is not subject
@@ -541,7 +541,7 @@ edge plus a ball radius) and the top guard the bail height plus a ball radius.
 less well than the lateral axis. We therefore apply anisotropic umpire's-call
 margins: a marginal clip becomes \textsc{umpire's call} when the predicted path
 grazes the stump boundary within $m_y=R=3.6$\,cm laterally or $m_z=2R=7.2$\,cm
-vertically---the vertical band is deliberately twice the lateral one. The
+vertically, the vertical band is deliberately twice the lateral one. The
 tightest axis decides. A symmetric $5$\,cm band on the \emph{outside} of the
 stumps flags a ``just missing'' path only when the ball had first passed the
 pitching and impact tests. Algorithm~\ref{alg:lbw} summarizes the decision.
@@ -624,8 +624,8 @@ whether the system \emph{declines} clips that violate its assumptions.
 \subsection{Synthetic ground-truth accuracy}
 Table~\ref{tab:synth} reports the synthetic results. PocketDRS reproduced the
 ground-truth LBW verdict in $\mathbf{8/8}$ deliveries. The predicted ball
-position at the stump plane---the quantity the LBW verdict actually depends
-on---had a mean error of $11.7$\,cm and a maximum of $21.4$\,cm. This error is
+position at the stump plane, the quantity the LBW verdict actually depends
+on, had a mean error of $11.7$\,cm and a maximum of $21.4$\,cm. This error is
 strongly anisotropic: the lateral ($y$) component averaged just $0.3$\,cm, while
 the vertical ($z$) component averaged $11.7$\,cm and accounts for essentially
 all of the total. This is the expected signature of monocular reconstruction:
@@ -645,9 +645,9 @@ camera behind striker).}
 \midrule
 LBW verdict agreement with ground truth & $8/8$ ($100\%$)\\
 Predicted stump-plane position error (mean) & $11.7$\,cm\\
-\quad --- maximum & $21.4$\,cm\\
-\quad --- lateral $y$ component (mean) & $0.3$\,cm\\
-\quad --- vertical $z$ component (mean) & $11.7$\,cm\\
+\quad, maximum & $21.4$\,cm\\
+\quad, lateral $y$ component (mean) & $0.3$\,cm\\
+\quad, vertical $z$ component (mean) & $11.7$\,cm\\
 Bounce-point error (mean) & $54.7$\,cm\\
 Impact-point error (mean) & $48.8$\,cm\\
 Release-speed error (mean) & $22.1$\,km/h\\
@@ -671,8 +671,8 @@ Decomposing the bounce and impact errors by axis makes this explicit. The
 lateral ($y$) component of each averages only $0.5$\,cm; essentially the entire
 $54.7$ and $48.8$\,cm sits on the down-pitch ($x$) axis, the least observable
 coordinate on a near-axial view. The bounce depth error is moreover
-statistically unbiased---its signed mean is $-3.7$\,cm against a $54.6$\,cm
-absolute mean---so it is zero-mean measurement noise arising from the
+statistically unbiased, its signed mean is $-3.7$\,cm against a $54.6$\,cm
+absolute mean, so it is zero-mean measurement noise arising from the
 depth-from-apparent-size variance of Eq.~\eqref{eq:sens_abs} rather than a
 systematic offset that a calibration or bias correction could remove. This is
 the empirical signature of the monocular depth limit, and it is why a second
@@ -682,8 +682,8 @@ intermediate quantities.
 \subsection{Real hand-held clips}
 Table~\ref{tab:real} summarizes three representative single-phone clips. All
 were tracked end-to-end and produced a coherent verdict with a plausible
-recovered speed. The calibration reprojection error---an internal consistency
-metric---ranged from $2.1$ to $10.6$\,px; the largest value ($10.6$\,px, the
+recovered speed. The calibration reprojection error, an internal consistency
+metric, ranged from $2.1$ to $10.6$\,px; the largest value ($10.6$\,px, the
 outdoor white-ball clip) is consistent with a harder detection and marking
 setting yet still yielded a stable pose and a sensible \textsc{not out} call.
 The recovered spin-bowling speeds ($38$--$84$\,km/h) are in the correct regime,
@@ -744,11 +744,11 @@ outside the leg line, giving \textsc{not out}.}
 \subsection{Generalization to unseen footage}
 On four arbitrary internet net clips, the learned detector locked onto and
 tracked the real ball in $3$ of $4$, yielding $12$--$24$ inlier points per
-delivery---sufficient for a projectile fit. A full 3-D LBW review, however,
+delivery, sufficient for a projectile fit. A full 3-D LBW review, however,
 requires both stump sets to be cleanly visible for the stump-anchored
 calibration and a rectilinear (non-fisheye) lens. The system correctly
-\emph{declined} the two clips that violated these preconditions---a wide
-fisheye clip and a clip in which the batter occluded a stump set---rather than
+\emph{declined} the two clips that violated these preconditions, a wide
+fisheye clip and a clip in which the batter occluded a stump set, rather than
 emitting a fabricated verdict. We regard this as the desired behaviour: the
 value of a review system lies as much in knowing when \emph{not} to rule as in
 ruling.
@@ -798,7 +798,7 @@ kinds of evidence throughout and to draw the numerical claims only from the
 setting in which ground truth exists.
 
 \paragraph*{Where it is useful} Despite these limits the verdict-critical
-quantity---the lateral line and height at the stumps---is well enough resolved
+quantity, the lateral line and height at the stumps, is well enough resolved
 to agree with ground truth on all synthetic cases and to produce coherent,
 explainable calls on real footage. The realistic deployment is therefore
 coaching and training: giving a bowler or batter at club, school, or age-group
@@ -819,7 +819,7 @@ stump-plane crossing to $11.7$\,cm on average, while being candidly weak on
 absolute depth-dependent quantities such as bounce location and release speed.
 
 Future work targets the depth weakness directly. The most direct improvement is
-a second viewpoint---a stereo pair or two synchronized phones---which would
+a second viewpoint, a stereo pair or two synchronized phones, which would
 restore true triangulation for the vertical/depth axis while preserving the
 rig-free ethos. Learned monocular depth priors could strengthen the
 depth-from-size cue, and automatic stump and crease detection would remove the
