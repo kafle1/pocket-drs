@@ -1420,15 +1420,21 @@ def build_overlay_px(
     impact: tuple[float, float, float, float] | None = None,  # (t_ms_abs, x, y, z)
     corridor_half_m: float = 0.18,  # half-width of the stump-line channel on the ground
     n_steps: int = 48,
+    image_points: list[dict] | None = None,
 ) -> dict:
     """Project the reconstructed trajectory into image pixels for the video overlay.
 
     The server owns the camera pose, so it draws the Hawk-Eye path in the
     analysed frame's pixel space here; the client then renders it directly over
-    the source video without re-implementing the projection. The flight segment
-    is sampled densely from the *fit* (so it is smooth and complete through the
-    bounce even where individual frames were missed) and the predicted segment
-    continues it to the stump plane.
+    the source video without re-implementing the projection.
+
+    The flight segment (release -> impact) is drawn through the *observed* ball
+    positions (``image_points``) whenever they are available: those pixels sit
+    on the real ball, so the drawn line follows it exactly regardless of how
+    tight the monocular 3-D lift came out. Only when no detections are supplied
+    do we fall back to reprojecting the 3-D fit (which drifts off the ball on a
+    loose, near-end-on reconstruction). The predicted segment always continues
+    from the 3-D forward integration to the stump plane.
 
     Returns pixel-space polylines and markers; every coordinate is in the same
     frame space as ``track.image_points`` and ``image_size``.
@@ -1442,7 +1448,20 @@ def build_overlay_px(
     path: list[dict] = []
     impact_s = max(0.0, float(impact_t_rel_ms) / 1000.0)
     steps = max(2, n_steps)
-    if impact_s > 1e-3:
+    obs = sorted(image_points or [], key=lambda p: p.get("t_ms", 0))
+    if obs:
+        # Trace the measured ball through the flight. Detections already run to
+        # the interception (they carry the extension past the RANSAC arc), so
+        # this is the true release->impact curve on the ball.
+        for p in obs:
+            try:
+                path.append({
+                    "t_ms": int(p["t_ms"]), "phase": "flight",
+                    "u": round(float(p["u"]), 2), "v": round(float(p["v"]), 2),
+                })
+            except (KeyError, TypeError, ValueError):
+                continue
+    elif impact_s > 1e-3:
         for i in range(steps + 1):
             ts = impact_s * i / steps
             x, y, z = _eval_fit_at(fit, ts)

@@ -1167,6 +1167,7 @@ def run_pipeline(
                     if recon.impact_index is not None and impact_world is not None
                     else None
                 ),
+                image_points=image_points_payload,
             )
             metrics_payload = _compute_metrics(
                 recon.fit,
