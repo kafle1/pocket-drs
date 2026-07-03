@@ -72,7 +72,7 @@ discrimination and umpire's-call bands widened along the depth axis to reflect
 monocular uncertainty. On eight physics-based synthetic deliveries with known
 ground truth, PocketDRS reproduces the LBW verdict in $8/8$ cases with a mean
 predicted stump-plane error of $11.7$\,cm; absolute release speed (mean error
-$26.5$\,km/h) and bounce localization are markedly weaker and are reported as
+$22.1$\,km/h) and bounce localization are markedly weaker and are reported as
 indicative only. We validate end-to-end tracking on hand-held net clips,
 characterize generalization on unseen internet footage, and argue that the
 system is useful for coaching and training rather than officiating.
@@ -650,13 +650,13 @@ Predicted stump-plane position error (mean) & $11.7$\,cm\\
 \quad --- vertical $z$ component (mean) & $11.7$\,cm\\
 Bounce-point error (mean) & $54.7$\,cm\\
 Impact-point error (mean) & $48.8$\,cm\\
-Release-speed error (mean) & $26.5$\,km/h\\
+Release-speed error (mean) & $22.1$\,km/h\\
 \bottomrule
 \end{tabular}
 \end{table}
 
 The bounce-point ($54.7$\,cm mean) and impact-point ($48.8$\,cm mean) errors are
-much larger, and the release-speed error ($26.5$\,km/h mean) is large enough
+much larger, and the release-speed error ($22.1$\,km/h mean) is large enough
 that we report absolute speed only as an \emph{indicative} figure. On a
 near-axial monocular view the down-pitch (depth) position is the least
 observable coordinate, so both the longitudinal location of the bounce and the
@@ -757,7 +757,7 @@ and (iii) widening the vertical umpire's-call band to $2R$ so that marginal
 height calls are surfaced as reviews rather than asserted.
 
 \paragraph*{Absolute speed is unreliable} With a mean release-speed error of
-$26.5$\,km/h on a near-axial view, PocketDRS should be understood to report
+$22.1$\,km/h on a near-axial view, PocketDRS should be understood to report
 speed as a rough indicator, not a measurement. Speed along the optical axis is
 exactly the coordinate the geometry constrains least.
 
