@@ -459,10 +459,10 @@ def render(result: dict) -> None:
         cv2.circle(frame, (int(ball["u"]), int(ball["v"])), 11, WHITE, -1, cv2.LINE_AA)
         cv2.circle(frame, (int(ball["u"]), int(ball["v"])), 11, RED, 2, cv2.LINE_AA)
 
-        # Single SPEED card + decision chip. The km/h reading is the
-        # release speed |v0| derived from the bounce-aware projectile fit.
-        _card(frame, 24, 24, 170, 78, "SPEED",
-              f"{metrics.get('speed_kmh', 0):.0f} km/h")
+        # Broadcast metric strip: SPEED / SWING / SPIN, then the decision chip.
+        _card(frame, 24, 24, 132, 78, "SPEED", f"{metrics.get('speed_kmh', 0):.0f} km/h")
+        _card(frame, 164, 24, 132, 78, "SWING", f"{metrics.get('swing_sf', 0):.1f}")
+        _card(frame, 304, 24, 132, 78, "SPIN", f"{metrics.get('spin_deg', 0):.0f} deg")
         dec = (lbw.get("decision") or "n/a").upper().replace("_", " ")
         cv2.rectangle(frame, (24, 112), (24 + 16 * len(dec) + 28, 150), (24, 24, 24), -1)
         cv2.putText(frame, dec, (38, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.85, GOLD, 2, cv2.LINE_AA)

@@ -1406,6 +1406,28 @@ def predict_path_to_stumps(
     return out
 
 
+def _smooth_curve(us: list[float], vs: list[float], n_out: int = 64) -> list[tuple[float, float]] | None:
+    """Fit a smoothing spline through image points and resample it densely.
+
+    Turns a jittery per-frame detection sequence into one clean arc for the
+    overlay tracer. The smoothing budget scales with the point count so it
+    absorbs a few pixels of jitter per point without cutting the corner where
+    the ball bounces. Returns a list of (u, v) or None if it cannot be built.
+    """
+    if len(us) < 4 or len(us) != len(vs):
+        return None
+    try:
+        from scipy.interpolate import splprep, splev  # type: ignore
+        pts = np.asarray([us, vs], dtype=float)
+        k = min(3, pts.shape[1] - 1)
+        tck, _ = splprep(pts, s=float(pts.shape[1]) * 6.0, k=k)
+        uu = np.linspace(0.0, 1.0, n_out)
+        out = splev(uu, tck)
+        return [(float(a), float(b)) for a, b in zip(out[0], out[1])]
+    except Exception:  # noqa: BLE001 — overlay smoothing is best-effort
+        return None
+
+
 def build_overlay_px(
     *,
     pose: CameraPose,
@@ -1459,17 +1481,28 @@ def build_overlay_px(
                 clean.append((int(p["t_ms"]), float(p["u"]), float(p["v"])))
             except (KeyError, TypeError, ValueError):
                 continue
-        # A dim or near-end-on clip yields the odd detection that jumps to
-        # background clutter for a single frame. A 3-point median on (u,v)
-        # removes those single-sample spikes while leaving an already-smooth
-        # arc unchanged and preserving the endpoints (release and impact).
-        n = len(clean)
-        for i, (t, u, v) in enumerate(clean):
-            if 0 < i < n - 1:
-                u = sorted((clean[i - 1][1], u, clean[i + 1][1]))[1]
-                v = sorted((clean[i - 1][2], v, clean[i + 1][2]))[1]
-            path.append({"t_ms": t, "phase": "flight",
-                         "u": round(u, 2), "v": round(v, 2)})
+        # The detections sit on the ball but carry per-frame jitter (and the
+        # odd single-frame jump to background clutter). Draw a smoothing spline
+        # through them so the flight reads as one clean broadcast-style tracer
+        # while still following the measured ball, not a possibly-loose 3-D
+        # reprojection. Fall back to a 3-point median on the raw points when
+        # the spline cannot be built (too few points / SciPy unavailable).
+        smooth = _smooth_curve([c[1] for c in clean], [c[2] for c in clean])
+        if smooth is not None:
+            t_lo, t_hi = clean[0][0], clean[-1][0]
+            m = len(smooth)
+            for i, (u, v) in enumerate(smooth):
+                t = t_lo + (t_hi - t_lo) * i / max(1, m - 1)
+                path.append({"t_ms": int(round(t)), "phase": "flight",
+                             "u": round(u, 2), "v": round(v, 2)})
+        else:
+            n = len(clean)
+            for i, (t, u, v) in enumerate(clean):
+                if 0 < i < n - 1:
+                    u = sorted((clean[i - 1][1], u, clean[i + 1][1]))[1]
+                    v = sorted((clean[i - 1][2], v, clean[i + 1][2]))[1]
+                path.append({"t_ms": t, "phase": "flight",
+                             "u": round(u, 2), "v": round(v, 2)})
     elif impact_s > 1e-3:
         for i in range(steps + 1):
             ts = impact_s * i / steps
