@@ -506,7 +506,7 @@ def main() -> int:
         us = [p['u'] for p in pts]; vs = [p['v'] for p in pts]
         print(f"            : t {pts[0]['t_ms']}->{pts[-1]['t_ms']}ms  "
               f"u {min(us):.0f}..{max(us):.0f}  v {min(vs):.0f}..{max(vs):.0f}")
-    print(f"3D world    : {len(result.get('world_trajectory') or [])} points")
+    print(f"3D world    : {len((result.get('world_trajectory') or {}).get('points_m') or [])} points")
     print(f"metrics     : speed={metrics.get('speed_kmh')} km/h ({metrics.get('speed_mph')} mph)")
     print(f"LBW         : {lbw.get('decision')}  ({lbw.get('reason')})")
     print(f"overlay     : path={len(ov.get('path_px') or [])}  corridor={len(ov.get('corridor_px') or [])}  "

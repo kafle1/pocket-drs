@@ -209,10 +209,35 @@ def render(result: dict) -> None:
     corridor = ov.get("corridor_px") or []
     stumps = ov.get("stumps_px") or {}
 
-    flight = [(p["u"], p["v"]) for p in path if p.get("phase") == "flight"]
-    predicted = [(p["u"], p["v"]) for p in path if p.get("phase") == "predicted"]
+    # Solid flight is the raw image-space track, exactly like test3: on this
+    # end-on clip the geometry-fit is degenerate (short-pitch/wide-FOV), so the
+    # fit-projected path_px swings hundreds of px off-frame and draws as wild
+    # slashes. The raw detections are the literal ball positions and stay tight.
     raw_pts_all = sorted(result.get("track", {}).get("image_points") or [], key=lambda p: p["t_ms"])
+    flight = [(p["u"], p["v"]) for p in raw_pts_all]
+    # 3-point median: drops single-frame detection spikes, keeps the real
+    # bounce/deflection reversals (same treatment as the test3 flight path).
+    if len(flight) >= 3:
+        flight = (
+            [flight[0]]
+            + [
+                (
+                    sorted((flight[i - 1][0], flight[i][0], flight[i + 1][0]))[1],
+                    sorted((flight[i - 1][1], flight[i][1], flight[i + 1][1]))[1],
+                )
+                for i in range(1, len(flight) - 1)
+            ]
+            + [flight[-1]]
+        )
     flight_t = [p["t_ms"] for p in raw_pts_all]
+    overlay_predicted = [pp for pp in path if pp.get("phase") == "predicted"]
+    predicted = []
+    if overlay_predicted and raw_pts_all:
+        # Anchor the predicted continuation at the last visible detection so it
+        # flows out of the tracked arc (same residual-shift as test3_e2e).
+        du = float(raw_pts_all[-1]["u"]) - float(overlay_predicted[0]["u"])
+        dv = float(raw_pts_all[-1]["v"]) - float(overlay_predicted[0]["v"])
+        predicted = [(float(p["u"]) + du, float(p["v"]) + dv) for p in overlay_predicted]
 
     cap = cv2.VideoCapture(str(VIDEO))
     fps = cap.get(cv2.CAP_PROP_FPS) or 60.0
@@ -260,33 +285,8 @@ def render(result: dict) -> None:
         if predicted:
             tail = (int(flight[-1][0]), int(flight[-1][1])) if flight else (int(predicted[0][0]), int(predicted[0][1]))
             chain = [tail] + [(int(x), int(y)) for x, y in predicted]
-            tracked_len = sum(
-                float(np.hypot(flight[i][0] - flight[i - 1][0],
-                               flight[i][1] - flight[i - 1][1]))
-                for i in range(1, len(flight))
-            )
-            def _clen(pts):
-                return sum(
-                    float(np.hypot(pts[i][0] - pts[i - 1][0],
-                                   pts[i][1] - pts[i - 1][1]))
-                    for i in range(1, len(pts))
-                )
-            if len(chain) >= 2:
-                step_u = chain[-1][0] - chain[-2][0]
-                step_v = chain[-1][1] - chain[-2][1]
-                for _ in range(80):
-                    if _clen(chain) >= tracked_len:
-                        break
-                    nx = chain[-1][0] + step_u
-                    ny = chain[-1][1] + step_v
-                    if nx < -40 or nx > W + 40 or ny < -40 or ny > H + 40:
-                        break
-                    chain.append((int(nx), int(ny)))
-            poly_pred = np.array([(int(x), int(y)) for x, y in chain], np.int32)
+            poly_pred = np.array(chain, np.int32)
             cv2.polylines(frame, [poly_pred], False, RED, 5, cv2.LINE_AA)
-            end = chain[-1]
-            cv2.circle(frame, end, 8, RED, -1, cv2.LINE_AA)
-            cv2.circle(frame, end, 8, (20, 20, 20), 2, cv2.LINE_AA)
 
         ball = min(raw_pts_all, key=lambda p: abs(p["t_ms"] - t_now))
         cv2.circle(frame, (int(ball["u"]), int(ball["v"])), 11, WHITE, -1, cv2.LINE_AA)
