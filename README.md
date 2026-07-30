@@ -5,7 +5,7 @@
 PocketDRS reconstructs a cricket delivery in 3-D from a single hand-held phone
 clip, predicts the ball's path onto the stumps, and returns an ICC-Rule-36 LBW
 verdict with a broadcast-style overlay. It is built for grassroots cricket,
-coaching, and training review — one phone instead of the six-to-eight
+coaching, and training review - one phone instead of the six-to-eight
 calibrated high-speed cameras a broadcast DRS rig uses.
 
 It is **not** a substitute for officiating DRS, and it is not ICC-certified.
@@ -19,11 +19,11 @@ indicative. See **Accuracy** below for the measured numbers, honestly stated.
 ## 🎯 What it does
 
 - **Single-phone ball tracking** from an ordinary 60–120 fps clip
-- **Stump-anchored calibration** from a few taps — no checkerboard, no rig
+- **Stump-anchored calibration** from a few taps - no checkerboard, no rig
 - **Physics-constrained monocular 3-D reconstruction** (gravity + a single
   restitution bounce), refined by bundle adjustment
 - **Trajectory prediction** to the stump plane by forward projectile integration
-- **ICC-Rule-36 LBW engine** — pitching-in-line, impact-in-line, wickets-hitting,
+- **ICC-Rule-36 LBW engine** - pitching-in-line, impact-in-line, wickets-hitting,
   with handedness-aware off/leg and monocular umpire's-call margins
 - **Hawk-Eye-style overlay** drawn back onto the source video, plus a Three.js 3-D view
 
@@ -34,22 +34,22 @@ indicative. See **Accuracy** below for the measured numbers, honestly stated.
 ```
 📱 Phone clip (60–120 fps, portrait)
   ↓
-📐 Stump-anchored calibration — PnP from the tapped pitch corners + the two
+📐 Stump-anchored calibration - PnP from the tapped pitch corners + the two
    stump rectangles; jointly fits camera FOV and pitch length when unpinned
   ↓
-🎯 Ball detection — learned YOLO detector + classical HSV colour/motion,
+🎯 Ball detection - learned YOLO detector + classical HSV colour/motion,
    fused by a clutter-aware auto-selector
   ↓
-📈 Trajectory fit — RANSAC projectile arc over the per-frame detections
+📈 Trajectory fit - RANSAC projectile arc over the per-frame detections
   ↓
-📏 3-D reconstruction — depth-from-apparent-size seeds metric scale; a
+📏 3-D reconstruction - depth-from-apparent-size seeds metric scale; a
    gravity + restitution-bounce model is fit and bundle-adjusted
   ↓
-🔮 Prediction — forward-integrate the post-bounce projectile to the stump plane
+🔮 Prediction - forward-integrate the post-bounce projectile to the stump plane
   ↓
-⚖️ LBW decision — ICC Rule 36, handedness-aware, anisotropic umpire's-call bands
+⚖️ LBW decision - ICC Rule 36, handedness-aware, anisotropic umpire's-call bands
   ↓
-🎥 Overlay — flight (from the observed detections) + predicted corridor + verdict
+🎥 Overlay - flight (from the observed detections) + predicted corridor + verdict
 ```
 
 There is no Extended Kalman Filter and no checkerboard intrinsic step; scale
@@ -115,9 +115,9 @@ Synthetic ground-truth sweep (8 rendered deliveries with known physics):
 | Metric | Result |
 |--------|--------|
 | LBW decision agreement | **8 / 8 (100%)** |
-| Predicted position at the stumps | 11.7 cm mean — lateral 0.3 cm, vertical 11.7 cm |
+| Predicted position at the stumps | 11.7 cm mean - lateral 0.3 cm, vertical 11.7 cm |
 | Bounce localisation | 54.6 cm (almost entirely down-pitch; lateral ~0.5 cm) |
-| Release speed | ~22 km/h mean error — **indicative only** |
+| Release speed | ~22 km/h mean error - **indicative only** |
 
 The error is strongly anisotropic and this is fundamental, not a bug: a single
 camera resolves the **line** of the ball (the coordinate that decides an LBW)
@@ -129,7 +129,7 @@ processing. Full analysis and per-axis decomposition are in the paper
 
 **Best on:** a fixed phone behind the bowler or striker, both stump sets clearly
 in frame, a rectilinear (non-fisheye) lens, ball visually distinct.
-**Declines gracefully on:** fisheye/occluded/short clips — it refuses rather
+**Declines gracefully on:** fisheye/occluded/short clips - it refuses rather
 than emitting a confident wrong verdict.
 
 ---
@@ -150,7 +150,7 @@ firebase-admin (backend); Flutter/Dart, Three.js (frontend).
 
 ## 📝 License
 
-**Proprietary — All Rights Reserved.** Copyright (c) 2025-2026 Niraj Kafle.
+**Proprietary - All Rights Reserved.** Copyright (c) 2025-2026 Niraj Kafle.
 No copying, use, modification, distribution, or ML training on any part of
 this repository without prior written permission. See [LICENSE](LICENSE).
 
