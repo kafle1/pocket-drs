@@ -19,7 +19,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-ROOT = Path("/Users/nirajkafle/Desktop/niraj/dev-projects/pocket-drs")
+ROOT = Path(__file__).resolve().parents[2]  # repo root: server/scripts/<this file> -> up two
 sys.path.insert(0, str(ROOT / "server"))
 
 from app.pipeline.process_job import run_pipeline  # noqa: E402
