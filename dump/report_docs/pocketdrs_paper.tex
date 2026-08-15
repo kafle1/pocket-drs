@@ -70,11 +70,16 @@ post-bounce trajectory is forward-integrated to the stump plane and
 adjudicated under Law~36 (leg before wicket) of the MCC Laws of Cricket, as
 adopted in the International Cricket Council (ICC) playing conditions, with
 handedness-aware off/leg discrimination and umpire's-call bands widened along the depth axis to reflect
-monocular uncertainty. On eight physics-based synthetic deliveries with known
-ground truth, PocketDRS reproduces the LBW verdict in $8/8$ cases with a mean
-predicted stump-plane error of $11.7$\,cm; absolute release speed (mean error
-$22.1$\,km/h) and bounce localization are markedly weaker and are reported as
-indicative only. We validate end-to-end tracking on hand-held net clips,
+monocular uncertainty. On 100 physics-based synthetic deliveries with known ground
+truth, spanning five release speeds, five lines and four lengths, PocketDRS
+agrees with the ground-truth verdict in 64 cases and returns no verdict in 10.
+Agreement is strongly structured: 76\,\% at a good length against 48\,\% at a
+yorker, and 80\,\% on middle stump against 45\,\% on the marginal $\pm$20\,cm
+lines. The predicted stump-plane position is out by $35.4$\,cm on average, with
+the lateral component ($9.3$\,cm) far better resolved than the vertical
+($32.4$\,cm); release speed and bounce location are not recovered to useful
+accuracy and are withdrawn rather than qualified. Seven not-out deliveries were
+returned as out, which is the error direction that matters most. We validate end-to-end tracking on hand-held net clips,
 characterize generalization on unseen internet footage, and argue that the
 system is useful for coaching and training rather than officiating.
 \end{abstract}
@@ -598,13 +603,16 @@ verdict, the three ICC checks, the reconstructed metric trajectory, and a
 rendered overlay video. Processing is per-clip and non-interactive, which suits
 the coaching use case (review after the session) rather than live officiating.
 
-\paragraph*{Synthetic harness} We render eight deliveries with known physics: a
-release speed of $115$\,km/h, three line families (off, middle, leg), lengths of
-approximately $5.5$--$6.0$\,m, at $60$\,frames/s, with the virtual camera placed
-behind the striker. Because the generating trajectory is known exactly, we can
-measure absolute errors in the reconstructed bounce point, impact point,
-predicted stump-plane crossing, and release speed, and compare the predicted LBW
-verdict against the ground-truth verdict.
+\paragraph*{Synthetic harness} We render 100 deliveries with known physics: five
+release speeds from $90$ to $145$\,km/h, five lines (middle, and off and leg at
+$20$ and $40$\,cm), and four lengths from a $2$\,m yorker to an $8$\,m short
+ball, at $60$\,frames/s with the virtual camera behind the striker. Because the
+generating trajectory is known exactly we measure absolute errors in the
+reconstructed bounce point, impact point, predicted stump-plane crossing and
+release speed, and compare the predicted verdict against a ground-truth verdict
+computed from that trajectory under the same geometry the decision layer uses.
+The grid is 82 not out and 18 out, so a policy answering a single class cannot
+score well.
 
 \paragraph*{Real clips} We captured single-phone net clips spanning the
 conditions a grassroots user would encounter: outdoor and indoor nets, red and
@@ -622,63 +630,106 @@ whether the system \emph{declines} clips that violate its assumptions.
 \section{Results}
 \label{sec:results}
 
-\subsection{Synthetic ground-truth accuracy}
-Table~\ref{tab:synth} reports the synthetic results. PocketDRS reproduced the
-ground-truth LBW verdict in $\mathbf{8/8}$ deliveries. The predicted ball
-position at the stump plane, the quantity the LBW verdict actually depends
-on, had a mean error of $11.7$\,cm and a maximum of $21.4$\,cm. This error is
-strongly anisotropic: the lateral ($y$) component averaged just $0.3$\,cm, while
-the vertical ($z$) component averaged $11.7$\,cm and accounts for essentially
-all of the total. This is the expected signature of monocular reconstruction:
-the lateral position, well constrained by the calibrated stump geometry, is
-recovered accurately, whereas the vertical/depth-coupled component, which
-depends on the weak depth-from-size cue, is not.
+\subsection{Verdict accuracy}
+We evaluate on 100 synthetic deliveries spanning five release speeds (90 to 145\,km/h), five
+lines (middle, and off and leg at 20 and 40\,cm) and four lengths (2 to 8\,m). Ground truth is
+taken from the generating trajectory under the same geometry the decision layer uses. The set is
+82 not out and 18 out, so a policy that answers one class alone cannot score well.
+
+PocketDRS agreed with the ground-truth verdict in \textbf{64 of 100} deliveries. It returned no
+verdict on 10, where calibration or the arc fit failed outright; agreement over the 90 that
+produced one is 71\,\%.
 
 \begin{table}[!t]
-\caption{Synthetic ground-truth validation (8 deliveries, 115\,km/h, 60\,fps,
-camera behind striker).}
-\label{tab:synth}
+\caption{Verdict outcomes over the 100-delivery grid.}
+\label{tab:wide}
 \centering
-\renewcommand{\arraystretch}{1.25}
-\begin{tabular}{@{}lr@{}}
+\begin{tabular}{@{}llr@{}}
 \toprule
-\textbf{Metric} & \textbf{Value}\\
+\textbf{Ground truth} & \textbf{Predicted} & \textbf{n}\\
 \midrule
-LBW verdict agreement with ground truth & $8/8$ ($100\%$)\\
-Predicted stump-plane position error (mean) & $11.7$\,cm\\
-\quad, maximum & $21.4$\,cm\\
-\quad, lateral $y$ component (mean) & $0.3$\,cm\\
-\quad, vertical $z$ component (mean) & $11.7$\,cm\\
-Bounce-point error (mean) & $54.7$\,cm\\
-Impact-point error (mean) & $48.8$\,cm\\
-Release-speed error (mean) & $22.1$\,km/h\\
+not out & not out       & 48\\
+out     & out           & 16\\
+not out & umpire's call & 19\\
+not out & out           & \textbf{7}\\
+not out & no verdict    & 8\\
+out     & no verdict    & 2\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The bounce-point ($54.7$\,cm mean) and impact-point ($48.8$\,cm mean) errors are
-much larger, and the release-speed error ($22.1$\,km/h mean) is large enough
-that we report absolute speed only as an \emph{indicative} figure. On a
-near-axial monocular view the down-pitch (depth) position is the least
-observable coordinate, so both the longitudinal location of the bounce and the
-time-derivative that yields speed are poorly constrained. It is notable, and
-central to why the system is nonetheless useful for LBW, that the verdict-
-critical stump-plane crossing is an order of magnitude better resolved than
-these intermediate quantities: the geometry that matters for LBW (lateral line
-and height at the stumps) is precisely the geometry the stump-anchored
-calibration constrains best.
+Two features of Table~\ref{tab:wide} matter more than the headline. The 19 not-out deliveries
+returned as umpire's call are the intended behaviour of the widened bands: the system declines to
+assert rather than guessing, and a coaching tool that says "too close to call" is useful. The
+seven not-out deliveries returned as \textsc{out} are not. A false out is the error a review
+system must not make, and it is the one number a deployment decision should turn on.
 
-Decomposing the bounce and impact errors by axis makes this explicit. The
-lateral ($y$) component of each averages only $0.5$\,cm; essentially the entire
-$54.7$ and $48.8$\,cm sits on the down-pitch ($x$) axis, the least observable
-coordinate on a near-axial view. The bounce depth error is moreover
-statistically unbiased, its signed mean is $-3.7$\,cm against a $54.6$\,cm
-absolute mean, so it is zero-mean measurement noise arising from the
-depth-from-apparent-size variance of Eq.~\eqref{eq:sens_abs} rather than a
-systematic offset that a calibration or bias correction could remove. This is
-the empirical signature of the monocular depth limit, and it is why a second
-viewpoint, not further single-view processing, is the route to tightening these
-intermediate quantities.
+\begin{table}[!t]
+\caption{Reconstruction error over the 100-delivery grid. Means are over the deliveries that
+produced the quantity: 90 for the stump-plane and speed estimates, 73 for the bounce point.}
+\label{tab:wide_err}
+\centering
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Quantity} & \textbf{Mean} & \textbf{Max}\\
+\midrule
+Predicted stump-plane error        & $35.4$\,cm  & $80.1$\,cm\\
+\quad lateral ($y$) component      & $9.3$\,cm   & $41.6$\,cm\\
+\quad vertical ($z$) component     & $32.4$\,cm  & $79.1$\,cm\\
+Impact-point error                 & $88.4$\,cm  & $199.6$\,cm\\
+Bounce-point error                 & $404.9$\,cm & $880.1$\,cm\\
+Release-speed error                & $74.6$\,km/h & $140.4$\,km/h\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:wide_err} gives the underlying reconstruction error, and it is considerably worse
+than the eight-delivery figure suggested. Across the grid the predicted stump-plane position is out
+by $35.4$\,cm on average against $11.1$\,cm on the narrow set, and the intermediate quantities
+degrade further: the bounce point by more than four metres and the release speed by $74.6$\,km/h,
+which exceeds the range of speeds tested. Absolute speed and bounce location are not measurements
+at this accuracy and we withdraw them as reported quantities rather than qualifying them.
+
+The verdict nonetheless agrees more often than these magnitudes imply, because an LBW decision is a
+thresholded question and the lateral component, at $9.3$\,cm, is the better-resolved axis. That is
+the same anisotropy the narrow set showed, but the margin it leaves is much thinner than eight
+favourable deliveries indicated.
+
+Accuracy is strongly structured, and the structure is physical rather than incidental:
+
+\begin{table}[!t]
+\caption{Verdict agreement by delivery parameter.}
+\label{tab:wide_break}
+\centering
+\begin{tabular}{@{}llr@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} & \textbf{Agreement}\\
+\midrule
+Length & 6--8\,m (good, short) & 76\,\%\\
+       & 4\,m (full)           & 56\,\%\\
+       & 2\,m (yorker)         & 48\,\%\\
+\midrule
+Line   & middle stump          & 80\,\%\\
+       & $\pm$40\,cm           & 70--80\,\%\\
+       & $\pm$20\,cm           & 45\,\%\\
+\midrule
+Speed  & 90--105\,km/h         & 70\,\%\\
+       & 130--145\,km/h        & 60\,\%\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A fuller length gives a longer post-bounce arc for the solver to fit, so accuracy rises with
+length. The dip at $\pm$20\,cm is the marginal band: those deliveries pass close to the outer
+stump, where the depth error quantified in Section~\ref{sec:setup} is enough to move the predicted
+crossing across the decision boundary. Deliveries well outside the line are easy again, which is
+why $\pm$40\,cm recovers. Faster deliveries give fewer frames between bounce and stump plane.
+
+This supersedes an earlier evaluation on eight deliveries at a single speed, one length band and
+lines within $\pm$6\,cm of middle stump, which reported full agreement. Every delivery in that set
+was out and every one sat in the region Table~\ref{tab:wide_break} identifies as the system's
+strongest, so the figure measured neither discrimination nor range. We report the wider grid
+instead, including where it fails.
 
 \subsection{Real hand-held clips}
 Table~\ref{tab:real} summarizes three representative single-phone clips. All
@@ -771,10 +822,12 @@ geometry, which is well observed, (ii) constraining depth with physical priors,
 and (iii) widening the vertical umpire's-call band to $2R$ so that marginal
 height calls are surfaced as reviews rather than asserted.
 
-\paragraph*{Absolute speed is unreliable} With a mean release-speed error of
-$22.1$\,km/h on a near-axial view, PocketDRS should be understood to report
-speed as a rough indicator, not a measurement. Speed along the optical axis is
-exactly the coordinate the geometry constrains least.
+\paragraph*{Absolute speed and bounce location are not recovered} A mean
+release-speed error of $74.6$\,km/h over the grid exceeds the range of speeds
+tested, and the bounce point is out by more than four metres on average. Speed
+and down-pitch position are the coordinates a near-axial monocular view
+constrains least, and at these magnitudes they are not measurements. We withdraw
+them rather than report them as indicative; the system should not display either.
 
 \paragraph*{Calibration dependence} The metric scale rests entirely on the
 user's taps on the stump corners and on both stump sets being visible and
@@ -817,8 +870,8 @@ stump-anchored PnP calibration, a hybrid clutter-aware detector, a RANSAC
 projectile filter, and a physics-constrained monocular 3-D lift with a
 restitution-governed bounce and image-space bundle adjustment, adjudicated under
 MCC Law~36 with anisotropic umpire's-call bands. On synthetic ground truth it
-agrees with the true verdict on all eight deliveries and predicts the
-stump-plane crossing to $11.7$\,cm on average, while being candidly weak on
+agrees with the true verdict in 64 of 100 deliveries and predicts the
+stump-plane crossing to $35.4$\,cm on average, while being candidly weak on
 absolute depth-dependent quantities such as bounce location and release speed.
 
 Future work targets the depth weakness directly. The most direct improvement is
