@@ -66,9 +66,10 @@ detector and a random-sample-consensus (RANSAC) projectile filter isolate the
 ball's image arc, which is lifted to metric 3-D by a physics-constrained solver
 that couples pinhole projection, depth-from-apparent-size, a gravity model, and
 a single restitution-governed bounce, then refined by bundle adjustment. The
-post-bounce trajectory is forward-integrated to the stump plane and adjudicated
-under International Cricket Council (ICC) Rule~36 with handedness-aware off/leg
-discrimination and umpire's-call bands widened along the depth axis to reflect
+post-bounce trajectory is forward-integrated to the stump plane and
+adjudicated under Law~36 (leg before wicket) of the MCC Laws of Cricket, as
+adopted in the International Cricket Council (ICC) playing conditions, with
+handedness-aware off/leg discrimination and umpire's-call bands widened along the depth axis to reflect
 monocular uncertainty. On eight physics-based synthetic deliveries with known
 ground truth, PocketDRS reproduces the LBW verdict in $8/8$ cases with a mean
 predicted stump-plane error of $11.7$\,cm; absolute release speed (mean error
@@ -128,7 +129,7 @@ adjustment (Section~\ref{sec:recon}).
 custom-trained YOLO detector with a classical colour/motion detector and prefers
 the learned track except where a markedly longer, geometrically tight colour arc
 demonstrably beats it (Section~\ref{sec:detect}).
-\item \textbf{An ICC Rule~36 decision layer with monocular uncertainty bands}:
+\item \textbf{An MCC Law~36 decision layer with monocular uncertainty bands}:
 handedness-aware and camera-end-aware off/leg discrimination and per-axis umpire's-
 call margins that are wider vertically than laterally, reflecting the anisotropy
 of monocular error (Section~\ref{sec:lbw}).
@@ -242,7 +243,7 @@ constraining the unobserved depth with a projectile-plus-bounce physical model.
 \node[block, right=of det] (ran) {RANSAC\\projectile\\arc};
 \node[block, right=of ran] (rec) {Physics 3-D\\lift + bounce\\+ bundle adj.};
 \node[block, right=of rec] (pred) {Forward\\integrate to\\stump plane};
-\node[dec, right=of pred] (lbw) {ICC Rule\,36\\decision};
+\node[dec, right=of pred] (lbw) {MCC Law\,36\\decision};
 \node[io, right=of lbw] (out) {Verdict\\+ overlay};
 
 \draw[arr] (vid) -- (cal);
@@ -270,7 +271,7 @@ PnP calibration. A hybrid detector and a RANSAC projectile filter isolate the
 ball's 2-D arc, which is lifted to metric 3-D under physical priors (gravity, a
 known-radius ball, a single restitution-governed bounce, and the regulation
 pitch length) and refined by bundle adjustment. The post-bounce trajectory is
-forward-integrated to the stump plane and adjudicated under ICC Rule~36.}
+forward-integrated to the stump plane and adjudicated under MCC Law~36.}
 \label{fig:pipeline}
 \end{figure*}
 
@@ -515,7 +516,7 @@ point $(y^\star,z^\star)$ where the ball would cross the stumps.
 \subsection{LBW decision}
 \label{sec:lbw}
 
-The decision implements the three ICC Rule~36 tests~\cite{mcc2017laws}:
+The decision implements the three MCC Law~36 tests~\cite{mcc2017laws}:
 pitching in line, impact in line, and wickets hitting. Off and leg sides are
 resolved from a signed convention $\sigma\in\{+1,-1\}$ derived from the batter's
 handedness \emph{and} the inferred camera end (Section~\ref{sec:calib}); a
@@ -547,7 +548,7 @@ stumps flags a ``just missing'' path only when the ball had first passed the
 pitching and impact tests. Algorithm~\ref{alg:lbw} summarizes the decision.
 
 \begin{algorithm}[!t]
-\caption{ICC Rule~36 decision with monocular bands}
+\caption{MCC Law~36 decision with monocular bands}
 \label{alg:lbw}
 \begin{algorithmic}[1]
 \REQUIRE bounce $y_b$, impact $y_i$, predicted stump point $(y^\star,z^\star)$,
@@ -815,7 +816,7 @@ missing viewpoints of multi-camera DRS with cricket-specific physical priors: a
 stump-anchored PnP calibration, a hybrid clutter-aware detector, a RANSAC
 projectile filter, and a physics-constrained monocular 3-D lift with a
 restitution-governed bounce and image-space bundle adjustment, adjudicated under
-ICC Rule~36 with anisotropic umpire's-call bands. On synthetic ground truth it
+MCC Law~36 with anisotropic umpire's-call bands. On synthetic ground truth it
 agrees with the true verdict on all eight deliveries and predicts the
 stump-plane crossing to $11.7$\,cm on average, while being candidly weak on
 absolute depth-dependent quantities such as bounce location and release speed.
