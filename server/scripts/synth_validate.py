@@ -193,6 +193,34 @@ def find_ground_truth(states: list[tuple[float, np.ndarray]]) -> tuple[tuple[flo
     return bounce, impact
 
 
+def truth_verdict(states: list[tuple[float, np.ndarray]]) -> str:
+    """The verdict the delivery actually deserves, from the trajectory we generated.
+
+    Without this the harness has nothing to compare a prediction against, so "verdict agreement"
+    is not measurable and a system that always answers "out" scores full marks. Uses the same
+    geometry as the pipeline: a ball clips if its edge reaches the stumps, and a delivery
+    pitching outside leg stump is not out however plainly it would have hit.
+    """
+    in_flight = [s for s in states if 0.0 <= s[1][0] <= PITCH_LEN]
+    if not in_flight:
+        raise ValueError("trajectory never crosses the pitch")
+
+    bounce = min(in_flight, key=lambda s: s[1][2])
+    if bounce[1][1] > STUMP_OUTER:          # +y is the leg side
+        return "not_out"
+
+    before = [s for s in states if s[1][0] > 0.0]
+    after = [s for s in states if s[1][0] <= 0.0]
+    if not before or not after:
+        raise ValueError("trajectory never reaches the stump plane")
+    a, b = before[-1][1], after[0][1]
+    f = a[0] / (a[0] - b[0])                # linear interpolation to x = 0
+    y, z = a[1] + f * (b[1] - a[1]), a[2] + f * (b[2] - a[2])
+
+    hits = abs(y) <= STUMP_OUTER + BALL_R and 0.0 <= z <= H_STUMP + BALL_R
+    return "out" if hits else "not_out"
+
+
 # --------------------------------------------------------------------------- #
 # Rendering
 # --------------------------------------------------------------------------- #
@@ -319,6 +347,7 @@ def evaluate(scen: Scenario, idx: int) -> dict:
     video_path = OUT / f"scene_{idx:02d}_{scen.name}.mp4"
     states, calib = render_scenario(scen, video_path)
     bounce_gt, impact_gt = find_ground_truth(states)
+    lbw_gt = truth_verdict(states)
 
     req = {
         "segment": {"start_ms": 0, "end_ms": int(1000 * (N_FRAMES - 1) / FPS)},
@@ -335,6 +364,7 @@ def evaluate(scen: Scenario, idx: int) -> dict:
         return {
             "name": scen.name, "speed_gt": scen.speed_kmh, "speed_reco": None,
             "speed_err_kmh": None, "bounce_err_cm": None, "impact_err_cm": None,
+            "lbw_gt": lbw_gt, "verdict_match": False,
             "passed": False, "note": f"exception: {exc}",
         }
 
@@ -426,6 +456,8 @@ def evaluate(scen: Scenario, idx: int) -> dict:
         "pred_z_err_cm": pred_z_err_cm,
         "reproj_px": cal.get("reproj_error_px"),
         "lbw": lbw.get("decision"),
+        "lbw_gt": lbw_gt,
+        "verdict_match": lbw.get("decision") == lbw_gt,
         "passed": passed,
     }
 
@@ -495,7 +527,7 @@ def main() -> int:
     keys = ["name", "speed_gt", "speed_reco", "speed_err_kmh",
             "bounce_err_cm", "impact_err_cm",
             "pred_stump_err_cm", "pred_y_err_cm", "pred_z_err_cm",
-            "reproj_px", "lbw", "passed"]
+            "reproj_px", "lbw", "lbw_gt", "verdict_match", "passed"]
     with open(OUT / "summary.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=keys)
         w.writeheader()
