@@ -342,8 +342,8 @@ def _wide_grid() -> list[Scenario]:
 WIDE_SCENARIOS = _wide_grid()   # 100 deliveries
 
 
-def evaluate(scen: Scenario, idx: int) -> dict:
-    print(f"\n[{idx+1:02d}/{_total}] {scen.name}  speed={scen.speed_kmh}km/h  line={scen.line_y_m:+.2f}m  len={scen.length_x_m}m")
+def evaluate(scen: Scenario, idx: int, total: int) -> dict:
+    print(f"\n[{idx+1:02d}/{total}] {scen.name}  speed={scen.speed_kmh}km/h  line={scen.line_y_m:+.2f}m  len={scen.length_x_m}m")
     video_path = OUT / f"scene_{idx:02d}_{scen.name}.mp4"
     states, calib = render_scenario(scen, video_path)
     bounce_gt, impact_gt = find_ground_truth(states)
@@ -502,17 +502,12 @@ def plot_summary(rows: list[dict]) -> None:
     plt.close(fig)
 
 
-_total = len(SCENARIOS)   # rebound in main() when --wide selects the larger grid
-
-
 def main() -> int:
-    global _total
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--wide", action="store_true",
                     help="run the %d-delivery sweep instead of the 8 the paper reports" % len(WIDE_SCENARIOS))
     args = ap.parse_args()
     scenarios = WIDE_SCENARIOS if args.wide else SCENARIOS
-    _total = len(scenarios)
 
     print("=" * 70)
     print("PocketDRS synthetic validation sweep")
@@ -520,9 +515,9 @@ def main() -> int:
     print(f"output dir : {OUT}")
     print(f"camera FOV : {H_FOV_DEG:.1f} deg horizontal")
     print(f"grid       : {'wide' if args.wide else 'reported (paper)'}")
-    print(f"scenarios  : {_total}")
+    print(f"scenarios  : {len(scenarios)}")
 
-    rows = [evaluate(scen, i) for i, scen in enumerate(scenarios)]
+    rows = [evaluate(scen, i, len(scenarios)) for i, scen in enumerate(scenarios)]
 
     keys = ["name", "speed_gt", "speed_reco", "speed_err_kmh",
             "bounce_err_cm", "impact_err_cm",
