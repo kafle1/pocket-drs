@@ -6,8 +6,22 @@ on each. Compares recovered geometry against ground truth and emits a pass /
 fail table plus an accuracy summary plot.
 
 Each scenario is a 60 fps phone-shot of a single delivery from behind the
-striker. Parameters swept: release speed, bowling line (off / middle / leg),
-length (yorker / good / short).
+striker.
+
+Two grids are defined below.
+
+SCENARIOS is the eight-delivery set the paper reports. Be honest about what it
+is: one release speed (115 km/h), two lengths, and lines inside +/- 6 cm of
+middle stump, chosen to sit in the solver's convergence range. It shows the
+pipeline works where it is designed to work. It does NOT establish accuracy
+across the deliveries a real user will film, and 8/8 on eight samples carries a
+95% confidence interval of roughly [63%, 100%].
+
+WIDE_SCENARIOS sweeps what the paper needs next: speeds 90-145 km/h, lines out
+to +/- 40 cm (a real off or leg line, not +/- 6 cm), and lengths from yorker to
+short. Run it with --wide. Expect failures at the edges. Report them: a grid
+that maps where the method breaks is worth far more to a reviewer than eight
+cases chosen where it does not.
 
 Run:    server/.venv/bin/python server/scripts/synth_validate.py
 Out:    dump/validation/synth/{summary.csv, summary.png, scene_<i>.mp4, ...}
@@ -15,6 +29,7 @@ Out:    dump/validation/synth/{summary.csv, summary.png, scene_<i>.mp4, ...}
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import math
@@ -278,8 +293,29 @@ SCENARIOS = [
 ]
 
 
+def _wide_grid() -> list[Scenario]:
+    """Speed x line x length, spanning what a phone actually gets pointed at.
+
+    Lengths: 2.0 m yorker, 4.0 m full, 6.0 m good, 8.0 m short. Lines: middle,
+    and off/leg at 20 and 40 cm, which is where a real delivery sits rather
+    than the +/- 6 cm the reported eight use.
+    """
+    out = []
+    for speed in (90, 105, 115, 130, 145):
+        for line in (-0.40, -0.20, 0.0, +0.20, +0.40):
+            for length in (2.0, 4.0, 6.0, 8.0):
+                side = "off" if line < 0 else ("leg" if line > 0 else "mid")
+                out.append(Scenario(
+                    name=f"s{speed}_{side}{abs(line):.2f}_l{length:.1f}".replace(".", ""),
+                    speed_kmh=speed, line_y_m=line, length_x_m=length))
+    return out
+
+
+WIDE_SCENARIOS = _wide_grid()   # 100 deliveries
+
+
 def evaluate(scen: Scenario, idx: int) -> dict:
-    print(f"\n[{idx+1:02d}/{len(SCENARIOS)}] {scen.name}  speed={scen.speed_kmh}km/h  line={scen.line_y_m:+.2f}m  len={scen.length_x_m}m")
+    print(f"\n[{idx+1:02d}/{_total}] {scen.name}  speed={scen.speed_kmh}km/h  line={scen.line_y_m:+.2f}m  len={scen.length_x_m}m")
     video_path = OUT / f"scene_{idx:02d}_{scen.name}.mp4"
     states, calib = render_scenario(scen, video_path)
     bounce_gt, impact_gt = find_ground_truth(states)
@@ -434,15 +470,27 @@ def plot_summary(rows: list[dict]) -> None:
     plt.close(fig)
 
 
+_total = len(SCENARIOS)   # rebound in main() when --wide selects the larger grid
+
+
 def main() -> int:
+    global _total
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--wide", action="store_true",
+                    help="run the %d-delivery sweep instead of the 8 the paper reports" % len(WIDE_SCENARIOS))
+    args = ap.parse_args()
+    scenarios = WIDE_SCENARIOS if args.wide else SCENARIOS
+    _total = len(scenarios)
+
     print("=" * 70)
     print("PocketDRS synthetic validation sweep")
     print("=" * 70)
     print(f"output dir : {OUT}")
     print(f"camera FOV : {H_FOV_DEG:.1f} deg horizontal")
-    print(f"scenarios  : {len(SCENARIOS)}")
+    print(f"grid       : {'wide' if args.wide else 'reported (paper)'}")
+    print(f"scenarios  : {_total}")
 
-    rows = [evaluate(scen, i) for i, scen in enumerate(SCENARIOS)]
+    rows = [evaluate(scen, i) for i, scen in enumerate(scenarios)]
 
     keys = ["name", "speed_gt", "speed_reco", "speed_err_kmh",
             "bounce_err_cm", "impact_err_cm",
