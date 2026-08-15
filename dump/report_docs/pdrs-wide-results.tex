@@ -1,0 +1,76 @@
+% Replaces "Synthetic ground-truth accuracy" in pocketdrs_paper.tex.
+% Source: server/scripts/synth_validate.py --wide, 100 deliveries, ground truth from the
+% generated trajectory. Raw: dump/validation/wide_grid_summary.csv
+%
+% NIRAJ: read these before using them. The headline drops from 8/8 to 64/100 and the paper is
+% far stronger for it. Decide whether you agree with the reading.
+
+\subsection{Verdict accuracy}
+We evaluate on 100 synthetic deliveries spanning five release speeds (90 to 145\,km/h), five
+lines (middle, and off and leg at 20 and 40\,cm) and four lengths (2 to 8\,m). Ground truth is
+taken from the generating trajectory under the same geometry the decision layer uses. The set is
+82 not out and 18 out, so a policy that answers one class alone cannot score well.
+
+PocketDRS agreed with the ground-truth verdict in \textbf{64 of 100} deliveries. It returned no
+verdict on 10, where calibration or the arc fit failed outright; agreement over the 90 that
+produced one is 71\,\%.
+
+\begin{table}[!t]
+\caption{Verdict outcomes over the 100-delivery grid.}
+\label{tab:wide}
+\centering
+\begin{tabular}{@{}llr@{}}
+\toprule
+\textbf{Ground truth} & \textbf{Predicted} & \textbf{n}\\
+\midrule
+not out & not out       & 48\\
+out     & out           & 16\\
+not out & umpire's call & 19\\
+not out & out           & \textbf{7}\\
+not out & no verdict    & 8\\
+out     & no verdict    & 2\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two features of Table~\ref{tab:wide} matter more than the headline. The 19 not-out deliveries
+returned as umpire's call are the intended behaviour of the widened bands: the system declines to
+assert rather than guessing, and a coaching tool that says "too close to call" is useful. The
+seven not-out deliveries returned as \textsc{out} are not. A false out is the error a review
+system must not make, and it is the one number a deployment decision should turn on.
+
+Accuracy is strongly structured, and the structure is physical rather than incidental:
+
+\begin{table}[!t]
+\caption{Verdict agreement by delivery parameter.}
+\label{tab:wide_break}
+\centering
+\begin{tabular}{@{}llr@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} & \textbf{Agreement}\\
+\midrule
+Length & 6--8\,m (good, short) & 76\,\%\\
+       & 4\,m (full)           & 56\,\%\\
+       & 2\,m (yorker)         & 48\,\%\\
+\midrule
+Line   & middle stump          & 80\,\%\\
+       & $\pm$40\,cm           & 70--80\,\%\\
+       & $\pm$20\,cm           & 45\,\%\\
+\midrule
+Speed  & 90--105\,km/h         & 70\,\%\\
+       & 130--145\,km/h        & 60\,\%\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A fuller length gives a longer post-bounce arc for the solver to fit, so accuracy rises with
+length. The dip at $\pm$20\,cm is the marginal band: those deliveries pass close to the outer
+stump, where the depth error quantified in Section~\ref{sec:setup} is enough to move the predicted
+crossing across the decision boundary. Deliveries well outside the line are easy again, which is
+why $\pm$40\,cm recovers. Faster deliveries give fewer frames between bounce and stump plane.
+
+This supersedes an earlier evaluation on eight deliveries at a single speed, one length band and
+lines within $\pm$6\,cm of middle stump, which reported full agreement. Every delivery in that set
+was out and every one sat in the region Table~\ref{tab:wide_break} identifies as the system's
+strongest, so the figure measured neither discrimination nor range. We report the wider grid
+instead, including where it fails.
