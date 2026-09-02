@@ -57,12 +57,12 @@ cricket, decision review, camera calibration, smartphone measurement.
 \IEEEPARstart{T}{he} leg-before-wicket law is the most contested adjudication in cricket: an umpire must
 judge in real time whether a ball that struck the batter's pad would have gone on to hit the stumps.
 Broadcast decision review systems answer that counterfactual by triangulating the ball from six or more
-synchronised, calibrated high-speed cameras and extrapolating the post-impact path~\cite{owens2003hawkeye,collins2008hawkeye}. They are accurate and they are confined to televised cricket. Club,
-school and age-group matches, and every net session, ask the same marginal questions with no instrument at
-all.
+synchronised, calibrated high-speed cameras and extrapolating the post-impact
+path~\cite{owens2003hawkeye,collins2008hawkeye}. They are accurate, and confined to televised cricket. Club,
+school and age-group matches, and every net session, ask the same questions with no instrument at all.
 
-This paper asks how far a single phone can go. One camera cannot triangulate, and a monocular system should not claim
-the accuracy of a multi-camera rig. But a cricket delivery is not an arbitrary object in an arbitrary scene.
+This paper asks how far a single phone can go. One camera cannot triangulate and should not claim the
+accuracy of a rig. But a cricket delivery is not an arbitrary object in an arbitrary scene.
 It is a sphere of known radius flying ballistically over a plane of known geometry, past two rigid
 regulation-height targets that are always in view, and it touches that plane exactly once. Each of those
 facts is a constraint, and together they are enough to make the monocular problem well posed. The paper
@@ -79,21 +79,19 @@ geometry, and Section~\ref{sec:results} shows that the resulting verdict is clos
 Our contribution is to use the bounce as an anchor. The instant of contact is observable in the image as
 the split at which two parabolas explain the track far better than one. At that instant the ball's centre is
 one radius above a plane whose position is known from calibration, so the contact pixel back-projects to a
-metric point with no depth cue at all. With the contact point and instant fixed, the velocities before and after contact are each linear in the
-pixel measurements, and a nine-parameter model of the whole delivery
-can be initialised in closed form and refined jointly. Specifically:
-\begin{itemize}
-\item We formulate delivery reconstruction as a bounce-anchored two-parabola fit with a free post-contact
-horizontal velocity, so seam and spin deviation off the pitch is measured rather than assumed, and an
-estimated restitution coefficient bounded to the physical range (Section~\ref{sec:method}).
-\item We propagate the covariance of the fit to the stump-plane crossing and widen the umpire's-call band of
-the Laws to the estimate's own uncertainty, so the system declines to assert a marginal call it cannot
-support (Section~\ref{sec:decision}), and we measure how well the propagated bound covers the true error.
-\item We evaluate against exact ground truth from a generator whose physics is richer than the estimator's,
-across noise, frame rate, calibration error, dropped frames and six camera placements, against the
-single-parabola estimator on identical detections, then through the full pipeline on rendered clips, then on
-real hand-held footage with a repeatability test (Section~\ref{sec:results}).
-\end{itemize}
+metric point with no depth cue at all. With the contact fixed, the velocities before and after it are linear
+in the pixel measurements, and a nine-parameter model of the whole delivery can be initialised in closed form
+and refined jointly. Three things follow. We formulate delivery reconstruction as a bounce-anchored
+two-parabola fit with a free post-contact horizontal velocity, so seam and spin deviation off the pitch is
+measured rather than assumed, and an estimated restitution coefficient bounded to the physical range
+(Section~\ref{sec:method}). We propagate the covariance of the fit to the stump-plane crossing and widen the
+umpire's-call band of the Laws to the estimate's own uncertainty, so the system declines to assert a marginal
+call it cannot support (Section~\ref{sec:decision}), and we measure how well the propagated bound covers the
+true error. We evaluate against exact ground truth from a generator whose physics is richer than the
+estimator's, across noise, frame rate, calibration error, dropped frames and six camera placements, against
+the single-parabola estimator on identical detections, then through the full pipeline on rendered clips, then
+on real hand-held footage with a repeatability test (Section~\ref{sec:results}).
+
 The system is built for coaching and training review, not officiating, and the paper says where it fails: a
 yorker leaves too few post-contact frames, a camera at the bowler's end sees the decisive arc foreshortened,
 and one of three real clips is declined. The system began as the author's undergraduate final-year project
@@ -119,17 +117,16 @@ Commercial review systems grew from the multi-view tracking first demonstrated f
 tennis~\cite{owens2003hawkeye}: intrinsic and extrinsic calibration of every camera, detection in each view,
 triangulation of corresponding detections~\cite{hartley2004mvg}, and a fitted flight model extrapolated to
 the target. Their accuracy is underwritten by wide baselines, and their cost by the installation. Collins and
-Evans~\cite{collins2008hawkeye} discuss how the public reads such systems' precision, and the point applies
-with more force to a monocular device: a verdict reported without its uncertainty invites a confidence it has
-not earned.
+Evans~\cite{collins2008hawkeye} discuss how the public reads such systems' precision; the point applies with
+more force to a monocular device, where a verdict without its uncertainty invites a confidence it has not earned.
 
 \subsection{Monocular projectiles}
 
 Ribnick et al.~\cite{ribnick2009projectiles} show that the position and velocity of a projectile can be
-estimated from a single view by exploiting the known gravitational acceleration, and give a linear
-formulation in which the six parameters of a parabola appear linearly once the projection equations are
-cross-multiplied. Our pre- and post-contact solves are of that form with three unknowns instead of six,
-because the anchor supplies the position. Chao et al.~\cite{chao2023basketball} fit a ballistic model to a
+estimated from a single view by exploiting the known gravitational acceleration, and give a formulation in
+which a parabola's six parameters appear linearly once the projection equations are cross-multiplied. Our
+pre- and post-contact solves are of that form with three unknowns instead of six, because the anchor supplies
+the position. Chao et al.~\cite{chao2023basketball} fit a ballistic model to a
 basketball shot in a single monocular view, and Ponglertnapakorn and
 Suwajanakorn~\cite{ponglertnapakorn2025ball} learn to lift a 2-D ball track to 3-D across several sports;
 both take scale from gravity and neither reports the uncertainty of the result. Van Zandycke and De Vleeschouwer~\cite{vanzandycke2022ball3d} regress ball depth from its
@@ -137,8 +134,8 @@ apparent size in a calibrated image, which we use only in the fallback for a del
 observed. Closest to our setting, Ghimire et al.~\cite{ghimire2026cricket} estimate a cricket ball's
 trajectory from one calibrated camera: an initial depth from image-plane measurements is smoothed by a
 Kalman filter under a ballistic model, and the bounce is then detected on the filtered track. There the bounce
-is a by-product of a trajectory already estimated; here it is the anchor that makes the trajectory
-observable in the first place, and the verdict carries a propagated uncertainty. In racquet sports, MonoTrack~\cite{liu2022monotrack} reconstructs
+is a by-product of an estimated trajectory; here it is what makes the trajectory observable, and the verdict
+carries a propagated uncertainty. In racquet sports, MonoTrack~\cite{liu2022monotrack} reconstructs
 shuttle trajectories from monocular badminton video and Calandre et al.~\cite{calandre2021tabletennis}
 recover table-tennis ball kinematics from one camera; both exploit the known table or court and a bounce or
 hit as a constraint, in a geometry where the camera is far to the side. The TrackNet family~\cite{huang2019tracknet,chen2023tracknetv3} addresses the detection of small fast balls,
@@ -167,7 +164,7 @@ standard~\cite{seber1989nonlinear}.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.82\columnwidth]{geometry.pdf}
+\includegraphics[width=0.74\columnwidth]{geometry.pdf}
 \caption{The model. A delivery is two gravity parabolas joined at the contact point, whose height above the
 pitch is the ball radius. The phone sits behind one set of stumps, so the ball travels nearly along the
 optical axis and its depth is the least observable coordinate.}
@@ -439,7 +436,7 @@ pitch, and the multiple-candidate initialisation is what holds the failure rate 
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{coverage.pdf}
+\includegraphics[width=0.92\columnwidth]{coverage.pdf}
 \caption{Experiment 1. Empirical distribution of the absolute error divided by the propagated sigma, over
 every anchored reconstruction with an observed contact, against the Gaussian expectation.}
 \label{fig:coverage}
@@ -562,21 +559,23 @@ with exact truth the anchored estimator agrees with the true verdict in \GeoAgre
 and is used as the Laws use umpire's call, to decline a call the evidence does not support. The system is a
 coaching instrument that says how sure it is, not a substitute for a multi-camera rig.
 
-\section*{Data, Code and Declarations}
+\section*{Acknowledgments and Declarations}
 
-The pipeline, the synthetic generator and renderer, the experiment scripts, the raw result files and the
-generators for every number, table and figure are at \url{https://github.com/kafle1/pocket-drs} under
-AGPL-3.0; \texttt{verify\_claims.py} regenerates the numbers and fails if the manuscript is stale. The author
-declares no competing interests and received no funding. The real clips were recorded by the author at net
+The author used Claude, a large language model from Anthropic, throughout: to draft and revise the text of
+every section from the author's code, experiment output and notes, and to write and refactor parts of the
+released code and scripts. The author is responsible for the content. The pipeline, generator and renderer, experiment scripts, raw result files and the generators for
+every number, table and figure are at \url{https://github.com/kafle1/pocket-drs} under AGPL-3.0;
+\texttt{verify\_claims.py} regenerates the numbers and fails if the manuscript is stale. The author declares
+no competing interests and received no funding. The real clips were recorded by the author at net
 sessions with the consent of those present and contain no identifiable personal data at the resolution used.
 
 \bibliographystyle{IEEEtran}
 \bibliography{refs}
 
 \begin{IEEEbiographynophoto}{Niraj Kafle}
-received the bachelor's degree in computing from Phoenix College of Management, Lincoln University
-College, Kathmandu, Nepal. He is an independent researcher in Kathmandu, working on open-source measurement
-systems built from equipment people already own.
+received the Bachelor of Information Technology (Hons.) degree from Lincoln University College, Malaysia,
+at its Kathmandu partner, Phoenix College of Management. He is an independent researcher in Kathmandu,
+working on open-source measurement systems built from equipment people already own.
 \end{IEEEbiographynophoto}
 
 \end{document}
