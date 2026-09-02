@@ -25,8 +25,8 @@ Source code, the synthetic harness, experiment scripts and raw result files: \ur
 \maketitle
 
 \begin{abstract}
-Ball-tracking review in cricket relies on six or more calibrated high-speed cameras and is unavailable to
-the club, school and net-practice cricket where the same leg-before-wicket questions arise. A single phone
+Ball-tracking review in cricket relies on six or more calibrated high-speed cameras and is unavailable to club, school and net-practice cricket, where the same leg-before-wicket questions
+arise. A single phone
 cannot triangulate, and a monocular projectile fit recovers depth only through the curvature gravity imposes
 on the image track, which is weak when the ball flies nearly along the optical axis. We show that the one
 event every pitched delivery contains, the bounce, removes the ambiguity. The contact instant is found in the
@@ -41,7 +41,7 @@ error, dropped frames, unmodelled drag, swing, friction and spin, and six camera
 \GeoFalseOut{} false outs among \GeoNotOut{} not-out deliveries and a median stump-plane error of \GeoMedYAll~cm
 laterally and \GeoMedZAll~cm vertically, against \GeoAgreeAllParabola\% agreement and medians of \GeoMedYAllParabola{} and
 \GeoMedZAllParabola~cm for the single-parabola estimator on the same detections. Through the full pipeline,
-with a learned detector on rendered clips, agreement is \EteAgree{} of \EteN{} with no false out. The
+with a learned detector on rendered clips, agreement is \EteAgree{} of \EteN{} with no false outs. The
 propagated bound is slightly optimistic, covering \CovYOne\% of lateral and \CovZOne\% of vertical errors at
 one sigma, and the paper reports the real-footage behaviour, including one clip the system declines, rather
 than only the cases it handles.
@@ -70,8 +70,8 @@ is written as a measurement paper: a calibration from reference artefacts, an es
 uncertainty, a test of how well that uncertainty covers the true error, and a decision rule that uses it.
 
 Monocular projectile estimation~\cite{ribnick2009projectiles} recovers scale from gravity, a cue that is
-strong when the parabola is seen side-on and weak when the ball travels along the optical axis, which is the
-natural phone position behind either set of stumps. The apparent size of the ball~\cite{vanzandycke2022ball3d}
+strong when the parabola is seen side-on and weak when the ball travels along the optical axis, as it does from the natural phone position behind
+either set of stumps. The apparent size of the ball~\cite{vanzandycke2022ball3d}
 is a second cue whose depth error grows with the square of range, and a cricket ball is a few pixels wide for
 most of its flight. Neither localises the ball along the pitch to better than tens of centimetres in that
 geometry, and Section~\ref{sec:results} shows that the resulting verdict is close to a coin toss.
@@ -79,8 +79,8 @@ geometry, and Section~\ref{sec:results} shows that the resulting verdict is clos
 Our contribution is to use the bounce as an anchor. The instant of contact is observable in the image as
 the split at which two parabolas explain the track far better than one. At that instant the ball's centre is
 one radius above a plane whose position is known from calibration, so the contact pixel back-projects to a
-metric point with no depth cue at all. With the contact point and instant fixed, the velocity before and
-after contact are each linear in the pixel measurements, and a nine-parameter model of the whole delivery
+metric point with no depth cue at all. With the contact point and instant fixed, the velocities before and after contact are each linear in the
+pixel measurements, and a nine-parameter model of the whole delivery
 can be initialised in closed form and refined jointly. Specifically:
 \begin{itemize}
 \item We formulate delivery reconstruction as a bounce-anchored two-parabola fit with a free post-contact
@@ -125,8 +125,8 @@ not earned.
 
 \subsection{Monocular projectiles}
 
-Ribnick et al.~\cite{ribnick2009projectiles} showed that the position and velocity of a projectile can be
-estimated from a single view by exploiting the known gravitational acceleration, and gave a linear
+Ribnick et al.~\cite{ribnick2009projectiles} show that the position and velocity of a projectile can be
+estimated from a single view by exploiting the known gravitational acceleration, and give a linear
 formulation in which the six parameters of a parabola appear linearly once the projection equations are
 cross-multiplied. Our pre- and post-contact solves are of that form with three unknowns instead of six,
 because the anchor supplies the position. Chao et al.~\cite{chao2023basketball} fit a ballistic model to a
@@ -252,8 +252,8 @@ fitted arcs meet, and the contact pixel is the mean of the two arcs there.
 \subsection{Initialisation}
 
 The contact pixel back-projects to $(x_b, y_b, R)$. Seen from far down the pitch a pixel of error on the
-ground plane is metres, so three further candidates are tried, the ground crossings of six-parameter parabola
-fits to each side and the back-projections of the two frames adjacent to the split, and the candidate whose
+ground plane is metres, so four further candidates are tried, the ground crossings of six-parameter parabola fits
+to each side and the back-projections of the two frames adjacent to the split, and the candidate whose
 refined fit explains the pixels best is kept. For each candidate,
 $\mathbf{v}^-$ and $\mathbf{v}^+$ come from the linear solves of Section~\ref{sec:geometry}, and the initial
 restitution is $e_0 = -v_z^+ / v_z^-$ clipped to $[0.25, 0.85]$.
@@ -301,8 +301,7 @@ $\sigma_y$ and $\sigma_z$. The impact point is the model position at the last tr
 
 Law 36~\cite{mcc2017laws} is applied as three tests. The ball must not have pitched outside the line of the
 leg stump; it must have struck the batter in line with the stumps (impact outside the line of off is not out
-if a shot was offered, which we cannot see, so impact outside the line on either side is treated as not in
-line, the batter's benefit); and it must be projected to hit the stumps, meaning $|y^\star| \leq w_o$ and
+if a shot was offered, which we cannot see, so impact outside the line on either side is treated as not in line, to the batter's benefit); and it must be projected to hit the stumps, meaning $|y^\star| \leq w_o$ and
 $z^\star \leq h_s$ for the centre. The playing conditions~\cite{icc2023drs} treat a centre within one ball
 radius outside a boundary as umpire's call. We widen each band to $\max(R, k\sigma)$ with $k = 1$ and the
 relevant propagated sigma, so a decision the estimate cannot support at one sigma is returned as umpire's
@@ -331,7 +330,7 @@ perturbed by Gaussian noise before the pose is re-solved, so the estimator never
 The reference configuration is 60~Hz, 1~px centre noise, 5\% dropout, 2~px tap noise, all physical effects
 on, and a phone 2.8~m behind the striker's stumps at 1.7~m height. Each factor is swept in turn over
 \GeoPerCell{} random deliveries per setting, and six camera placements are tested at the reference noise:
-three heights at the striker's end, a lateral offset of 1.5~m, and two placements at the bowler's end. Both
+three positions at the striker's end, a lateral offset of 1.5~m, and two placements at the bowler's end. Both
 estimators, anchored and single parabola, receive identical detections.
 
 \subsection{Rendered clips through the full pipeline}
@@ -397,8 +396,7 @@ the single parabola's between \SweepAgreeMinParabola\% and \SweepAgreeMaxParabol
 sweeps matter. Frame rate has almost no effect from 30 to 240~Hz (\FpsThirtyAgree\% at 30~Hz), because the
 anchor is one well-determined event and the parabolas on either side are over-determined from a handful of
 frames. Calibration tap error has little effect until it is large
-(\TapEightAgree\% at 8~px, \TapTwelveAgree\% at 12~px), because twelve marks set the pose and the stump
-plane, not any single tap, sets the anchor. Dropped frames to 40\% cost nothing measurable
+(\TapEightAgree\% at 8~px, \TapTwelveAgree\% at 12~px), because twelve marks set the pose, and the stump plane rather than any single tap sets the anchor. Dropped frames to 40\% cost nothing measurable
 (\DropFortyAgree\%). What does cost is pixel noise on the ball centre: agreement is \NoiseZeroAgree\% at zero
 noise, \NoiseTwoAgree\% at 2~px, \NoiseThreeAgree\% at 3~px and \NoiseFiveAgree\% at 5~px, with the vertical
 error rising from \NoiseZeroMedZ{} to \NoiseFiveMedZ~cm, and the response is the intended one: the number of
@@ -460,12 +458,11 @@ laterally and \MedSigmaZ~cm vertically.
 \subsection{The decision band}
 \label{sec:kcurve}
 
-The widening $k$ buys fewer wrong calls at the price of more declined ones. With the Laws' fixed band
-alone ($k = 0$) the system returns \KZeroFalseOut{} false outs and \KZeroMissedOut{} missed outs over
-\GeoTotal{} deliveries and umpire's call on \KZeroUmp\%; at $k = 0.5$, \KHalfFalseOut{} false outs and
-\KHalfUmp\%; at $k = 1$, \KOneFalseOut{} and \KOneUmp\%; at $k = 1.5$, \KOneHalfFalseOut{} and \KOneHalfUmp\%;
-at $k = 2$, \KTwoFalseOut{} false outs and \KTwoUmp\% umpire's calls, with missed outs falling from
-\KZeroMissedOut{} to \KTwoMissedOut{} over the same range. The curve is the operating choice a deployment makes. For coaching, where a wrong decisive call
+The widening $k$ buys fewer wrong calls at the price of more declined ones. Over \GeoTotal{} deliveries, the Laws' fixed band alone ($k = 0$) gives \KZeroFalseOut{} false outs,
+\KZeroMissedOut{} missed outs and umpire's call on \KZeroUmp\%; $k = 0.5$ gives \KHalfFalseOut, \KHalfMissedOut{}
+and \KHalfUmp\%; $k = 1$ gives \KOneFalseOut, \KOneMissedOut{} and \KOneUmp\%; $k = 1.5$ gives
+\KOneHalfFalseOut, \KOneHalfMissedOut{} and \KOneHalfUmp\%; and $k = 2$ gives \KTwoFalseOut, \KTwoMissedOut{}
+and \KTwoUmp\%. The curve is the operating choice a deployment makes. For coaching, where a wrong decisive call
 mis-teaches and an umpire's call invites a look at the replay, we ship $k = 1$; officiating, which this
 system is not for, would want the false-out rate at $k = 2$ and would decline one delivery in
 \KTwoUmpInverse.
@@ -562,8 +559,7 @@ the monocular projectile problem, ill-conditioned along the depth of a ball flyi
 two over-determined linear problems joined by a restitution coefficient. On \GeoTotal{} synthetic deliveries
 with exact truth the anchored estimator agrees with the true verdict in \GeoAgreeAll\% of cases with
 \GeoFalseOut{} false outs and median stump-plane errors of \GeoMedYAll{} and \GeoMedZAll~cm, against
-\GeoAgreeAllParabola\% and errors ten times larger without the anchor; through the full pipeline it agrees on
-\EteAgree{} of \EteN{} with no false out. The propagated uncertainty is slightly optimistic, is reported as such,
+\GeoAgreeAllParabola\% and errors ten times larger without the anchor; through the full pipeline it agrees on \EteAgree{} of \EteN{} with no false outs. The propagated uncertainty is slightly optimistic, is reported as such,
 and is used as the Laws use umpire's call: to decline a call the evidence does not support. The system is a
 coaching instrument that says how sure it is, not a substitute for a multi-camera rig.
 

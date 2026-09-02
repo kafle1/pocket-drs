@@ -219,7 +219,7 @@ m("EteMiddleOutTruth", sum(1 for r in mid if r["truth"] == "out"), "{}")
 e3 = rows("exp3_real.csv")
 lab3 = {"test3": "Outdoor net, white ball, off-spin", "test4": "Indoor net, red ball, leg-spin", "test5": "Indoor net, red ball, off-spin"}
 L = [r"\begin{tabular}{llcccccc}", r"\toprule",
-     r"Clip & Frames & Reproj. (px) & Track & Contact $x$ (m) & Stump plane $y \pm \sigma$ (cm) & Stump plane $z \pm \sigma$ (cm) & Verdict \\", r"\midrule"]
+     r"Clip & Frames & Reproj. (px) & Track & Contact $x$ (m) & Stump-plane $y \pm \sigma$ (cm) & Stump-plane $z \pm \sigma$ (cm) & Verdict \\", r"\midrule"]
 for clip in ("test3", "test4", "test5"):
     for fr in ("all", "even", "odd"):
         r = next((x for x in e3 if x["clip"] == clip and x["frames"] == fr), None)
