@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .pipeline.process_job import _finite
+
 _TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "three_d_viewer.html.tmpl"
 
 
@@ -71,5 +73,5 @@ def build_payload(result: dict[str, Any]) -> dict[str, Any]:
 def render_html(result: dict[str, Any]) -> str:
     """Return the full HTML page with the payload inlined."""
     template = _TEMPLATE_PATH.read_text()
-    payload = build_payload(result)
+    payload = _finite(build_payload(result))
     return template.replace("__PAYLOAD__", json.dumps(payload, allow_nan=False))

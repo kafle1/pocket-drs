@@ -27,7 +27,7 @@ class AuthService {
   ///
   /// On native (Android/iOS) the platform's Google Sign-In client supplies
   /// the OAuth credential, which we then exchange for a Firebase credential
-  /// — the established mobile flow.
+  ///, the established mobile flow.
   Future<UserCredential?> signInWithGoogle() async {
     if (kIsWeb) {
       final provider = GoogleAuthProvider()

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Header, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from firebase_admin import firestore as fb_firestore
@@ -67,13 +67,14 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         start = time.perf_counter()
         status_code = 500
         try:
-            response: Response = await call_next(request)
+            try:
+                response: Response = await call_next(request)
+            except Exception:
+                _log.exception("Unhandled exception in %s %s", request.method, request.url.path)
+                response = PlainTextResponse("Internal Server Error", status_code=500)
             status_code = response.status_code
             response.headers["X-Request-Id"] = req_id
             return response
-        except Exception:
-            _log.exception("Unhandled exception in %s %s", request.method, request.url.path)
-            raise
         finally:
             dur_ms = (time.perf_counter() - start) * 1000.0
             client = request.client.host if request.client else "-"
@@ -194,7 +195,7 @@ def _write_failed_status_safe(paths: JobPaths, message: str) -> None:
     Last line of defense for the background worker: if job setup (creating the
     log dir / opening a per-job FileHandler) or the inner failure handler itself
     throws, the ThreadPoolExecutor future is never awaited and the exception is
-    silently dropped — leaving status.json stuck at queued/running forever. This
+    silently dropped, leaving status.json stuck at queued/running forever. This
     forces a terminal ``failed`` status and swallows any error doing so.
     """
     try:
@@ -299,9 +300,9 @@ def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], ar
                     error=err,
                 )
     except Exception as e:  # noqa: BLE001
-        # Anything that escaped the inner handler — e.g. job_log_context failing
+        # Anything that escaped the inner handler, e.g. job_log_context failing
         # to create the log dir / open a FileHandler, or the failure handler's
-        # own write_status raising — must still land as "failed", or the dropped
+        # own write_status raising, must still land as "failed", or the dropped
         # worker future leaves the job stuck in queued/running forever.
         try:
             _log.exception("Job worker crashed for job_id=%s", job_id)

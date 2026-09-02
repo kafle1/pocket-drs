@@ -1,167 +1,93 @@
-# Pocket DRS
+# PocketDRS
 
-**Phone-based, single-camera cricket LBW review**
+Single-phone leg-before-wicket review for cricket. One hand-held clip from behind the batter,
+twelve taps on the stumps and pitch corners, and the server returns the delivery in metres:
+where it pitched, where it would have crossed the stumps, the release speed, the turn off the
+pitch, a Law 36 verdict, and how sure it is about each of those.
 
-PocketDRS reconstructs a cricket delivery in 3-D from a single hand-held phone
-clip, predicts the ball's path onto the stumps, and returns an ICC-Rule-36 LBW
-verdict with a broadcast-style overlay. It is built for grassroots cricket,
-coaching, and training review — one phone instead of the six-to-eight
-calibrated high-speed cameras a broadcast DRS rig uses.
+It is a coaching and training instrument, not an officiating one. Where the estimate cannot
+support a call at one sigma the verdict is umpire's call, and where the fit does not explain the
+pixels the job returns no verdict rather than a guess.
 
-It is **not** a substitute for officiating DRS, and it is not ICC-certified.
-Where a single viewpoint is strong (the line of the ball) it is accurate to
-sub-centimetre; where one camera is inherently weak (depth: absolute speed and
-the exact down-pitch position of the bounce) it is coarse and reports those as
-indicative. See **Accuracy** below for the measured numbers, honestly stated.
+## How it works
 
----
-
-## 🎯 What it does
-
-- **Single-phone ball tracking** from an ordinary 60–120 fps clip
-- **Stump-anchored calibration** from a few taps — no checkerboard, no rig
-- **Physics-constrained monocular 3-D reconstruction** (gravity + a single
-  restitution bounce), refined by bundle adjustment
-- **Trajectory prediction** to the stump plane by forward projectile integration
-- **ICC-Rule-36 LBW engine** — pitching-in-line, impact-in-line, wickets-hitting,
-  with handedness-aware off/leg and monocular umpire's-call margins
-- **Hawk-Eye-style overlay** drawn back onto the source video, plus a Three.js 3-D view
-
----
-
-## 🏗️ Pipeline
+The ball is a projectile from release to the pitch, bounces once, and is a projectile again to
+the batter. One camera cannot measure depth, but the bounce is on a plane the calibration
+already knows. The contact instant is found in the image as the split that explains the track
+with two parabolas far better than one; the contact pixel back-projects onto the ground plane to
+a metric point with no depth cue; and with that anchor fixed the velocities before and after
+contact are linear in the pixel measurements. A nine-parameter model (contact time and point,
+pre-contact velocity, post-contact horizontal velocity, restitution) is then refined by robust
+least squares and its covariance is propagated to the stump-plane crossing.
 
 ```
-📱 Phone clip (60–120 fps, portrait)
-  ↓
-📐 Stump-anchored calibration — PnP from the tapped pitch corners + the two
-   stump rectangles; jointly fits camera FOV and pitch length when unpinned
-  ↓
-🎯 Ball detection — learned YOLO detector + classical HSV colour/motion,
-   fused by a clutter-aware auto-selector
-  ↓
-📈 Trajectory fit — RANSAC projectile arc over the per-frame detections
-  ↓
-📏 3-D reconstruction — depth-from-apparent-size seeds metric scale; a
-   gravity + restitution-bounce model is fit and bundle-adjusted
-  ↓
-🔮 Prediction — forward-integrate the post-bounce projectile to the stump plane
-  ↓
-⚖️ LBW decision — ICC Rule 36, handedness-aware, anisotropic umpire's-call bands
-  ↓
-🎥 Overlay — flight (from the observed detections) + predicted corridor + verdict
+phone clip ─► calibration (PnP on 8 stump corners + 4 pitch corners, FOV and length swept)
+           ─► detection (fine-tuned YOLO + colour/motion) ─► RANSAC association into one track
+           ─► contact split in the image ─► anchored two-parabola fit ─► covariance
+           ─► stump-plane prediction ± sigma ─► Law 36 with uncertainty-widened bands
+           ─► overlay, metrics, verdict
 ```
 
-There is no Extended Kalman Filter and no checkerboard intrinsic step; scale
-comes from the known regulation stump geometry, and the trajectory is recovered
-by RANSAC plus a gravity-constrained least-squares fit.
+Measured on synthetic deliveries with exact truth (60 Hz, 1 px noise, 2 px tap error, drag and
+swing on): 93% verdict agreement, median stump-plane error 2.4 cm lateral and 3.4 cm vertical, six
+false outs in 9110 not-out deliveries. Through the full pipeline on rendered clips: 77 of 100 with no
+false out. The paper under `paper/` has every number and the scripts that produce them.
 
----
-
-## 📂 Project structure
+## Layout
 
 ```
-pocket-drs/
-├── server/                          # Python backend (FastAPI)
-│   └── app/
-│       ├── main.py                  # HTTP API (jobs, status, result, 3-D, artifacts)
-│       ├── jobs.py                  # Job store + orphan recovery
-│       ├── models.py                # Pydantic request/response models
-│       ├── three_d_viewer.py        # Three.js viewer HTML
-│       └── pipeline/
-│           ├── calibration.py       # Shared calibration error type
-│           ├── tracking.py          # YOLO + HSV/motion ball detectors
-│           ├── trajectory.py        # RANSAC projectile fit, clutter suppression
-│           ├── reconstruction.py    # Camera solve, 3-D lift, prediction, overlay
-│           ├── process_job.py       # Pipeline orchestration + LBW decision
-│           └── video.py             # Frame decoding / sampling
-├── app/pocket_drs/                  # Flutter mobile app (lib/, android/, ios/)
-├── server/scripts/                  # synth_validate.py, test{3,4,5}_e2e.py
-└── docs/usage-guide.md
+server/app/pipeline/
+  calibration.py     camera model, stump-anchored PnP, back-projection
+  tracking.py        YOLO and colour/motion ball detectors, pitch ROI
+  trajectory.py      RANSAC association of detections into one arc, bounce stitching
+  reconstruction.py  contact split, anchored two-parabola fit, covariance, stump-plane prediction
+  decision.py        Law 36 with the ICC review bands widened by the propagated sigma
+  overlay.py         pixel-space overlay for the client
+  process_job.py     one job end to end; the result schema is the client contract
+server/app/           FastAPI job API, Firebase auth, job store, 3-D viewer
+server/models/        cricket_ball.pt, the fine-tuned detector
+app/pocket_drs/       Flutter client (Android, iOS, web)
+paper/                manuscript, experiments, raw results, figure and number generators
+docs/college-report/  the original BIT project report and slides
 ```
 
----
-
-## 🚀 Quick start
+## Run
 
 ```bash
-# Backend
-cd server
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python run.py                        # serves on :8000 (needs Firebase config)
-
-# Flutter app
-cd app/pocket_drs && flutter pub get && flutter run
-
-# Or use the Makefile from the repo root
-make setup && make dev
+make setup          # backend venv + flutter pub get
+make dev            # backend on :8000 and the app on a connected phone
 ```
 
-Offline validation (no server / Firebase needed):
+Put Firebase credentials in `server/firebase-service-account.json` and the app's
+`firebase_options.dart`; both are gitignored. The API is `POST /v1/jobs` (multipart: clip +
+request JSON), `GET /v1/jobs/{id}`, `GET /v1/jobs/{id}/result`. The request needs the segment,
+the sampling rate, the twelve calibration taps in normalised image coordinates, the pitch
+dimensions and the batter's handedness; `server/scripts/test3_e2e.py` builds one.
+
+## Reproduce the paper
 
 ```bash
-cd server
-.venv/bin/python scripts/synth_validate.py      # synthetic ground-truth sweep
-.venv/bin/python scripts/test3_e2e.py           # real net clip, end-to-end
+cd paper
+../server/.venv/bin/python experiments/exp1_geometry.py     # ~75 min, 21 600 reconstructions
+../server/.venv/bin/python experiments/exp2_rendered.py     # ~55 min, renders and runs 100 clips
+../server/.venv/bin/python experiments/exp3_real.py         # ~10 min, the three real clips
+../server/.venv/bin/python experiments/make_numbers.py      # numbers.tex and tables/
+../server/.venv/bin/python experiments/make_figures.py
+pdflatex main && bibtex main && pdflatex main && pdflatex main
+../server/.venv/bin/python experiments/verify_claims.py     # fails if the manuscript is stale
 ```
 
----
+Every run is seeded. `experiments/synth.py` is the generator (its physics is richer than the
+estimator's model on purpose), `experiments/render.py` turns a delivery into a clip the app would
+accept.
 
-## 📊 Accuracy (measured, not aspirational)
+## Filming
 
-Synthetic ground-truth sweep (8 rendered deliveries with known physics):
+Behind the batter, phone held still, both sets of stumps in frame, 60 Hz or more if the phone
+offers it. The bowler's end works but the decisive arc is far away and foreshortened; the paper
+measures the difference. A yorker leaves one or two frames after the bounce and will usually come
+back as umpire's call.
 
-| Metric | Result |
-|--------|--------|
-| LBW decision agreement | **8 / 8 (100%)** |
-| Predicted position at the stumps | 11.7 cm mean — lateral 0.3 cm, vertical 11.7 cm |
-| Bounce localisation | 54.6 cm (almost entirely down-pitch; lateral ~0.5 cm) |
-| Release speed | ~22 km/h mean error — **indicative only** |
+## License
 
-The error is strongly anisotropic and this is fundamental, not a bug: a single
-camera resolves the **line** of the ball (the coordinate that decides an LBW)
-to sub-centimetre, while the **depth** axis (down-pitch distance, absolute
-speed) is the least observable and carries essentially all of the error as
-zero-mean noise. Closing that gap needs a second viewpoint, not more single-view
-processing. Full analysis and per-axis decomposition are in the paper
-(`dump/report_docs/pocketdrs_paper.tex`).
-
-**Best on:** a fixed phone behind the bowler or striker, both stump sets clearly
-in frame, a rectilinear (non-fisheye) lens, ball visually distinct.
-**Declines gracefully on:** fisheye/occluded/short clips — it refuses rather
-than emitting a confident wrong verdict.
-
----
-
-## 🛠️ Development
-
-```bash
-make dev          # backend + Flutter app
-make dev-server   # backend only
-make server-test  # backend tests
-make logs         # tail server logs
-```
-
-**Stack:** Python 3.12, FastAPI, OpenCV, NumPy/SciPy, Ultralytics YOLO,
-firebase-admin (backend); Flutter/Dart, Three.js (frontend).
-
----
-
-## 📝 License
-
-**Proprietary — All Rights Reserved.** Copyright (c) 2025-2026 Niraj Kafle.
-No copying, use, modification, distribution, or ML training on any part of
-this repository without prior written permission. See [LICENSE](LICENSE).
-
----
-
-## 🙏 Acknowledgments
-
-Methodology draws on: Zhang's camera calibration; Hartley & Zisserman,
-*Multiple View Geometry*; Ribnick et al. on 3-D from monocular projectile
-views; the YOLO detector family; Fischler & Bolles (RANSAC); and Hawk-Eye's
-published ball-tracking approach.
-
-**Built for research and educational purposes. Not affiliated with the ICC or
-Hawk-Eye. Not a certified officiating system.**
+AGPL-3.0. See `LICENSE`.

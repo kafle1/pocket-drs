@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ApiError(BaseModel):
@@ -20,21 +20,30 @@ class JobStatus(str, Enum):
 
 
 class Point2D(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     x: float
     y: float
 
 
 class ClientInfo(BaseModel):
+    # Unread server-side, but the app sends this block on every job create,
+    # so it stays declared or extra="forbid" below would 400 every request.
+    model_config = ConfigDict(extra="forbid")
+
     platform: str | None = None
     app_version: str | None = None
 
 
 class VideoInfoRequest(BaseModel):
-    source: Literal["import", "record"] | None = None
+    model_config = ConfigDict(extra="forbid")
+
     rotation_deg: int = 0
 
 
 class SegmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     start_ms: int = Field(ge=0)
     end_ms: int = Field(ge=0)
 
@@ -48,6 +57,8 @@ class SegmentRequest(BaseModel):
 
 
 class PitchDimensionsM(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     # Length is optional: when omitted, the stump-anchored solver
     # geometry-fits it from the marked stump pair under the configured FOV.
     # When supplied, the solver treats it as authoritative.
@@ -56,22 +67,18 @@ class PitchDimensionsM(BaseModel):
 
 
 class CalibrationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     mode: Literal["taps", "marker", "none"] = "taps"
     # Optional identifier used by clients to associate analysis output with a pitch in Firestore.
     pitch_id: str | None = None
     pitch_corners_px: list[Point2D] | None = None
     # Normalized [0..1] coordinates in the source image.
     pitch_corners_norm: list[Point2D] | None = None
-    # Optional stump base points (two ends). Used to refine homography.
-    stump_bases_px: list[Point2D] | None = None
-    stump_bases_norm: list[Point2D] | None = None
+    # 8-point stump rectangle pair (striker then bowler end); process_job requires one of these.
+    stump_quads_px: list[Point2D] | None = None
+    stump_quads_norm: list[Point2D] | None = None
     pitch_dimensions_m: PitchDimensionsM | None = None
-
-    @field_validator("pitch_corners_px", "pitch_corners_norm")
-    @classmethod
-    def _validate_pitch_corners(cls, v: list[Point2D] | None, info):
-        # Validation is handled in the combined validator below.
-        return v
 
     @field_validator("pitch_corners_norm")
     @classmethod
@@ -83,23 +90,23 @@ class CalibrationRequest(BaseModel):
                 raise ValueError("pitch_corners_norm points must be in [0, 1]")
         return v
 
-    @field_validator("stump_bases_px", "stump_bases_norm")
+    @field_validator("stump_quads_px", "stump_quads_norm")
     @classmethod
-    def _validate_stump_bases_len(cls, v: list[Point2D] | None, info):
+    def _validate_stump_quads_len(cls, v: list[Point2D] | None, info):
         if v is None:
             return v
-        if len(v) != 2:
-            raise ValueError("stump_bases must contain exactly 2 points (striker, bowler)")
+        if len(v) != 8:
+            raise ValueError("stump_quads must contain exactly 8 points (striker then bowler rectangle)")
         return v
 
-    @field_validator("stump_bases_norm")
+    @field_validator("stump_quads_norm")
     @classmethod
-    def _validate_stump_bases_norm_range(cls, v: list[Point2D] | None, info):
+    def _validate_stump_quads_norm_range(cls, v: list[Point2D] | None, info):
         if v is None:
             return v
         for p in v:
             if not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0):
-                raise ValueError("stump_bases_norm points must be in [0, 1]")
+                raise ValueError("stump_quads_norm points must be in [0, 1]")
         return v
 
     @model_validator(mode="after")
@@ -115,6 +122,8 @@ class CalibrationRequest(BaseModel):
 
 
 class TrackingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     mode: Literal["auto", "seeded"] = "seeded"
     seed_px: Point2D | None = None
     max_frames: int = Field(default=180, ge=1, le=2000)
@@ -129,19 +138,14 @@ class TrackingRequest(BaseModel):
         return seed_px
 
 
-class OverridesRequest(BaseModel):
-    bounce_index: int | None = Field(default=None, ge=0)
-    impact_index: int | None = Field(default=None, ge=0)
-    full_toss: bool = False
-
-
 class CreateJobRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     client: ClientInfo | None = None
     video: VideoInfoRequest | None = None
     segment: SegmentRequest
     calibration: CalibrationRequest
     tracking: TrackingRequest
-    overrides: OverridesRequest | None = None
     # Batsman handedness sets which side is leg vs off for the LBW rules.
     batsman_handedness: Literal["right", "left"] = "right"
 

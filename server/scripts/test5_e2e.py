@@ -19,7 +19,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-ROOT = Path("/Users/nirajkafle/Desktop/niraj/dev-projects/pocket-drs")
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "server"))
 
 from app.pipeline.process_job import run_pipeline  # noqa: E402
@@ -30,7 +30,7 @@ OUT = ROOT / "dump" / "validation" / "test5"
 OUT.mkdir(parents=True, exist_ok=True)
 
 # Recovered test5 calibration taps (normalised over 1080x1920 frame), measured
-# off the first frame via yellow-mask connected components — same net as test4.
+# off the first frame via yellow-mask connected components, same net as test4.
 STRIKER_QUAD = [           # small far stumps (by the batsman)
     (0.509, 0.481),  # TL
     (0.556, 0.481),  # TR
@@ -49,7 +49,7 @@ CORNERS_NORM = [           # striker-left, striker-right, bowler-right, bowler-l
 
 
 def build_request() -> dict:
-    """Same request shape as the production analyze flow — indoor net, so no
+    """Same request shape as the production analyze flow, indoor net, so no
     FOV or length pin: the solver geometry-fits both from the stump marks."""
     return {
         "segment": {"start_ms": 0, "end_ms": 600000},
@@ -73,7 +73,7 @@ def build_request() -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Rendering — reuses the test4_e2e overlay primitives verbatim.
+# Rendering, reuses the test4_e2e overlay primitives verbatim.
 # --------------------------------------------------------------------------- #
 RED = (60, 60, 235)
 GOLD = (60, 200, 245)
@@ -97,7 +97,7 @@ def render_three_d_viewer(result: dict) -> None:
 
 
 def render_3d(result: dict) -> None:
-    """3D Hawk-Eye plot — same look as test4, retitled for test5."""
+    """3D Hawk-Eye plot, same look as test4, retitled for test5."""
     world_pts = result.get("world_trajectory") or {}
     pts = world_pts.get("points_m") or []
     pred = world_pts.get("predicted_to_stumps_m") or []
@@ -319,7 +319,7 @@ def main() -> int:
     ov = result.get("overlay") or {}; diag = result.get("diagnostics") or {}
 
     print("=" * 64)
-    print("PocketDRS production pipeline — test5.mp4 end-to-end")
+    print("PocketDRS production pipeline, test5.mp4 end-to-end")
     print("=" * 64)
     print(f"calibration : reproj={cal.get('reproj_error_px', float('nan')):.2f}px  "
           f"score={cal.get('score', 0):.2f}  notes={cal.get('notes')}")

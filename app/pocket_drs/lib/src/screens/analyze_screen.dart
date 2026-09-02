@@ -65,7 +65,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   // Regulation pitch dimensions, both PINNED in the request. Monocular taps
   // cannot recover absolute scale on their own (the FOV×length×height
   // trade-off is degenerate), so letting the server geometry-fit the length
-  // produced a wrong scale — e.g. test3 fit 16 m for a true 20.12 m net,
+  // produced a wrong scale, e.g. test3 fit 16 m for a true 20.12 m net,
   // flipping a clear miss into a spurious umpire's call. Pinning the ICC
   // length (22 yd = 20.12 m) makes the app reproduce the validated offline
   // analysis exactly. Width barely affects the reconstruction but sizes the
@@ -75,7 +75,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
 
   // Trimmed segment (whole clip by default). Backend honours these as
   // ``segment.{start_ms, end_ms}`` so it only decodes what the user
-  // bracketed — keeps tracking work proportional to the delivery, not the
+  // bracketed, keeps tracking work proportional to the delivery, not the
   // surrounding minutes of recording.
   int _segmentStartMs = 0;
   int _segmentEndMs = 600000;
@@ -83,7 +83,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   // can optionally delete it after analysis to save phone storage).
   bool _videoFromCamera = false;
 
-  // Batsman handedness — sets which side is leg vs off for the LBW decision.
+  // Batsman handedness, sets which side is leg vs off for the LBW decision.
   // Sent as the request's ``batsman_handedness`` ('right' or 'left').
   String _batsmanHandedness = 'right';
 
@@ -140,7 +140,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         _showError('Failed to extract frame');
         return;
       }
-      // dart:io File is a stub on Flutter web — keep the frame in memory
+      // dart:io File is a stub on Flutter web, keep the frame in memory
       // there, and only persist to a temp file on native platforms where
       // downstream code may still want a path (image_picker debug, etc.).
       String? framePath;
@@ -186,7 +186,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   // Four taps per end define the bounding rectangle of the 3-stump cluster:
   // top-left, top-right, bottom-right, bottom-left. World coords place those
   // at (X, ±OUTER_STUMP_HALF, {h, 0}) so the eight stump corner points (4 per
-  // side) become an over-constrained PnP input — each side alone fully
+  // side) become an over-constrained PnP input, each side alone fully
   // determines the camera pose, the joint fit averages out tap noise.
   bool _validateStumpQuad(List<Offset> q, String endName) {
     if (q.length != 4) {
@@ -225,7 +225,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     if (!_validateStumpQuad(markers, 'bowler (near)')) return;
     setState(() => _bowlerStumps = markers);
     // Pitch length is derived server-side from the stump height, so there is
-    // nothing more to enter — go straight to analysis.
+    // nothing more to enter, go straight to analysis.
     _analyse();
   }
 
@@ -348,7 +348,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         LbwDecisionKey.umpiresCall => 'umpires_call',
         _ => null,
       };
-      // Storage cleanup — only fires when the user has opted in AND the
+      // Storage cleanup, only fires when the user has opted in AND the
       // clip came from in-app recording. A user-picked file from the
       // camera roll is theirs to keep; we never touch it.
       if (!kIsWeb &&
@@ -373,7 +373,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     } catch (e) {
       _log('[ANALYZE] error: $e');
       if (!mounted) return;
-      // Most failures are calibration (re-mark stumps) — drop back to the stump
+      // Most failures are calibration (re-mark stumps), drop back to the stump
       // step so the user can adjust and retry without restarting.
       setState(() => _step = _Step.stumpsBowler);
       _showError(e is ApiException ? e.message : 'Analysis failed: $e');
@@ -397,7 +397,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         await Future.delayed(const Duration(seconds: 1));
         continue;
       }
-      // Healthy poll — clear the accumulated blip count so failures must be
+      // Healthy poll, clear the accumulated blip count so failures must be
       // CONSECUTIVE (not merely cumulative over the multi-minute window) to
       // abort an otherwise-progressing job.
       transient = 0;
@@ -410,7 +410,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       }
       if (status.status == 'succeeded') {
         // A single network blip at the finish line must not discard a fully
-        // completed analysis — retry the result fetch under the same transient
+        // completed analysis, retry the result fetch under the same transient
         // tolerance the status polls use.
         while (true) {
           if (!mounted) throw StateError('Cancelled');
@@ -510,7 +510,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   ///
   /// The header (title + hint) is then aligned to that same side so it
   /// never floats over the empty half of the screen while the user is
-  /// looking at — and tapping into — the loaded half.
+  /// looking at, and tapping into, the loaded half.
   bool? get _activeClusterIsRight {
     final c = _corners;
     if (c == null || c.length != 4) return null;
@@ -691,7 +691,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
           maxMarkers: 4,
           title: 'Mark Striker Stumps',
           subtitle:
-              'Tap the 4 corners of the stump cluster — top-left, top-right, bottom-right, bottom-left',
+              'Tap the 4 corners of the stump cluster: top-left, top-right, bottom-right, bottom-left',
           markerLabels: const [
             'Top Left',
             'Top Right',
@@ -713,7 +713,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
           maxMarkers: 4,
           title: 'Mark Bowler Stumps',
           subtitle:
-              'Tap the 4 corners of the stump cluster — top-left, top-right, bottom-right, bottom-left',
+              'Tap the 4 corners of the stump cluster: top-left, top-right, bottom-right, bottom-left',
           markerLabels: const [
             'Top Left',
             'Top Right',
@@ -913,7 +913,7 @@ class _ProcessingView extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.lg),
             // Determinate bar when the backend has emitted a percent, animated
-            // indeterminate bar otherwise — so the user always sees motion and
+            // indeterminate bar otherwise, so the user always sees motion and
             // can tell the difference between "stuck at this percent" and
             // "still working but no measurable progress yet".
             SizedBox(

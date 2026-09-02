@@ -60,15 +60,8 @@ class PocketDrsApi {
     required Map<String, Object?> requestJson,
   }) async {
     final req = http.MultipartRequest('POST', _u('/v1/jobs'));
-    
-    // Add Firebase auth token if available
-    if (getAuthToken != null) {
-      final token = await getAuthToken!();
-      if (token != null && token.isNotEmpty) {
-        req.headers['Authorization'] = 'Bearer $token';
-      }
-    }
-    
+    req.headers.addAll(await _authHeaders());
+
     req.fields['request_json'] = jsonEncode(requestJson);
     req.files.add(
       http.MultipartFile.fromBytes(
@@ -78,10 +71,15 @@ class PocketDrsApi {
       ),
     );
 
+    // Scale the upload timeout with file size so a large clip on a slow
+    // connection doesn't get killed mid-upload; capped at 10 minutes.
+    final extraSeconds = (videoBytes.length / (100 * 1024)).ceil();
+    final uploadSeconds = 60 + extraSeconds > 600 ? 600 : 60 + extraSeconds;
+
     late http.StreamedResponse res;
     late String body;
     try {
-      res = await _client.send(req).timeout(const Duration(seconds: 60));
+      res = await _client.send(req).timeout(Duration(seconds: uploadSeconds));
       body = await res.stream.bytesToString();
     } on SocketException {
       throw ApiException(ApiErrorKind.network, 'Cannot reach server');

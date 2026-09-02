@@ -5,7 +5,7 @@ import '../theme/app_spacing.dart';
 
 enum DrsButtonStyle { primary, secondary, danger, ghost }
 
-/// Primary action button — sharp 4px corner, wide-tracked CAPS label.
+/// Primary action button, sharp 4px corner, wide-tracked CAPS label.
 class DrsButton extends StatelessWidget {
   const DrsButton({
     super.key,

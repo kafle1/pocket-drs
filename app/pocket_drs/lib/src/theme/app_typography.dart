@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// Typography vocabulary for the DRS UI.
 ///
-/// No custom font is bundled — we rely on the platform sans-serif but
+/// No custom font is bundled, we rely on the platform sans-serif but
 /// characterise it via extreme weight contrast, tight display tracking,
 /// monospace tabular figures, and broadcast-style ALL CAPS labels with
 /// wide letter spacing.

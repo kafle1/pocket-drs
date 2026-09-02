@@ -74,12 +74,12 @@ class VideoReader:
         if self._meta.frame_count > 0:
             target_idx = min(target_idx, max(0, self._meta.frame_count - 1))
 
-        # Already parked on the requested frame — hand back the cached copy.
+        # Already parked on the requested frame, hand back the cached copy.
         if target_idx == self._cursor_idx and self._last_frame is not None:
             return self._last_frame.copy()
 
         # If the target is close and forward of the cursor, decode
-        # sequentially (the codec's fast path — no keyframe rescan, no MSEC
+        # sequentially (the codec's fast path, no keyframe rescan, no MSEC
         # ambiguity). Otherwise do a one-off frame-index seek. On long-GOP
         # HEVC ``set(POS_FRAMES, N)`` lands on the nearest keyframe <= N, so we
         # must never assume the next frame *is* N: we read forward and trust

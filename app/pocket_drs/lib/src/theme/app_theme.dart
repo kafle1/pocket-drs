@@ -4,7 +4,7 @@ import 'app_colors.dart';
 import 'app_spacing.dart';
 import 'app_typography.dart';
 
-/// DRS Telemetry theme — sharp-cornered broadcast HUD aesthetic.
+/// DRS Telemetry theme, sharp-cornered broadcast HUD aesthetic.
 /// Single accent (cricket signal red), ink-black surfaces, hairline borders,
 /// tabular monospace numerics, all-caps stencil labels.
 class AppTheme {

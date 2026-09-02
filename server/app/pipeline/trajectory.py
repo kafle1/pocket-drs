@@ -94,7 +94,7 @@ def _suppress_static_clutter(
     ]
 
     # A truly static object (net post, cone) leaves near-neighbour hits spread
-    # across the WHOLE clip — from the first frames to the last. A genuinely
+    # across the WHOLE clip, from the first frames to the last. A genuinely
     # slow / near-axial ball (umpire-POV release phase moving a few px/frame)
     # only lingers in a neighbourhood for a contiguous window and then moves on,
     # so its hits stay temporally clustered even when numerous. Gate suppression
@@ -145,7 +145,7 @@ def _search_best_arc(
 
     `exclude` holds (frame_idx, detection_idx) pairs already claimed by an
     earlier arc; they are skipped both as seeds and as inliers so a later pass
-    can find a *different* arc — the far side of a bounce. Returns the winning
+    can find a *different* arc, the far side of a bounce. Returns the winning
     fit together with the set of (frame_idx, detection_idx) it claimed.
     """
     exclude = exclude or set()
@@ -290,8 +290,8 @@ def _merge_bounce_arcs(
     """Stitch two arcs that meet at a bounce into one continuous track.
 
     A bouncing ball is two parabolas sharing the bounce instant. Only the
-    horizontal image motion is continuous across the bounce — the vertical
-    velocity flips — so the join is validated on horizontal evidence alone:
+    horizontal image motion is continuous across the bounce, the vertical
+    velocity flips, so the join is validated on horizontal evidence alone:
 
       * the arcs are disjoint and time-ordered (one clearly precedes the other),
       * the gap between them is at most a few sampled frames (the ball is
@@ -311,7 +311,7 @@ def _merge_bounce_arcs(
     e = early.points
     l = late.points
 
-    # Disjoint and ordered in time — no interleaving.
+    # Disjoint and ordered in time, no interleaving.
     if l[0].t_ms <= e[-1].t_ms:
         return None
 
@@ -328,7 +328,7 @@ def _merge_bounce_arcs(
     if dir_e != 0.0 and dx_join != 0.0 and math.copysign(1.0, dir_e) != math.copysign(1.0, dx_join):
         return None
 
-    # Similar horizontal pace (sign + magnitude) — the ball does not change its
+    # Similar horizontal pace (sign + magnitude), the ball does not change its
     # left/right speed appreciably at the bounce.
     vxa, vxb = early.px_per_ms_x, late.px_per_ms_x
     if vxa != 0.0 and vxb != 0.0:
@@ -375,7 +375,7 @@ def _extend_track(
     The constant-acceleration image model fits the bulk of the flight, but a
     fast, near-axial ball accelerates in the image under perspective, so the
     last (and first) genuine detections fall just outside the *global* fit's
-    search radius and get dropped — the track stops short of the stumps (or of
+    search radius and get dropped, the track stops short of the stumps (or of
     the release). We locally extrapolate a quadratic through the arc's end
     points and accept the nearest detection that continues it, frame by frame,
     re-fitting as we go so the extrapolation tracks the curvature. Bounded by
@@ -477,7 +477,7 @@ def find_ball_trajectory(
         search_radius_px = max(15.0, 0.03 * image_diagonal_px)
 
     # Suppress static clutter (sponsor logos, helmets, bat handles) before
-    # association — these are the dominant false positive in handheld footage
+    # association, these are the dominant false positive in handheld footage
     # and the RANSAC will happily fit a "trajectory" through a static cluster.
     frames = _suppress_static_clutter(frames, image_diagonal_px=image_diagonal_px)
     total_candidates = sum(len(d) for _, d in frames)
@@ -501,7 +501,7 @@ def find_ball_trajectory(
         return None
 
     # A bouncing delivery is two parabolas joined at the pitch. The pass above
-    # locks onto the dominant one — usually the longer pre-bounce descent — and
+    # locks onto the dominant one, usually the longer pre-bounce descent, and
     # rejects the other side as outliers, which is exactly why a cleanly tracked
     # ball appears to "stop" at the bounce. Recover that second arc from the
     # detections the first pass did not claim and stitch it on when it continues
@@ -524,7 +524,7 @@ def find_ball_trajectory(
     # Recover the clean detections the constant-acceleration model drops at the
     # ends (a fast, near-axial ball accelerates in the image under perspective),
     # so the track reaches the release and the stumps rather than stopping short
-    # — which otherwise forces a long, error-prone extrapolation downstream.
+    #, which otherwise forces a long, error-prone extrapolation downstream.
     extended = _extend_track(best_fit.points, candidates, times, search_radius_px=search_radius_px)
     added = len(extended) - len(best_fit.points)
     if added > 0:
@@ -540,7 +540,7 @@ def find_ball_trajectory(
 
     # Final-track validation: a genuine ball traverses a meaningful fraction
     # of the image. A track whose points span almost no distance is a static
-    # cluster that survived per-seed gating — reject it so the pipeline
+    # cluster that survived per-seed gating, reject it so the pipeline
     # reports "no trajectory" rather than fabricating a decision from clutter.
     if len(best_fit.points) >= 2:
         xs_t = [p.x_px for p in best_fit.points]

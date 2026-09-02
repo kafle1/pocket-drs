@@ -484,7 +484,7 @@ class _MarkerPainter extends CustomPainter {
           ..strokeWidth = 1
           ..style = PaintingStyle.stroke,
       );
-      // Label tag — flip to the opposite side of the marker so the chip
+      // Label tag, flip to the opposite side of the marker so the chip
       // never covers the next tap target. Right-half markers get their
       // label on the LEFT, left-half markers on the RIGHT. Same logic
       // vertically near the top/bottom edges of the image.

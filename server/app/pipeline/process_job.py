@@ -1,42 +1,10 @@
-"""End-to-end cricket DRS pipeline.
+"""One review job, end to end.
 
-Decode → detect ball candidates → cluster into a trajectory → recover camera
-pose via PnP → reconstruct 3D ball trajectory in world coordinates →
-LBW decision based on the 3D trajectory.
+decode -> calibrate from the tapped marks -> detect and associate the ball -> reconstruct
+the delivery in metres -> predict the stump-plane crossing with its uncertainty -> Law 36
+verdict -> overlay and metrics for the client.
 
-Output schema (consumed by the Flutter client):
-
-    {
-      "video":            {duration_ms, fps},
-      "image_size":       {width, height},
-      "calibration": {
-        "mode":           "taps",
-        "pose":           {K, rvec, tvec, cam_center_world_m},
-        "quality":        {reproj_error_px, score, notes}
-      },
-      "track": {
-        "image_points":   [{t_ms, u, v, radius_px, confidence}, ...],
-        "candidates_total": int,
-        "inliers":          int,
-        "rms_px":           float
-      },
-      "world_trajectory": {
-        "points_m":             [{t_ms, x, y, z, confidence}, ...],
-        "predicted_to_stumps_m":[{t_ms, x, y, z}, ...],
-        "fit":                  {x0, y0, z0, vx, vy, vz, bounce_t_ms, rms_m}
-      },
-      "events": {
-        "bounce":  {t_ms, x_m, y_m},
-        "impact":  {t_ms, x_m, y_m, z_m}
-      },
-      "lbw": {
-        "decision":   "out" | "not_out" | "umpires_call",
-        "reason":     str,
-        "checks":     {pitching_in_line, impact_in_line, wickets_hitting},
-        "prediction": {y_at_stumps_m, z_at_stumps_m, stump_x_m, confidence}
-      },
-      "diagnostics": {warnings: [str], log_id}
-    }
+The result schema is the client contract; see ``_assemble``.
 """
 
 from __future__ import annotations
@@ -53,107 +21,24 @@ import cv2
 import numpy as np
 
 from ..models import ApiError
-from .calibration import CalibrationError
-from .reconstruction import (
-    BALL_RADIUS_M,
-    DEFAULT_STUMP_HEIGHT_M,
-    GRAVITY_MS2,
-    Reconstruction,
-    backproject_to_ground,
-    build_overlay_px,
-    predict_path_to_stumps,
-    reconstruct_trajectory,
-    solve_camera_pose_from_stumps,
-)
+from .calibration import CalibrationError, solve_camera_pose
+from .decision import decide
+from .overlay import build_overlay
+from .reconstruction import (BALL_RADIUS_M, Reconstruction, bounce_sigma, predict_stump_plane,
+                             reconstruct, sample_path)
 from .tracking import CombinedBallDetector, YoloBallDetector, build_pitch_roi_mask
 from .trajectory import find_ball_trajectory
 from .video import VideoDecodeError, VideoReader
 
-
 _log = logging.getLogger("pocket_drs.pipeline")
 
-# Cricket constants.
-WICKET_HALF_WIDTH_M = 0.2286 / 2.0      # one stump line is ±wicket_half_width from centre
-WICKET_GUARD_M = WICKET_HALF_WIDTH_M + BALL_RADIUS_M
-UMPIRES_CALL_BAND_M = 0.050             # ±50 mm on the edge → umpire's call
-
-# Calibration is rejected above this reprojection error. The fractional bound
-# (~3% of frame width, ≈32 px on 1080p) keeps it resolution-independent; the
-# absolute floor guards very small frames. A correct full-pitch tap calibration
-# sits well under 10 px, so this only trips on broken/mismatched corners.
-CALIB_REJECT_REPROJ_PX = 25.0
-CALIB_REJECT_REPROJ_FRAC = 0.03
-
-# A trustworthy projectile reconstruction sits well under this world-space RMS.
-# Synthetic footage fits to ~0.02-0.22 m; real handheld clips carry more
-# depth-from-size noise and land around 0.5-0.9 m even when correct, so the
-# bound gives real footage headroom while still firmly rejecting clutter fits
-# (which run several metres). Below this the fit is trusted with no caveat.
-# Between this and MAX_FIT_RMS_M_HARD (scaled to the trajectory's own span)
-# the fit is still used but flagged low-confidence — a delivery shot more
-# end-on (ball moving along the camera axis) reconstructs looser because
-# monocular depth is noisier there, and refusing it outright is worse than a
-# best-effort tracked result with a warning. Above the hard ceiling the 3D
-# path does not explain the observations, so we discard it.
-MAX_FIT_RMS_M = 1.0
-MAX_FIT_RMS_M_HARD = 2.0
-# Fraction of the trajectory's down-pitch span allowed as fit RMS before the
-# hard ceiling. 0.14 passes a ~12 m end-on net delivery at ~1.3 m RMS while a
-# ~5 m synthetic/clean arc stays bound at the 1.0 m floor.
-FIT_RMS_SPAN_FRAC = 0.14
-
+# a correct full-pitch tap calibration sits well under 10 px; the bound scales with frame width
+CALIB_REJECT_PX, CALIB_REJECT_FRAC = 25.0, 0.03
+# pixel RMS above which the 3-D model does not explain the track and no verdict is given
+MAX_FIT_RMS_PX = 12.0
+UNCERTAINTY_K = 1.0
 
 ProgressFn = Callable[[int, str], None]
-
-
-def _default_yolo_weights() -> str | None:
-    """Bundled cricket-ball YOLO weights, if present (server/models/…)."""
-    p = Path(__file__).resolve().parents[2] / "models" / "cricket_ball.pt"
-    return str(p) if p.exists() else None
-
-
-def _finite_or_none(result):
-    """Return a copy of the result with every non-finite float (NaN/Inf)
-    replaced by None and numpy scalars/arrays coerced to plain Python, while
-    preserving the list/dict structure exactly.
-
-    A degenerate reconstruction can leave a NaN in the result (e.g. a stump
-    prediction). ``json.dumps`` happily writes it as a bare ``NaN`` token, but
-    Starlette's ``JSONResponse`` and the Three.js viewer both serialise with
-    ``allow_nan=False`` and 500 on it — so a job that *succeeded* would fail
-    every ``/result`` and ``/three-d`` poll forever. Scrubbing here, at the one
-    place the result is built, guarantees a clean, structure-identical payload
-    to disk, API, and viewer alike. Unlike the Firestore sanitiser it does not
-    reshape nested arrays or stringify, so on-disk JSON keeps its schema."""
-    if isinstance(result, float):
-        return result if math.isfinite(result) else None
-    if isinstance(result, (bool, int, str)) or result is None:
-        return result
-    if isinstance(result, np.generic):
-        return _finite_or_none(result.item())
-    if isinstance(result, np.ndarray):
-        return [_finite_or_none(x) for x in result.tolist()]
-    if isinstance(result, dict):
-        return {k: _finite_or_none(v) for k, v in result.items()}
-    if isinstance(result, (list, tuple)):
-        return [_finite_or_none(x) for x in result]
-    return result
-
-
-def _progress(fn: ProgressFn | None, pct: int, stage: str) -> None:
-    if fn is not None:
-        fn(int(max(0, min(100, pct))), stage)
-
-
-def _rotate_frame(frame: np.ndarray, rotation_deg: int) -> np.ndarray:
-    r = int(rotation_deg) % 360
-    if r == 90:
-        return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-    if r == 180:
-        return cv2.rotate(frame, cv2.ROTATE_180)
-    if r == 270:
-        return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    return frame
 
 
 @dataclass(frozen=True)
@@ -162,1078 +47,408 @@ class PipelineOutput:
     warnings: list[str]
 
 
-def _decode_pitch_corners(req: dict, frame_width: int, frame_height: int) -> list[tuple[float, float]] | None:
-    pts_px = req.get("pitch_corners_px")
-    pts_norm = req.get("pitch_corners_norm")
-    if pts_px and len(pts_px) == 4:
-        return [(float(p["x"]), float(p["y"])) for p in pts_px]
-    if pts_norm and len(pts_norm) == 4:
-        return [(float(p["x"]) * frame_width, float(p["y"]) * frame_height) for p in pts_norm]
+def _progress(fn: ProgressFn | None, pct: int, stage: str) -> None:
+    if fn is not None:
+        fn(int(max(0, min(100, pct))), stage)
+
+
+def _finite(obj):
+    """JSON-safe copy: NaN and Inf become None, numpy scalars become Python numbers."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, np.generic):
+        return _finite(obj.item())
+    if isinstance(obj, np.ndarray):
+        return [_finite(x) for x in obj.tolist()]
+    if isinstance(obj, dict):
+        return {k: _finite(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_finite(x) for x in obj]
+    return obj
+
+
+def _points(req: dict, key: str, width: int, height: int, n: int) -> list[tuple[float, float]] | None:
+    px, norm = req.get(f"{key}_px"), req.get(f"{key}_norm")
+    if px and len(px) == n:
+        return [(float(p["x"]), float(p["y"])) for p in px]
+    if norm and len(norm) == n:
+        return [(float(p["x"]) * width, float(p["y"]) * height) for p in norm]
     return None
 
 
-def _decode_point_list(
-    req: dict, key_px: str, key_norm: str,
-    frame_width: int, frame_height: int,
-    allowed_counts: tuple[int, ...],
-) -> list[tuple[float, float]] | None:
-    pts_px = req.get(key_px)
-    pts_norm = req.get(key_norm)
-    if pts_px and len(pts_px) in allowed_counts:
-        return [(float(p["x"]), float(p["y"])) for p in pts_px]
-    if pts_norm and len(pts_norm) in allowed_counts:
-        return [(float(p["x"]) * frame_width, float(p["y"]) * frame_height) for p in pts_norm]
-    return None
-
-
-def _decode_stump_quads(req: dict, frame_width: int, frame_height: int) -> list[tuple[float, float]] | None:
-    """Decode the 8-point stump-rectangle schema.
-
-    ``stump_quads_norm``/``stump_quads_px`` is a flat list of 8 image points
-    in fixed order: [striker_TL, striker_TR, striker_BR, striker_BL,
-    bowler_TL, bowler_TR, bowler_BR, bowler_BL] — the bounding rectangle of
-    each end's three-stump cluster. The top pair lives at z=stump_height,
-    the bottom pair at z=0, lateral spread ±(STUMP_LATERAL_DX + ball
-    radius) ≈ 0.132 m.
-    """
-    return _decode_point_list(
-        req, "stump_quads_px", "stump_quads_norm",
-        frame_width, frame_height, allowed_counts=(8,),
-    )
-
-
-def _quad_area(pts: list[tuple[float, float]]) -> float:
-    """Shoelace area of a polygon given as (x, y) points."""
+def _quad_area(pts) -> float:
     a = 0.0
-    n = len(pts)
-    for i in range(n):
-        x1, y1 = pts[i]
-        x2, y2 = pts[(i + 1) % n]
+    for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]):
         a += x1 * y2 - x2 * y1
-    return abs(a) * 0.5
+    return abs(a) / 2.0
 
 
-def _leg_side_sign(stump_quads_px: list[tuple[float, float]], handedness: str) -> float:
-    """Return +1 if the recovered world +y is the batsman's leg side, else -1.
-
-    Leg vs off cannot be read from the pitch geometry alone — it depends on the
-    batsman's handedness AND which end the camera is at. The near (larger) of
-    the two tapped stump rectangles marks the camera's end: behind the striker
-    the recovered +y points to the leg side for a right-hander; behind the
-    bowler the view is mirrored, so +y points to the off side. Left-handedness
-    flips it once more. Validated on the synthetic set (camera behind striker,
-    right-hander: recovered +y matches the leg-side ground truth) and on the
-    real behind-the-bowler clips (test4 leg, test5 off).
-    """
-    striker_area = _quad_area(stump_quads_px[0:4])
-    bowler_area = _quad_area(stump_quads_px[4:8])
-    end_sign = 1.0 if striker_area >= bowler_area else -1.0
-    hand_sign = -1.0 if str(handedness).lower().startswith("l") else 1.0
-    return end_sign * hand_sign
+def _leg_sign(stumps: list[tuple[float, float]], handedness: str) -> float:
+    """+1 when world +y is the batter's leg side. The nearer (larger) stump rectangle marks
+    the camera's end; a left-hander and a bowler's-end view each flip the sign."""
+    end = 1.0 if _quad_area(stumps[0:4]) >= _quad_area(stumps[4:8]) else -1.0
+    hand = -1.0 if handedness.lower().startswith("l") else 1.0
+    return end * hand
 
 
-def _decide_lbw(
-    *,
-    bounce: tuple[float, float, float] | None,
-    impact: tuple[float, float, float] | None,
-    pred_y_at_stumps: float | None,
-    pred_z_at_stumps: float | None,
-    stump_x_m: float,
-    fit_rms_m: float,
-    leg_side_sign: float,
-) -> dict:
-    """ICC-Rule-36-flavoured LBW decision from a real 3D reconstruction.
-
-    Conventions: world Y centred on stump line.  ±WICKET_HALF_WIDTH is the
-    stump width; +BALL_RADIUS_M each side is the ball-touching tolerance.
-    ``leg_side_sign`` (+1 or -1) says which world-Y direction is the batsman's
-    leg side (see _leg_side_sign), so off and leg are handled per the laws
-    rather than symmetrically.
-    """
-    checks = {"pitching_in_line": True, "impact_in_line": True, "wickets_hitting": False}
-    reason_parts: list[str] = []
-
-    if bounce is not None:
-        bx, by, _ = bounce
-        # Pitching outside LEG is not out; pitching outside OFF is legal and can
-        # still be out. ``by * leg_side_sign`` is the signed distance onto the
-        # leg side, so only a leg-side pitch beyond one stump-width is rejected.
-        leg_line_limit = WICKET_HALF_WIDTH_M + 0.1143  # one stump width outside leg
-        if by * leg_side_sign > leg_line_limit:
-            checks["pitching_in_line"] = False
-            reason_parts.append(f"Pitched outside leg ({abs(by)*100:.1f}cm)")
-
-    if impact is not None:
-        ix, iy, iz = impact
-        # Impact must be in line with the stumps. Impact outside leg is always
-        # not-out; impact outside off is not-out unless a shot was offered,
-        # which we cannot detect — so an impact beyond the line on either side
-        # is treated as not-in-line. That is the batsman-favouring default and
-        # never manufactures a false out.
-        if abs(iy) > WICKET_GUARD_M + 0.05:
-            checks["impact_in_line"] = False
-            side = "leg" if iy * leg_side_sign > 0 else "off"
-            reason_parts.append(f"Impact outside {side} ({abs(iy)*100:.1f}cm)")
-
-    # Monocular depth-from-size on phone footage is precise to roughly
-    # ±5 cm in Y at the stump plane and ±15 cm in Z. We widen the umpire's-
-    # call margin in the vertical dimension to reflect that the system is
-    # less confident about ball height than ball line, even though the same
-    # physical "more than half the ball" rule applies in both.
-    # Cricket DRS umpire's-call bands. Monocular Z noise is typically
-    # ~2x the Y noise (ball moves along the camera axis so the radial
-    # component is harder to resolve than the lateral one), so the Z band
-    # is widened to one ball-diameter while Y stays at one ball-radius.
-    MARGIN_Y_UMP = BALL_RADIUS_M           # 3.6 cm
-    MARGIN_Z_UMP = 2.0 * BALL_RADIUS_M     # 7.2 cm
-
-    decision = "not_out"
-    margin_text = ""
-    if pred_y_at_stumps is not None and pred_z_at_stumps is not None:
-        hits_horizontal = abs(pred_y_at_stumps) <= WICKET_GUARD_M
-        hits_vertical = 0.0 <= pred_z_at_stumps <= DEFAULT_STUMP_HEIGHT_M + BALL_RADIUS_M
-        if hits_horizontal and hits_vertical:
-            checks["wickets_hitting"] = True
-            margin_y = WICKET_GUARD_M - abs(pred_y_at_stumps)
-            margin_z_top = (DEFAULT_STUMP_HEIGHT_M + BALL_RADIUS_M) - pred_z_at_stumps
-            # Per-axis umpire's-call bands; the tightest axis decides. Only the
-            # top of the stumps (bail height) has a marginal band — the ground
-            # backs the base, so a ball predicted low is a clean hit, never an
-            # umpire's call, and its distance to the ground is not a margin.
-            in_y_band = margin_y <= MARGIN_Y_UMP
-            in_z_band = margin_z_top <= MARGIN_Z_UMP
-            margin = min(margin_y, margin_z_top)
-            if in_y_band or in_z_band:
-                margin_text = f" (margin {margin*100:.1f}cm umpires_band)"
-            else:
-                margin_text = f" (margin {margin*100:.1f}cm)"
-        else:
-            # Umpire's-call band on the *outside* of the stumps. Only the
-            # axis that actually misses contributes a positive "outside"
-            # distance; the well-inside axes are not part of the margin.
-            candidates: list[float] = []
-            if not hits_horizontal:
-                candidates.append(abs(pred_y_at_stumps) - WICKET_GUARD_M)
-            if not hits_vertical:
-                if pred_z_at_stumps > DEFAULT_STUMP_HEIGHT_M + BALL_RADIUS_M:
-                    candidates.append(pred_z_at_stumps - (DEFAULT_STUMP_HEIGHT_M + BALL_RADIUS_M))
-                elif pred_z_at_stumps < 0.0:
-                    candidates.append(-pred_z_at_stumps)
-            min_outside = min(candidates) if candidates else 0.0
-            if 0.0 < min_outside <= UMPIRES_CALL_BAND_M:
-                margin_text = f" (just missing — {min_outside*100:.1f}cm)"
-
-    if all(checks.values()):
-        if margin_text and "umpires_band" in margin_text:
-            decision = "umpires_call"
-            reason_parts.append(f"Umpire's call — clipping{margin_text}")
-        elif margin_text:
-            decision = "out"
-            reason_parts.append(f"Hitting stumps{margin_text}")
-        else:
-            decision = "out"
-            reason_parts.append("Hitting stumps")
-    else:
-        if not reason_parts:
-            reason_parts.append("Missing stumps")
-        # Umpire's call on a marginal miss only applies when the ball was
-        # legally in line at pitch and impact. Pitching outside leg or impact
-        # outside off is a definitive not-out no matter where the predicted
-        # path runs, so we must not upgrade those to umpire's call (and must
-        # keep their real reason, not overwrite it).
-        if (checks["pitching_in_line"] and checks["impact_in_line"]
-                and margin_text and "just missing" in margin_text):
-            decision = "umpires_call"
-            reason_parts[-1] = "Umpire's call" + margin_text
-
-    confidence = float(max(0.20, min(0.95, 1.0 - fit_rms_m * 1.5)))
-    return {
-        "decision": decision,
-        "reason": " · ".join(reason_parts),
-        "checks": checks,
-        "prediction": {
-            "y_at_stumps_m": float(pred_y_at_stumps) if pred_y_at_stumps is not None else None,
-            "z_at_stumps_m": float(pred_z_at_stumps) if pred_z_at_stumps is not None else None,
-            "stump_x_m": float(stump_x_m),
-            "confidence": confidence,
-        },
-    }
+def _rotate(frame: np.ndarray, deg: int) -> np.ndarray:
+    code = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}.get(deg % 360)
+    return frame if code is None else cv2.rotate(frame, code)
 
 
-def _extend_track_to_direction_change(
-    detections_per_frame,
-    fit_points,
-    *,
-    min_conf: float = 0.4,
-    max_step_px_per_17ms: float = 130.0,
-    min_step_px: float = 5.0,
-    reversal_frames: int = 2,
-) -> list[dict]:
-    """Continue the ball track past the RANSAC fit until the ball changes
-    direction.
-
-    The 2-pass RANSAC keeps one smooth projectile arc — a clean delivery — as
-    its inlier set. On real footage the detector still sees the ball for many
-    frames past that arc (between the last fit point and the bat impact, and
-    sometimes past it). We walk those frames forward with nearest-neighbour
-    association, keeping the same proximity / step bounds that the post-impact
-    helper used to use, but stop as soon as the ball's motion *reverses
-    relative to its dominant direction*. ``reversal_frames`` consecutive
-    reversed steps confirm a bat / pad interception so a single noisy frame
-    does not cut the track short.
-
-    Returns the extra frames (image-space) to append after ``fit_points``.
-    """
-    if len(fit_points) < 2:
-        return []
-    # Dominant direction from the tail of the fit so we are comparing against
-    # the ball's actual motion at the end of the delivery, not the release.
-    tail = fit_points[-min(4, len(fit_points)):]
-    ref_du = float(tail[-1].x_px - tail[0].x_px)
-    ref_dv = float(tail[-1].y_px - tail[0].y_px)
-    if abs(ref_du) + abs(ref_dv) < 1.0:
-        return []
-
-    prev_t = float(fit_points[-1].t_ms)
-    prev_u = float(fit_points[-1].x_px)
-    prev_v = float(fit_points[-1].y_px)
-    out: list[dict] = []
-    reversed_run = 0
-
-    for t_ms, cands in detections_per_frame:
-        if t_ms <= prev_t:
-            continue
-        ball_cands = [
-            c for c in cands
-            if float(c.get("confidence", 0.0)) >= min_conf
-            and c.get("source") == "yolo"
-        ]
-        if not ball_cands:
-            continue
-        dt = max(1.0, float(t_ms) - prev_t)
-        max_step = max_step_px_per_17ms * (dt / 17.0)
-        accepted: list[tuple[float, dict]] = []
-        for c in ball_cands:
-            d = math.hypot(float(c["x"]) - prev_u, float(c["y"]) - prev_v)
-            if d < min_step_px or d > max_step:
-                continue
-            accepted.append((float(c["confidence"]), c))
-        if not accepted:
-            continue
-        accepted.sort(reverse=True)
-        best = accepted[0][1]
-        du = float(best["x"]) - prev_u
-        dv = float(best["y"]) - prev_v
-        dot = du * ref_du + dv * ref_dv
-        if dot < 0.0:
-            reversed_run += 1
-            if reversed_run >= reversal_frames:
-                # Direction change confirmed — drop the reversed steps and stop.
-                if reversed_run > 1:
-                    out = out[: -(reversed_run - 1)]
-                break
-        else:
-            reversed_run = 0
-        out.append({
-            "t_ms": int(t_ms),
-            "u": float(best["x"]),
-            "v": float(best["y"]),
-            "radius_px": float(best.get("radius_px", 0.0)),
-            "confidence": float(best["confidence"]),
-        })
-        prev_t = float(t_ms)
-        prev_u = float(best["x"])
-        prev_v = float(best["y"])
-    return out
+def _int(d: dict, key: str, default: int | None = None) -> int:
+    v = d.get(key, default)
+    if v is None:
+        raise ValueError(f"{key} is required")
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"{key} must be an integer")
 
 
-def _find_image_v_peak(points, *, min_post_frames: int = 2) -> int | None:
-    """Index of the image-v peak that signals a real ground contact.
+# --------------------------------------------------------------------------- #
+# detection and association
+# --------------------------------------------------------------------------- #
 
-    A genuine bounce on the pitch is the only event that flips the ball's
-    vertical image motion (downward → upward) while horizontal travel keeps
-    its sign. We pick the last frame whose v is strictly greater than both
-    its neighbours and whose post-peak descent is sustained for at least
-    ``min_post_frames`` more frames so an end-of-clip detection drop-out
-    does not masquerade as a bounce.
-    """
-    n = len(points)
-    if n < 4 + min_post_frames:
-        return None
-    vs = [float(p.y_px) for p in points]
-    peak_idx: int | None = None
-    for i in range(1, n - 1):
-        if not (vs[i] - vs[i - 1] > 1.0 and vs[i] - vs[i + 1] > 1.0):
-            continue
-        # Require sustained post-peak rise to reject noise.
-        post_ok = True
-        for k in range(1, min_post_frames + 1):
-            if i + k >= n or vs[i + k] >= vs[i]:
-                post_ok = False
-                break
-        if post_ok:
-            peak_idx = i
-    return peak_idx
+def _yolo_weights() -> str | None:
+    env = os.environ.get("POCKET_DRS_YOLO_WEIGHTS")
+    if env:
+        return env
+    p = Path(__file__).resolve().parents[2] / "models" / "cricket_ball.pt"
+    return str(p) if p.exists() else None
 
 
-def _detect_impact_frame(points) -> int | None:
-    """Index of the bat/pad impact — where the ball hits something and changes
-    direction — or None if it travels cleanly through to the stumps.
+def _span(fit) -> float:
+    if fit is None or not fit.points:
+        return 0.0
+    xs = [p.x_px for p in fit.points]; ys = [p.y_px for p in fit.points]
+    return math.hypot(max(xs) - min(xs), max(ys) - min(ys))
 
-    The impact is a discontinuity in the ball's *horizontal* image motion: when
-    it is intercepted, its left/right travel either collapses (it drops or rolls
-    off the pad) or reverses (edged / played back). A bounce is deliberately NOT
-    flagged here — a bounce flips only the vertical motion while the ball keeps
-    its horizontal travel — so this cleanly separates "pitched" from "hit". The
-    returned index is the last point still part of the live delivery; callers
-    track up to it and predict beyond it. Returns None for a near-axial view
-    where horizontal motion is too small to judge (falls back to stump-plane).
-    """
+
+def _track(frames, times_ms, detector, mask, diag):
+    dets = [(t, detector.detect(f, mask)[:8]) for t, f in zip(times_ms, frames)]
+    return dets, find_ball_trajectory(dets, image_diagonal_px=diag, min_inliers=6)
+
+
+def _select_track(frames, times_ms, *, kind, ball_color, roi_mask, diag, yolo_conf, warnings):
+    """Run the requested detectors and keep the most ball-like track.
+
+    The learned detector is trusted when it produces a solid arc. A colour track overrides it
+    only when it is both markedly longer and tight in an absolute sense, which is a fuller
+    ball path rather than a bowler's run-up that merely out-spans a small, far ball."""
+    weights = _yolo_weights()
+    if kind == "yolo":
+        if not weights:
+            raise ValueError("detector 'yolo' requested but no weights are installed")
+        return _track(frames, times_ms, YoloBallDetector(weights, conf=yolo_conf), None, diag)
+    if kind == "combined":
+        return _track(frames, times_ms, CombinedBallDetector(ball_color=ball_color), roi_mask, diag)
+
+    colour = []
+    for c in [ball_color] + [c for c in ("red", "pink") if c != ball_color]:
+        try:
+            colour.append(_track(frames, times_ms, CombinedBallDetector(ball_color=c), roi_mask, diag))
+        except Exception as e:                                        # noqa: BLE001
+            warnings.append(f"colour detector '{c}' failed: {e}")
+    yolo = None
+    if weights:
+        try:
+            yolo = _track(frames, times_ms, YoloBallDetector(weights, conf=yolo_conf), None, diag)
+        except Exception as e:                                        # noqa: BLE001
+            warnings.append(f"learned detector unavailable, used colour and motion ({e})")
+
+    def likeness(r):
+        return (_span(r[1]), r[1].inliers if r[1] else 0, -(r[1].rms_px if r[1] else 0.0))
+
+    solid = yolo is not None and yolo[1] is not None and len(yolo[1].points) >= 8 and yolo[1].inliers >= 6
+    if solid:
+        best = max(colour, key=likeness, default=None)
+        if best is not None and best[1] is not None and _span(best[1]) >= 1.5 * _span(yolo[1]) \
+                and best[1].rms_px <= 0.007 * diag:
+            warnings.append("used the colour track over a shorter learned-detector arc")
+            return best
+        return yolo
+    pool = colour + ([yolo] if yolo else [])
+    return max(pool, key=likeness) if pool else ([], None)
+
+
+def _impact_index(points) -> int | None:
+    """Last point of the live delivery: a sustained reversal of horizontal image travel is a
+    bat or pad interception. A bounce flips only vertical motion, so it never trips this."""
     n = len(points)
     if n < 8:
         return None
     t = np.array([p.t_ms for p in points], dtype=float)
     u = np.array([p.x_px for p in points], dtype=float)
-    dt = np.diff(t)
-    dt[dt == 0] = 1.0
-    du = np.diff(u) / dt  # horizontal image velocity (px/ms)
+    dt = np.diff(t); dt[dt == 0] = 1.0
+    du = np.diff(u) / dt
     med = float(np.median(np.abs(du)))
-    if med < 0.02:
-        return None
     sgn = np.sign(np.median(du))
-    if sgn == 0:
+    if med < 0.02 or sgn == 0:
         return None
-    start = max(2, int(0.4 * n))
-    for i in range(start, len(du) - 1):
-        # A sustained reversal of horizontal travel — the ball never turns
-        # round in the air unless it hit bat or pad. (A bounce flips only the
-        # vertical motion, so it never trips this.) Natural perspective slow-down
-        # only shrinks |du|, it does not flip the sign, so clean deliveries that
-        # carry through to the stumps are left untouched.
-        if (np.sign(du[i]) == -sgn and abs(du[i]) > 0.5 * med
-                and np.sign(du[i + 1]) == -sgn):
+    for i in range(max(2, int(0.4 * n)), len(du) - 1):
+        if np.sign(du[i]) == -sgn and abs(du[i]) > 0.5 * med and np.sign(du[i + 1]) == -sgn:
             return i
     return None
 
 
-def _compute_metrics(
-    fit,
-    *,
-    image_points: list[dict] | None = None,
-    world_points: list | None = None,
-    bounce_index: int | None = None,
-) -> dict:
-    """Broadcast delivery metrics — Speed, Swing, Spin — from the fit + track.
-
-    * Speed  — release speed |v0| (km/h + mph). The horizontal (down-pitch)
-      component dominates and is constant for a projectile, so it is estimated
-      from the ball's down-pitch travel across the whole reconstructed arc
-      rather than the fit's extrapolated release vx: averaging over the arc is
-      markedly less sensitive to the monocular depth noise that otherwise
-      biases the single-point release velocity low. The fit's small lateral and
-      vertical components are recombined with it. Falls back to |v0| when the
-      arc is too short to average reliably.
-    * Swing  — the ball's sideways (across-pitch) movement in the air before it
-      pitches, in centimetres: the change in world Y from release to the bounce
-      point. (Measured on the ground plane so it is true lateral movement, not
-      the in-image gravity sag.)
-    * Spin   — the lateral angle the ball travels off the straight line down
-      the pitch (drift / turn), in degrees, from the fitted velocity.
-    """
-    speed_ms = math.sqrt(fit.vx ** 2 + fit.vy ** 2 + fit.vz ** 2)
-    try:
-        if world_points and len(world_points) >= 4:
-            p0, p1 = world_points[0], world_points[-1]
-            dt_s = (float(p1.t_ms) - float(p0.t_ms)) / 1000.0
-            span_x = abs(float(p1.x_m) - float(p0.x_m))
-            # Need enough elapsed time and down-pitch travel for the average to
-            # be meaningful; a near-end-on clip with little x-motion keeps |v0|.
-            if dt_s > 0.05 and span_x > 1.0:
-                vx_robust = span_x / dt_s
-                speed_ms = math.sqrt(vx_robust ** 2 + fit.vy ** 2 + fit.vz ** 2)
-    except Exception:  # noqa: BLE001 — metric is best-effort, never fatal
-        pass
-    spin_deg = (
-        abs(math.degrees(math.atan2(fit.vy, abs(fit.vx))))
-        if abs(fit.vx) > 1e-3 else 0.0
-    )
-
-    swing_cm = 0.0
-    try:
-        if world_points and len(world_points) >= 3:
-            n = len(world_points)
-            bi = bounce_index if (bounce_index is not None and 1 < bounce_index < n) else n - 1
-            swing_cm = abs(float(world_points[bi].y_m) - float(world_points[0].y_m)) * 100.0
-    except Exception:  # noqa: BLE001 — metric is best-effort, never fatal
-        swing_cm = 0.0
-
-    return {
-        "speed_kmh": round(max(0.0, speed_ms * 3.6), 1),
-        "speed_mph": round(max(0.0, speed_ms * 2.2369362921), 1),
-        "swing_sf": round(max(0.0, swing_cm), 1),   # sideways air movement (cm)
-        "spin_deg": round(max(0.0, spin_deg), 1),   # drift/turn off straight (deg)
-    }
+def _extend_to_reversal(dets_per_frame, points, *, min_conf=0.4, max_step_per_17ms=130.0) -> list[dict]:
+    """Walk the learned detections forward past the fitted arc until the ball reverses."""
+    if len(points) < 2:
+        return []
+    tail = points[-min(4, len(points)):]
+    ref = (tail[-1].x_px - tail[0].x_px, tail[-1].y_px - tail[0].y_px)
+    if abs(ref[0]) + abs(ref[1]) < 1.0:
+        return []
+    prev_t, prev_u, prev_v = float(points[-1].t_ms), points[-1].x_px, points[-1].y_px
+    out, reversed_run = [], 0
+    for t_ms, cands in dets_per_frame:
+        if t_ms <= prev_t:
+            continue
+        ok = [c for c in cands if c.get("source") == "yolo" and float(c.get("confidence", 0)) >= min_conf]
+        if not ok:
+            continue
+        max_step = max_step_per_17ms * max(1.0, t_ms - prev_t) / 17.0
+        ok = [c for c in ok if 5.0 <= math.hypot(c["x"] - prev_u, c["y"] - prev_v) <= max_step]
+        if not ok:
+            continue
+        best = max(ok, key=lambda c: c["confidence"])
+        if (best["x"] - prev_u) * ref[0] + (best["y"] - prev_v) * ref[1] < 0:
+            reversed_run += 1
+            if reversed_run >= 2:
+                return out[:-(reversed_run - 1)] if reversed_run > 1 else out
+        else:
+            reversed_run = 0
+        out.append({"t_ms": int(t_ms), "u": float(best["x"]), "v": float(best["y"]),
+                    "radius_px": float(best.get("radius_px", 0.0)), "confidence": float(best["confidence"])})
+        prev_t, prev_u, prev_v = float(t_ms), float(best["x"]), float(best["y"])
+    return out
 
 
-def _require_int(d: dict, key: str, label: str) -> int:
-    """Read a required integer field, raising a clean ValueError (mapped to
-    INVALID_REQUEST) for missing, null, or non-numeric values rather than
-    leaking a KeyError/TypeError as an INTERNAL_ERROR."""
-    value = d.get(key)
-    if value is None:
-        raise ValueError(f"{label} is required")
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{label} must be an integer")
+# --------------------------------------------------------------------------- #
+# the job
+# --------------------------------------------------------------------------- #
 
-
-def run_pipeline(
-    *,
-    video_path: Path,
-    request_json: dict,
-    artifacts_dir: Path,
-    progress: ProgressFn | None = None,
-) -> PipelineOutput:
+def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
+                 progress: ProgressFn | None = None) -> PipelineOutput:
     warnings: list[str] = []
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-
     if not isinstance(request_json, dict):
         raise ValueError("request body must be a JSON object")
 
     seg = request_json.get("segment")
     if not isinstance(seg, dict):
         raise ValueError("segment is required")
-    start_ms = _require_int(seg, "start_ms", "segment.start_ms")
-    end_ms = _require_int(seg, "end_ms", "segment.end_ms")
+    start_ms, end_ms = _int(seg, "start_ms"), _int(seg, "end_ms")
     if end_ms <= start_ms:
-        raise ValueError("Invalid segment: end_ms must be greater than start_ms")
-
+        raise ValueError("segment.end_ms must be greater than segment.start_ms")
     track_req = request_json.get("tracking") or {}
-    sample_fps = _require_int(track_req, "sample_fps", "tracking.sample_fps") if track_req.get("sample_fps") is not None else 30
-    max_frames = _require_int(track_req, "max_frames", "tracking.max_frames") if track_req.get("max_frames") is not None else 180
-    if sample_fps < 1:
-        raise ValueError("tracking.sample_fps must be >= 1")
-    if max_frames < 1:
-        raise ValueError("tracking.max_frames must be >= 1")
+    sample_fps = _int(track_req, "sample_fps", 30)
+    max_frames = _int(track_req, "max_frames", 180)
+    if sample_fps < 1 or max_frames < 1:
+        raise ValueError("tracking.sample_fps and tracking.max_frames must be positive")
     ball_color = str(track_req.get("ball_color") or "red")
-    batsman_handedness = str(request_json.get("batsman_handedness") or "right").lower()
+    detector_kind = str(track_req.get("detector") or "auto").lower()
+    yolo_conf = float(track_req.get("yolo_conf", 0.2))
+    handedness = str(request_json.get("batsman_handedness") or "right")
+    rotation = int((request_json.get("video") or {}).get("rotation_deg") or 0)
 
-    rotation_deg = int(((request_json.get("video") or {}).get("rotation_deg")) or 0)
-
-    cal_req = request_json.get("calibration") or {}
-    if cal_req.get("mode") != "taps":
-        raise ValueError("calibration.mode must be 'taps' (only mode currently supported)")
-    dims = cal_req.get("pitch_dimensions_m") or {}
+    cal = request_json.get("calibration") or {}
+    if cal.get("mode") != "taps":
+        raise ValueError("calibration.mode must be 'taps'")
+    dims = cal.get("pitch_dimensions_m") or {}
     try:
-        pitch_width_m = float(dims.get("width"))
+        pitch_width = float(dims.get("width"))
     except (TypeError, ValueError):
-        raise ValueError("calibration.pitch_dimensions_m.width required")
-    # Length is optional. When the caller pins it (a known regulation 20.12 m
-    # match pitch) it becomes the authoritative scale the pose is built around.
-    # When omitted we geometry-fit it from the stump marks, so non-regulation
-    # indoor / practice nets (test4/test5 are far shorter than 20.12 m)
-    # calibrate to their real length instead of being forced to 20.12 m — which
-    # over-constrains the pose and spikes the reprojection error (test4 jumps
-    # from ~4 px geometry-fit to 45 px when forced to 20.12 m + a pinned FOV).
-    # NOTE: monocular scale from taps alone is weakly observable (the
-    # FOV x length trade-off is near-degenerate), so for the most accurate
-    # absolute scale on a known full pitch the client should still pin length.
+        raise ValueError("calibration.pitch_dimensions_m.width is required")
     length_raw = dims.get("length")
-    if length_raw is None:
-        pitch_length_m = 0.0  # signal "let the solver geometry-fit the length"
-    else:
-        try:
-            pitch_length_m = float(length_raw)
-        except (TypeError, ValueError):
-            raise ValueError("calibration.pitch_dimensions_m.length must be numeric")
-    if pitch_width_m <= 0.0 or pitch_length_m < 0.0:
+    pitch_length = None if length_raw is None else float(length_raw)
+    if pitch_width <= 0 or (pitch_length is not None and pitch_length <= 0):
         raise ValueError("calibration.pitch_dimensions_m must be positive")
+    fov_raw = cal.get("h_fov_deg")
+    fov = float(fov_raw) if fov_raw not in (None, "", 0) else None
 
-    # ----------------------------- decode -----------------------------
+    # ---- decode ------------------------------------------------------------
     _progress(progress, 5, "decode")
     with VideoReader(str(video_path)) as reader:
         meta = reader.meta
         if meta.duration_ms and start_ms >= meta.duration_ms:
-            raise ValueError("Segment starts after video end")
-
-        dt_ms = max(1, int(round(1000 / max(1, sample_fps))))
-        # Never sample past the real end of the video. `frame_at_ms` clamps an
-        # out-of-range time to the last frame, so requesting beyond the duration
-        # (the app sends a wide end_ms to mean "the whole clip") would feed the
-        # tracker duplicate frozen frames — static clutter that survives near
-        # the end and corrupts the bounce/impact fit (the ball appears to stop
-        # being tracked after the pitch). Cap sampling at the actual duration.
-        end_cap = end_ms
-        if meta.duration_ms and meta.duration_ms > 0:
-            end_cap = min(end_ms, meta.duration_ms - 1)
-        times_ms: list[int] = []
-        t = start_ms
-        while t <= end_cap and len(times_ms) < max_frames:
-            times_ms.append(int(t))
-            t += dt_ms
-
+            raise ValueError("segment starts after the end of the video")
+        step = max(1, int(round(1000 / sample_fps)))
+        end_cap = min(end_ms, meta.duration_ms - 1) if meta.duration_ms > 0 else end_ms
+        times_ms = list(range(start_ms, end_cap + 1, step))[:max_frames]
         frames: list[np.ndarray] = []
-        for i, t_ms in enumerate(times_ms):
+        for i, t in enumerate(times_ms):
             try:
-                f = reader.frame_at_ms(t_ms)
+                frames.append(_rotate(reader.frame_at_ms(t), rotation))
             except VideoDecodeError as e:
-                # Sustained decode failure means the file is truncated past
-                # this point (metadata over-reports the frame count). Analyse
-                # the frames we actually have rather than padding with stale
-                # duplicates or aborting outright.
-                if frames:
-                    warnings.append(
-                        f"Video truncated: analysing {len(frames)} of "
-                        f"{len(times_ms)} requested frames ({e})"
-                    )
-                    break
-                raise
-            f = _rotate_frame(f, rotation_deg)
-            frames.append(f)
-            if i and (i % max(1, len(times_ms) // 10) == 0):
-                _progress(progress, 5 + int(20 * (i / max(1, len(times_ms) - 1))), "decode")
+                if not frames:
+                    raise
+                warnings.append(f"video truncated: analysed {len(frames)} of {len(times_ms)} frames ({e})")
+                break
+            if i and i % max(1, len(times_ms) // 10) == 0:
+                _progress(progress, 5 + int(20 * i / max(1, len(times_ms) - 1)), "decode")
+        times_ms = times_ms[:len(frames)]
+    height, width = frames[0].shape[:2]
+    cv2.imwrite(str(artifacts_dir / "frame0.jpg"), frames[0])
 
-        height, width = frames[0].shape[:2]
-        try:
-            cv2.imwrite(str(artifacts_dir / "frame0.jpg"), frames[0])
-        except Exception:
-            pass
-
-    # ----------------------------- calibrate (PnP) -----------------------------
+    # ---- calibrate ----------------------------------------------------------
     _progress(progress, 30, "calibration")
-
-    pitch_corners_px = _decode_pitch_corners(cal_req, width, height)
-    if pitch_corners_px is None:
-        raise ValueError("calibration.pitch_corners_px or .pitch_corners_norm required")
-    stump_quads_px = _decode_stump_quads(cal_req, width, height)
-    if stump_quads_px is None:
-        raise ValueError(
-            "calibration.stump_quads_px or .stump_quads_norm "
-            "(8 points: striker TL/TR/BR/BL then bowler TL/TR/BR/BL) is required"
-        )
-
-    # Which world-Y direction is the batsman's leg side (for the LBW off/leg
-    # rules) — determined from handedness and the camera's end of the pitch.
-    leg_side_sign = _leg_side_sign(stump_quads_px, batsman_handedness)
-
-    # Camera horizontal FOV — optional override. When the caller does not
-    # supply one (the usual case from the app), the calibration solver
-    # auto-fits FOV jointly with pitch length from the stump marks, so a
-    # zoomed phone shot does not get rejected for "high reprojection".
-    _fov_raw = cal_req.get("h_fov_deg")
-    h_fov_deg = float(_fov_raw) if _fov_raw not in (None, "", 0) else None
-
-    # Stump-anchored calibration. The 8 tapped stump rectangle corners +
-    # 4 pitch turf corners feed a joint PnP that jointly auto-fits the
-    # camera FOV and the pitch length when the caller doesn't pin them.
-    pose, pitch_length_m = solve_camera_pose_from_stumps(
-        image_size=(width, height),
-        stump_quads_px=stump_quads_px,
-        pitch_corners_px=(
-            pitch_corners_px if pitch_corners_px and len(pitch_corners_px) == 4
-            else None
-        ),
-        pitch_width_m=pitch_width_m,
-        h_fov_deg=h_fov_deg,
-        known_length_m=pitch_length_m if pitch_length_m > 0.0 else None,
-    )
-
-    # Hard reject a calibration whose marks cannot form a consistent
-    # perspective view. The marks always admit an exact 2D homography but
-    # only a geometrically valid set yields a low PnP reprojection error;
-    # a large error means the recovered pose is meaningless. Proceeding
-    # would emit a confident-but-wrong 3D reconstruction, so we stop here.
-    # The bound scales with frame width to stay resolution-independent.
-    reject_px = max(CALIB_REJECT_REPROJ_PX, CALIB_REJECT_REPROJ_FRAC * width)
-    if pose.reproj_error_px > reject_px:
+    corners = _points(cal, "pitch_corners", width, height, 4)
+    stumps = _points(cal, "stump_quads", width, height, 8)
+    if corners is None:
+        raise ValueError("calibration.pitch_corners_px or pitch_corners_norm (4 points) is required")
+    if stumps is None:
+        raise ValueError("calibration.stump_quads_px or stump_quads_norm (8 points) is required")
+    pose = solve_camera_pose(image_size=(width, height), stump_quads_px=stumps, pitch_corners_px=corners,
+                             pitch_width_m=pitch_width, fov_deg=fov, pitch_length_m=pitch_length)
+    reject = max(CALIB_REJECT_PX, CALIB_REJECT_FRAC * width)
+    if pose.reproj_error_px > reject:
         raise CalibrationError(
-            f"Calibration rejected: reprojection error {pose.reproj_error_px:.0f} px "
-            f"exceeds {reject_px:.0f} px. The stump marks are not consistent — "
-            "re-tap the four corners of each stump cluster more precisely."
-        )
-    if pose.reproj_error_px > 8.0:
-        warnings.append(
-            f"High reprojection error ({pose.reproj_error_px:.1f} px) — "
-            "calibration accuracy may be poor; re-tap the stump corners precisely."
-        )
-
-    # Physical-plausibility invariants. A phone is held above the pitch (cam_z>0)
-    # and never sits more than a few metres up. If either is violated, the pose
-    # may have fitted a mirrored or otherwise non-physical twin; refuse to use
-    # it for the 3D reconstruction rather than silently emitting garbage.
-    cam_z = float(pose.cam_center_world.flatten()[2])
+            f"Calibration rejected: reprojection error {pose.reproj_error_px:.0f} px exceeds {reject:.0f} px. "
+            "Re-tap the four corners of each stump cluster more precisely.")
+    cam_z = float(pose.centre_world[2])
     if not (0.10 <= cam_z <= 5.0):
         raise CalibrationError(
-            f"Calibration rejected: recovered camera height {cam_z:.2f} m is "
-            "outside the plausible phone range (0.10–5.00 m). The marks likely "
-            "form a mirror twin; re-mark them in the canonical order "
-            "(striker before bowler, base before top)."
-        )
-    if not (1.5 <= pitch_length_m <= 25.0):
-        raise CalibrationError(
-            f"Calibration rejected: derived pitch length {pitch_length_m:.2f} m "
-            "is outside the plausible range (1.5–25.0 m). The stump marks may "
-            "be at very different image scales — re-mark them."
-        )
-    _log.info(
-        "calibration ok: reproj=%.2fpx length=%.2fm cam=(%.2f,%.2f,%.2f) fx=%.0f",
-        pose.reproj_error_px,
-        pitch_length_m,
-        float(pose.cam_center_world.flatten()[0]),
-        float(pose.cam_center_world.flatten()[1]),
-        cam_z,
-        pose.fx,
-    )
+            f"Calibration rejected: recovered camera height {cam_z:.2f} m is not a hand-held phone. "
+            "Re-mark the stumps in order: striker end then bowler end, top-left, top-right, bottom-right, bottom-left.")
+    if not (1.5 <= pose.pitch_length_m <= 25.0):
+        raise CalibrationError(f"Calibration rejected: derived pitch length {pose.pitch_length_m:.2f} m is implausible.")
+    if pose.reproj_error_px > 8.0:
+        warnings.append(f"high calibration reprojection error ({pose.reproj_error_px:.1f} px); re-tap the stump corners")
+    leg_sign = _leg_sign(stumps, handedness)
+    _log.info("calibration ok: reproj=%.2fpx length=%.2fm cam=(%.2f,%.2f,%.2f) fx=%.0f",
+              pose.reproj_error_px, pose.pitch_length_m, *pose.centre_world, pose.fx)
 
-    # Score: 1.0 at 0 px error, 0.0 at >=20 px.
-    cal_score = float(max(0.05, min(0.99, 1.0 - pose.reproj_error_px / 20.0)))
-
-    # ----------------------------- detect + trajectory -----------------------------
+    # ---- detect and associate ------------------------------------------------
     _progress(progress, 40, "tracking")
-
-    roi_mask = build_pitch_roi_mask(frames[0].shape, pitch_corners_px)
-    image_diag = math.hypot(width, height)
-
-    # Detector selection. The motion+colour detector is reliable on clean
-    # (e.g. synthetic) footage but collapses on cluttered real phone clips,
-    # where moving people produce more motion than the ball. A learned YOLO
-    # detector isolates the ball directly and is far more robust there. The
-    # default mode is "auto": run both available detectors and keep whichever
-    # yields the more ball-like track. Explicit "yolo"/"combined" force one.
-    # YOLO runs without the pitch ROI mask — it already rejects non-ball pixels
-    # and the airborne arc rises out of the pitch quad.
-    detector_kind = str(track_req.get("detector") or "auto").lower()
-    # Weights are resolved server-side only. A request must never choose the
-    # file loaded here: ultralytics.YOLO() on a .pt runs torch.load (pickle),
-    # so an attacker-controlled path would be arbitrary code execution. Any
-    # ``yolo_weights`` in the request is ignored.
-    yolo_weights = os.environ.get("POCKET_DRS_YOLO_WEIGHTS") or _default_yolo_weights()
-
-    def _track_with(detector, detect_mask) -> tuple[list[tuple[int, list[dict]]], object | None]:
-        dets_pf: list[tuple[int, list[dict]]] = []
-        for i, frame in enumerate(frames):
-            # Cap candidates per frame so RANSAC seed pairs stay bounded.
-            dets_pf.append((times_ms[i], detector.detect(frame, detect_mask)[:8]))
-        fit_ = find_ball_trajectory(dets_pf, image_diagonal_px=image_diag, min_inliers=6)
-        return dets_pf, fit_
-
-    def _ball_likeness(result: tuple[list, object | None]) -> tuple[float, int, float]:
-        """Rank a candidate track. A real delivery sweeps a long, smooth arc
-        across the frame; clutter (a near-static person, the bowler's body)
-        yields a short, loose cluster even when it has many detections. So we
-        rank by image-space span first, then inliers, then tightness."""
-        fit_ = result[1]
-        if fit_ is None or len(fit_.points) < 2:
-            return (-1.0, 0, 0.0)
-        xs = [p.x_px for p in fit_.points]
-        ys = [p.y_px for p in fit_.points]
-        span = math.hypot(max(xs) - min(xs), max(ys) - min(ys))
-        return (span, fit_.inliers, -fit_.rms_px)
-
-    def _track_span(fit_) -> float:
-        if fit_ is None or not getattr(fit_, "points", None):
-            return 0.0
-        xs = [p.x_px for p in fit_.points]
-        ys = [p.y_px for p in fit_.points]
-        return math.hypot(max(xs) - min(xs), max(ys) - min(ys))
-
-    def _colour_track_beats_yolo(colour_fit, yolo_fit_) -> bool:
-        """A colour track overrides a solid YOLO track only when it is both
-        markedly longer (covers more of the flight) AND an absolutely tight
-        projectile arc — a clean ball path, not a large-span clutter track (a
-        bowler's run-up, skin/kit tones) that merely out-spans the small far
-        ball. The tightness gate is absolute (a fraction of the image
-        diagonal), not relative to YOLO: on an end-on clip a clutter track can
-        sit only slightly looser than YOLO yet still be geometric nonsense, so
-        a ratio gate lets it through. Verified across every validation clip —
-        the synthetic ball arcs (rms ~7 px) win where YOLO caught only a
-        fragment, while test5's 58-point pink clutter (rms ~39 px) is rejected
-        in favour of the true 35-point YOLO arc."""
-        if colour_fit is None or not getattr(colour_fit, "points", None):
-            return False
-        yolo_span = _track_span(yolo_fit_)
-        if yolo_span <= 0.0:
-            return True
-        longer = _track_span(colour_fit) >= 1.5 * yolo_span
-        tight = colour_fit.rms_px <= 0.007 * image_diag
-        return longer and tight
-
-    def _combined_result() -> tuple[list[tuple[int, list[dict]]], object | None]:
-        return _track_with(CombinedBallDetector(ball_color=ball_color), roi_mask)
-
-    if detector_kind == "yolo":
-        if not yolo_weights:
-            raise ValueError("tracking.detector='yolo' requires tracking.yolo_weights")
-        detector = YoloBallDetector(str(yolo_weights), conf=float(track_req.get("yolo_conf", 0.2)))
-        detections_per_frame, fit = _track_with(detector, None)
-    elif detector_kind == "combined":
-        detections_per_frame, fit = _combined_result()
-    else:  # "auto"
-        # Try every detector we have and pick the most ball-like track. The
-        # caller-supplied ``ball_color`` is the first colour-detector seed;
-        # we also run the alternate colour so a clip with a non-default
-        # ball (white in lights, pink ball, etc.) is not rejected just
-        # because the request did not specify it.
-        candidates_results: list[tuple[list, object | None]] = []
-        seeds = [ball_color] + [c for c in ("red", "pink") if c != ball_color]
-        for colour in seeds:
-            try:
-                candidates_results.append(
-                    _track_with(CombinedBallDetector(ball_color=colour), roi_mask)
-                )
-            except Exception as e:  # noqa: BLE001
-                warnings.append(f"Colour detector '{colour}' failed: {e}")
-        yolo_result: tuple[list, object | None] | None = None
-        if yolo_weights:
-            try:
-                detector = YoloBallDetector(str(yolo_weights), conf=float(track_req.get("yolo_conf", 0.2)))
-                yolo_result = _track_with(detector, None)
-                candidates_results.append(yolo_result)
-            except Exception as e:  # noqa: BLE001 — missing ultralytics/torch or bad weights
-                warnings.append(f"Learned detector unavailable, used motion+colour ({e})")
-        # The ball-specific YOLO track is the trusted default: colour/motion
-        # ranks by image span, and a near-camera bowler's run-up (large, fast
-        # foreground motion) can out-span the small, far real ball, so plain
-        # span ranking can silently lock onto the bowler. YOLO only fires on
-        # ball-like objects. But YOLO can also catch only a fragment of a clean
-        # arc (e.g. a plain-background or synthetic ball it was not trained on),
-        # in which case a colour track that is both markedly longer and just as
-        # tight is the fuller, true ball path and should win. Clutter is loose,
-        # so the tightness gate keeps it out.
-        yolo_fit = yolo_result[1] if yolo_result else None
-        yolo_solid = (
-            yolo_fit is not None
-            and len(getattr(yolo_fit, "points", []) or []) >= 8
-            and getattr(yolo_fit, "inliers", 0) >= 6
-        )
-        if yolo_solid:
-            best_colour = max(
-                (c for c in candidates_results if c is not yolo_result),
-                key=_ball_likeness,
-                default=None,
-            )
-            if best_colour is not None and _colour_track_beats_yolo(best_colour[1], yolo_fit):
-                detections_per_frame, fit = best_colour
-                warnings.append(
-                    "Used the colour/motion track over a shorter learned-detector "
-                    "arc (the colour track is a longer, equally tight ball path)."
-                )
-            else:
-                detections_per_frame, fit = yolo_result  # type: ignore[assignment]
-        elif not candidates_results:
-            detections_per_frame, fit = ([], None)
-        else:
-            best = max(candidates_results, key=_ball_likeness)
-            detections_per_frame, fit = best
+    diag = math.hypot(width, height)
+    roi_mask = build_pitch_roi_mask(frames[0].shape, corners)
+    dets_per_frame, fit = _select_track(frames, times_ms, kind=detector_kind, ball_color=ball_color,
+                                        roi_mask=roi_mask, diag=diag, yolo_conf=yolo_conf, warnings=warnings)
     _progress(progress, 55, "tracking")
 
-    track_payload: dict
-    world_trajectory_payload: dict | None = None
-    events_payload: dict | None = None
-    lbw_payload: dict | None = None
-    overlay_payload: dict | None = None
-    metrics_payload: dict | None = None
-    bounce_world: tuple[float, float, float] | None = None
-    impact_world: tuple[float, float, float] | None = None
-    predicted_path: list[tuple[float, float, float, float]] = []
-
     if fit is None:
-        warnings.append("No consistent ball trajectory found — check ball colour, lighting, ROI.")
-        track_payload = {
-            "image_points": [],
-            "candidates_total": sum(len(d) for _, d in detections_per_frame),
-            "inliers": 0,
-            "rms_px": 0.0,
-        }
-    else:
-        # Track the live delivery up to the bat/pad impact (the direction
-        # change), then predict the rest. A bounce is kept (the ball plays on);
-        # only a genuine interception truncates the tracked flight.
-        impact_i = _detect_impact_frame(fit.points)
-        if impact_i is not None and impact_i + 1 < 6:
-            impact_i = None
-        live_points = fit.points if impact_i is None else fit.points[: impact_i + 1]
-        if impact_i is not None:
-            warnings.append(
-                "Ball intercepted (direction change) — tracked the delivery to "
-                "impact and predicted the path on to the stumps."
-            )
+        warnings.append("no consistent ball trajectory found; check ball colour, lighting and framing")
+        return PipelineOutput(_assemble(meta, width, height, pose, {"image_points": [], "candidates_total":
+                              sum(len(d) for _, d in dets_per_frame), "inliers": 0, "rms_px": 0.0},
+                              None, None, None, None, None, warnings, artifacts_dir), warnings)
 
-        # Continue the visible track past the RANSAC fit using the per-frame
-        # detector output. The fit's inlier set is the smooth delivery arc;
-        # the detector still sees the ball through the bounce-to-bat segment
-        # (and a few more frames into bat contact), which are too few to form
-        # a second RANSAC arc but are real ball positions. We walk them
-        # forward until the ball reverses direction — that is the genuine
-        # bat / pad interception — and surface them through
-        # ``track.image_points`` so the rendered flight line carries the ball
-        # to where it actually goes, not where the delivery arc stops.
-        extension = _extend_track_to_direction_change(detections_per_frame, live_points)
+    cut = _impact_index(fit.points)
+    live = fit.points if cut is None or cut + 1 < 6 else fit.points[:cut + 1]
+    if cut is not None and cut + 1 >= 6:
+        warnings.append("ball intercepted; tracked the delivery to impact and predicted the rest")
+    image_points = [{"t_ms": p.t_ms, "u": p.x_px, "v": p.y_px, "radius_px": p.radius_px, "confidence": p.confidence}
+                    for p in live]
+    image_points.extend(_extend_to_reversal(dets_per_frame, live))
+    track = {"image_points": image_points, "candidates_total": fit.candidates_total,
+             "inliers": len(live), "rms_px": fit.rms_px}
 
-        image_points_payload = [
-            {"t_ms": p.t_ms, "u": p.x_px, "v": p.y_px,
-             "radius_px": p.radius_px, "confidence": p.confidence}
-            for p in live_points
-        ]
-        image_points_payload.extend(extension)
-        track_payload = {
-            "image_points": image_points_payload,
-            "candidates_total": fit.candidates_total,
-            "inliers": len(live_points),
-            "rms_px": fit.rms_px,
-        }
+    # ---- reconstruct ----------------------------------------------------------
+    _progress(progress, 65, "reconstruction")
+    t0_ms = image_points[0]["t_ms"]
+    dets = [((p["t_ms"] - t0_ms) / 1000.0, p["u"], p["v"], p["radius_px"], max(0.05, p["confidence"]))
+            for p in image_points]
+    rec = reconstruct(pose, dets)
+    if rec is None or rec.rms_px > MAX_FIT_RMS_PX:
+        why = "did not converge" if rec is None else f"{rec.rms_px:.1f} px residual"
+        warnings.append(f"3-D reconstruction discarded ({why}); the track or the calibration is unreliable")
+        return PipelineOutput(_assemble(meta, width, height, pose, track, None, None, None, None, None,
+                                        warnings, artifacts_dir), warnings)
+    warnings.extend(n for n in rec.notes if "no bounce" in n)
 
-        # ----------------------------- 3D reconstruction -----------------------------
-        _progress(progress, 65, "reconstruction")
-        det_for_recon = [
-            (p.t_ms, p.x_px, p.y_px, p.radius_px, p.confidence)
-            for p in live_points
-        ]
-        recon = reconstruct_trajectory(
-            pose=pose,
-            detections=det_for_recon,
-            pitch_length_m=pitch_length_m,
-            pitch_width_m=pitch_width_m,
-            # With a stump-anchored pose the gravity-constrained linear solver
-            # gives a smooth, correctly-oriented arc; the depth-from-size chain
-            # is kept for un-stumped (e.g. synthetic) footage.
-            # The stump-anchored pose is always trusted now, so the
-            # gravity-constrained linear solver is the right reconstruction
-            # path. The legacy depth-from-size chain (prefer_linear=False)
-            # is kept only for synthetic clips that calibrate via corners.
-            prefer_linear=True,
-        )
+    # ---- predict and decide -----------------------------------------------------
+    _progress(progress, 85, "lbw")
+    tr = rec.trajectory
+    t_last = dets[-1][0]
+    pred = predict_stump_plane(rec, 0.0)
+    impact = tr.position(np.array([t_last]))[0]
+    sig_bx, sig_by = bounce_sigma(rec)
+    verdict = decide(leg_sign=leg_sign,
+                     pitch_y=float(tr.y_b) if tr.bounce_observed else None, pitch_sigma=sig_by,
+                     impact_y=float(impact[1]), impact_sigma=pred.sigma_y if pred else 0.0,
+                     stump_y=pred.y if pred else None, stump_z=pred.z if pred else None,
+                     sigma_y=pred.sigma_y if pred else 0.0, sigma_z=pred.sigma_z if pred else 0.0,
+                     k=UNCERTAINTY_K)
+    t_stumps = pred.t if pred is not None else t_last
+    predicted = sample_path(tr, t_last, max(t_last, t_stumps), 24)
+    sigma_sum = (pred.sigma_y + pred.sigma_z) if pred else 1.0
+    confidence = float(max(0.20, min(0.95, 1.0 - sigma_sum / 0.30)))
 
-        # Adaptive acceptance: scale the RMS bound to the trajectory's own
-        # down-pitch span so harder, more end-on deliveries are not refused
-        # outright. Tight fits pass silently; loose-but-usable fits pass with a
-        # low-confidence warning; only fits above the hard ceiling are dropped.
-        fit_ok = bool(recon.world_points) and recon.fit is not None
-        if fit_ok:
-            _xs = [p.x_m for p in recon.world_points]
-            _span_m = max(_xs) - min(_xs)
-            _rms_limit = min(
-                MAX_FIT_RMS_M_HARD, max(MAX_FIT_RMS_M, FIT_RMS_SPAN_FRAC * _span_m)
-            )
-            fit_ok = recon.fit.rms_m <= _rms_limit
-            if fit_ok and recon.fit.rms_m > MAX_FIT_RMS_M:
-                warnings.append(
-                    f"3D trajectory fit is loose ({recon.fit.rms_m:.2f} m RMS over "
-                    f"a {_span_m:.1f} m path) — this camera angle is more end-on, "
-                    "so depth recovery is less certain; treat speed and the line/"
-                    "height decision as indicative rather than exact."
-                )
-        if fit_ok:
-            t0_ms = recon.world_points[0].t_ms
-            world_trajectory_payload = {
-                "points_m": [
-                    {"t_ms": p.t_ms, "x": p.x_m, "y": p.y_m, "z": p.z_m, "confidence": p.confidence}
-                    for p in recon.world_points
-                ],
-                "fit": {
-                    "x0": recon.fit.x0, "y0": recon.fit.y0, "z0": recon.fit.z0,
-                    "vx": recon.fit.vx, "vy": recon.fit.vy, "vz": recon.fit.vz,
-                    "bounce_t_ms": recon.fit.bounce_t_ms,
-                    "rms_m": recon.fit.rms_m,
-                    "notes": recon.fit.notes,
-                },
-                "predicted_to_stumps_m": [],
-            }
-
-            bounce_t_ms_fallback: float | None = None
-            if recon.bounce_index is not None:
-                bp = recon.world_points[recon.bounce_index]
-                bounce_world = (bp.x_m, bp.y_m, bp.z_m)
-            else:
-                # Fall-back: the projectile fit does not commit to a bounce
-                # when the post-bounce arc is only one or two frames long
-                # (typical for a yorker / late bounce). Look for a v-peak in
-                # the *image* trajectory — the ball only reverses its
-                # downward image motion when it pitches — and read the
-                # reconstructed world point at that frame so the bounce
-                # marker stays consistent with the rest of the trajectory.
-                # Skip the marker unless the post-peak rise is sustained
-                # over at least two frames, otherwise an isolated detection
-                # dropout near the end of the clip would masquerade as a
-                # bounce.
-                peak_idx = _find_image_v_peak(live_points, min_post_frames=1)
-                if peak_idx is not None and 0 <= peak_idx < len(recon.world_points):
-                    wp = recon.world_points[peak_idx]
-                    # Pin z to the ball-on-ground height — the v-peak is a
-                    # ground-contact event by construction. The reconstructed
-                    # z is depth-from-size noisy in the bounce region; using
-                    # the contact height keeps the bounce marker sitting on
-                    # the pitch instead of floating mid-air.
-                    bounce_world = (wp.x_m, wp.y_m, BALL_RADIUS_M)
-                    bounce_t_ms_fallback = float(wp.t_ms)
-            if recon.impact_index is not None:
-                ip = recon.world_points[recon.impact_index]
-                impact_world = (ip.x_m, ip.y_m, ip.z_m)
-
-            # Decide bowling direction by sign of vx in the fit.
-            target_x_m = 0.0 if recon.fit.vx < 0 else pitch_length_m
-            stump_x_m = target_x_m
-
-            # Project the bounce-aware fit forward to the stump plane,
-            # starting at the latest visible image detection (which carries
-            # the per-frame extension past the last RANSAC inlier — that
-            # extra frame or two is real ball motion, so the prediction
-            # should pick up from it rather than from an earlier "impact"
-            # the smoother chose).
-            last_track_t_ms = max(p["t_ms"] for p in image_points_payload)
-            impact_t_ms = float(last_track_t_ms - t0_ms)
-            predicted_path = predict_path_to_stumps(
-                recon.fit,
-                impact_t_ms=impact_t_ms,
-                target_x_m=target_x_m,
-            )
-            if predicted_path:
-                world_trajectory_payload["predicted_to_stumps_m"] = [
-                    {"t_ms": int(t0_ms + tp), "x": x, "y": y, "z": z}
-                    for (tp, x, y, z) in predicted_path
-                ]
-
-            # ----------------------------- LBW -----------------------------
-            _progress(progress, 85, "lbw")
-            # Y, Z at stump plane (use the last point of predicted_path; falls back to extrapolation).
-            if predicted_path:
-                last = predicted_path[-1]
-                y_at_stumps = last[2]
-                z_at_stumps = last[3]
-            elif recon.impact_index is not None:
-                # Linear extrapolation from impact along the same trajectory.
-                ip = recon.world_points[recon.impact_index]
-                y_at_stumps = ip.y_m
-                z_at_stumps = ip.z_m
-            else:
-                y_at_stumps = z_at_stumps = None
-
-            bounce_t_ms_evt: int | None = None
-            if recon.bounce_index is not None:
-                bounce_t_ms_evt = int(recon.world_points[recon.bounce_index].t_ms)
-            elif bounce_world is not None:
-                bounce_t_ms_evt = int(bounce_t_ms_fallback) if bounce_t_ms_fallback is not None else None
-            events_payload = {
-                "bounce": {
-                    "t_ms": bounce_t_ms_evt,
-                    "x_m": float(bounce_world[0]) if bounce_world else None,
-                    "y_m": float(bounce_world[1]) if bounce_world else None,
-                },
-                "impact": {
-                    "t_ms": int(recon.world_points[recon.impact_index].t_ms) if recon.impact_index is not None else None,
-                    "x_m": float(impact_world[0]) if impact_world else None,
-                    "y_m": float(impact_world[1]) if impact_world else None,
-                    "z_m": float(impact_world[2]) if impact_world else None,
-                },
-            }
-
-            lbw_payload = _decide_lbw(
-                bounce=bounce_world,
-                impact=impact_world,
-                pred_y_at_stumps=y_at_stumps,
-                pred_z_at_stumps=z_at_stumps,
-                stump_x_m=stump_x_m,
-                fit_rms_m=recon.fit.rms_m,
-                leg_side_sign=leg_side_sign,
-            )
-
-            # ---------------------------- video overlay ----------------------------
-            # Project the full path + prediction + stumps into image pixels so the
-            # client can draw the Hawk-Eye overlay straight onto the source video.
-            # The flight overlay spans the whole reconstructed arc (release →
-            # last reconstructed point). For a normal delivery the points are
-            # truncated at impact, so this IS the release→impact segment; but
-            # when the impact resolves to the very first frame (a degenerate or
-            # very early direction change, as on some net clips) keying off the
-            # impact index collapsed the flight to nothing — the last
-            # reconstructed point always gives a drawable arc.
-            impact_t_rel = recon.world_points[-1].t_ms - t0_ms
-            overlay_payload = build_overlay_px(
-                pose=pose,
-                fit=recon.fit,
-                t0_ms=int(t0_ms),
-                impact_t_rel_ms=float(impact_t_rel),
-                predicted_path=predicted_path,
-                pitch_length_m=pitch_length_m,
-                pitch_width_m=pitch_width_m,
-                bounce=(
-                    (float(bounce_t_ms_evt if bounce_t_ms_evt is not None else 0), *bounce_world)
-                    if bounce_world is not None
-                    else None
-                ),
-                impact=(
-                    (float(recon.world_points[recon.impact_index].t_ms), *impact_world)
-                    if recon.impact_index is not None and impact_world is not None
-                    else None
-                ),
-                image_points=image_points_payload,
-            )
-            metrics_payload = _compute_metrics(
-                recon.fit,
-                image_points=image_points_payload,
-                world_points=recon.world_points,
-                bounce_index=recon.bounce_index,
-            )
-        elif recon.fit is not None and recon.fit.rms_m > MAX_FIT_RMS_M:
-            warnings.append(
-                f"3D reconstruction discarded — trajectory fit error "
-                f"{recon.fit.rms_m:.2f} m exceeds {MAX_FIT_RMS_M:.2f} m. The ball "
-                "track or pitch calibration is unreliable; re-mark the pitch "
-                "corners or check the entered pitch dimensions."
-            )
-        else:
-            warnings.append(
-                "3D reconstruction failed — pixel trajectory exists but didn't fit a valid projectile."
-            )
-
-    # ----------------------------- assemble result -----------------------------
-    _progress(progress, 95, "finalize")
-
-    calibration_payload = {
-        "mode": "taps",
-        "pose": {
-            "K": pose.K.tolist(),
-            "rvec": pose.rvec.flatten().tolist(),
-            "tvec": pose.tvec.flatten().tolist(),
-            "cam_center_world_m": pose.cam_center_world.flatten().tolist(),
-            "fx": pose.fx, "fy": pose.fy, "cx": pose.cx, "cy": pose.cy,
-        },
-        "quality": {
-            "reproj_error_px": float(pose.reproj_error_px),
-            "score": cal_score,
-            "notes": pose.notes,
-        },
+    bounce_ms = int(round(t0_ms + tr.t_b * 1000.0)) if tr.bounce_observed else None
+    impact_ms = int(round(t0_ms + t_last * 1000.0))
+    world_points = tr.position(np.array([d[0] for d in dets]))
+    v0 = tr.velocity(0.0)
+    world = {
+        "points_m": [{"t_ms": int(p["t_ms"]), "x": float(w[0]), "y": float(w[1]), "z": float(max(w[2], 0.0)),
+                      "confidence": float(p["confidence"])} for p, w in zip(image_points, world_points)],
+        "predicted_to_stumps_m": [{"t_ms": int(round(t0_ms + t * 1000.0)), "x": float(x), "y": float(y),
+                                   "z": float(z), "confidence": confidence} for t, x, y, z in predicted],
+        "fit": {"x0": float(world_points[0][0]), "y0": float(world_points[0][1]), "z0": float(world_points[0][2]),
+                "vx": float(v0[0]), "vy": float(v0[1]), "vz": float(v0[2]),
+                "bounce_t_ms": tr.t_b * 1000.0 if tr.bounce_observed else None,
+                "rms_px": rec.rms_px, "rms_m": rec.rms_px * float(np.mean(pose.project(world_points)[2])) / pose.fx,
+                "notes": rec.notes},
+        "model": tr.as_dict(),
     }
+    events = {
+        "bounce": {"t_ms": bounce_ms, "x_m": float(tr.x_b) if tr.bounce_observed else None,
+                   "y_m": float(tr.y_b) if tr.bounce_observed else None,
+                   "z_m": BALL_RADIUS_M if tr.bounce_observed else None,
+                   "sigma_x_m": sig_bx, "sigma_y_m": sig_by},
+        "impact": {"t_ms": impact_ms, "x_m": float(impact[0]), "y_m": float(impact[1]), "z_m": float(max(impact[2], 0.0))},
+    }
+    lbw = {
+        "decision": verdict.decision, "reason": verdict.reason,
+        "checks": {"pitching_in_line": verdict.pitching_in_line, "impact_in_line": verdict.impact_in_line,
+                   "wickets_hitting": verdict.wickets_hitting},
+        "prediction": {"y_at_stumps_m": pred.y if pred else None, "z_at_stumps_m": pred.z if pred else None,
+                       "stump_x_m": 0.0, "confidence": confidence,
+                       "sigma_y_m": pred.sigma_y if pred else None, "sigma_z_m": pred.sigma_z if pred else None,
+                       "uncertainty_k": UNCERTAINTY_K},
+    }
+    overlay = build_overlay(pose=pose, trajectory=tr, t0_ms=int(t0_ms), image_points=image_points,
+                            predicted=predicted, bounce_ms=bounce_ms, impact_ms=impact_ms)
+    metrics = _metrics(tr, world_points)
+    return PipelineOutput(_assemble(meta, width, height, pose, track, world, events, lbw, overlay, metrics,
+                                    warnings, artifacts_dir), warnings)
 
+
+def _metrics(tr, world_points) -> dict:
+    """Release speed, swing in the air and turn off the pitch, as a broadcast would show them."""
+    speed = float(np.linalg.norm(tr.velocity(0.0)))
+    swing_cm = abs(float(tr.y_b - world_points[0][1])) * 100.0 if tr.bounce_observed else 0.0
+    turn = math.degrees(math.atan2(float(tr.v_post[1] - tr.v_pre[1]), abs(float(tr.v_pre[0])))) \
+        if tr.bounce_observed and abs(tr.v_pre[0]) > 1e-3 else 0.0
+    return {"speed_kmh": round(speed * 3.6, 1), "speed_mph": round(speed * 2.2369362921, 1),
+            "swing_sf": round(swing_cm, 1), "spin_deg": round(abs(turn), 1)}
+
+
+def _assemble(meta, width, height, pose, track, world, events, lbw, overlay, metrics, warnings, artifacts_dir) -> dict:
     result = {
         "video": {"duration_ms": int(meta.duration_ms), "fps_est": float(meta.fps)},
         "image_size": {"width": width, "height": height},
-        "calibration": calibration_payload,
-        "track": track_payload,
-        "world_trajectory": world_trajectory_payload,
-        "events": events_payload,
-        "lbw": lbw_payload,
-        "overlay": overlay_payload,
-        "metrics": metrics_payload,
+        "calibration": {
+            "mode": "taps",
+            "pose": {"K": pose.K.tolist(), "R": pose.R.tolist(), "t": pose.t.tolist(),
+                     "cam_center_world_m": pose.centre_world.tolist(),
+                     "fx": pose.fx, "fy": pose.fy, "cx": pose.cx, "cy": pose.cy,
+                     "pitch_length_m": pose.pitch_length_m, "fov_deg": pose.fov_deg},
+            "quality": {"reproj_error_px": pose.reproj_error_px,
+                        "score": float(max(0.05, min(0.99, 1.0 - pose.reproj_error_px / 20.0))),
+                        "notes": pose.notes},
+        },
+        "track": track, "world_trajectory": world, "events": events, "lbw": lbw,
+        "overlay": overlay, "metrics": metrics,
         "diagnostics": {"warnings": warnings, "log_id": "server.log"},
     }
-
-    # Guarantee a JSON-clean result (no NaN/Inf, no numpy) before it reaches
-    # disk, the API, or the 3D viewer — see _finite_or_none.
-    result = _finite_or_none(result)
-
-    try:
-        (artifacts_dir / "result_debug.json").write_text(json.dumps(result, indent=2, default=str))
-    except Exception:
-        pass
-
-    _progress(progress, 100, "done")
-    return PipelineOutput(result=result, warnings=warnings)
+    result = _finite(result)
+    (artifacts_dir / "result_debug.json").write_text(json.dumps(result, indent=2))
+    return result
 
 
 def map_exception_to_api_error(exc: Exception) -> ApiError:
-    msg = str(exc) if str(exc) else exc.__class__.__name__
+    msg = str(exc) or exc.__class__.__name__
     if isinstance(exc, VideoDecodeError):
         return ApiError(code="VIDEO_DECODE_FAILED", message=msg, details=None)
     if isinstance(exc, CalibrationError):

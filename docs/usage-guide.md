@@ -1,112 +1,85 @@
-# PocketDRS — Usage Guide
-
-PocketDRS analyses one delivery from a single phone clip and returns an LBW
-verdict. There are three ways to use it: the **Flutter app** (the normal path),
-the **HTTP API** (for integrations), and the **offline scripts** (for validation
-without a server). All three run the identical pipeline in `server/app/pipeline`.
-
----
+# PocketDRS usage guide
 
 ## 1. Recording a usable clip
 
-The pipeline is monocular, so the framing carries the accuracy. For a good result:
-
-- **Fixed camera.** Put the phone on a tripod/stand behind the bowler or behind
-  the striker, looking straight down the pitch. No panning or zooming during the ball.
-- **Both stump sets visible.** The striker's and bowler's stumps must both be in
-  frame — the calibration is anchored to them.
-- **Rectilinear lens.** Avoid fisheye/ultra-wide (GoPro) modes; they break the
-  pinhole-camera assumption.
-- **60 fps or higher**, ball visually distinct (red/white/orange), good light.
-- One complete delivery: release → bounce → batsman.
-
----
+- Stand behind the batter, a couple of metres back from the stumps, phone held still. Both sets of
+  stumps and the full pitch must be in frame.
+- 60 Hz or higher if the phone offers it; 30 Hz works but leaves fewer frames after the bounce.
+- Portrait framing is fine. Avoid the ultra-wide lens: its distortion is not modelled.
+- The bounce has to be visible. A full toss, or a clip cut before the ball pitches, falls back to a
+  weaker estimator and comes back flagged.
+- The bowler's end works, but the arc that decides the verdict is then 15 to 20 m away and
+  foreshortened; expect wider bands.
 
 ## 2. The app flow
 
-1. **Record or pick** a clip.
-2. **Choose batsman handedness** (Right / Left) on the first screen — this sets
-   which side is leg vs off for the verdict.
-3. **Trim** to the single delivery.
-4. **Pick a calibration frame** (a clear frame with both stump sets visible).
-5. **Tap the 4 pitch corners** (clockwise from the striker end).
-6. **Tap the 4 corners of each stump cluster** (striker end, then bowler end).
-7. **Analyse.** The app uploads the clip + your taps, polls the job, and shows the
-   verdict, speed, and the overlay drawn on the video, plus a 3-D view.
-
-The app pins the regulation pitch length (20.12 m) so the monocular scale is
-well-conditioned.
-
----
+1. Pick or record a clip and trim it to the delivery.
+2. Tap the four corners of each stump set (top-left, top-right, bottom-right, bottom-left), striker's
+   end first, then the four pitch corners (striker-left, striker-right, bowler-right, bowler-left).
+3. Choose the batter's handedness and submit.
+4. The result screen shows the tracked flight, the predicted path to the stumps, the pitching point,
+   the release speed and turn, and the verdict with its reason. Umpire's call means the estimate
+   could not support a decisive call at one sigma.
 
 ## 3. The HTTP API
 
-`POST /v1/jobs` — multipart form with `video_file` and a `request_json` string.
-Auth is a Firebase ID token in `Authorization: Bearer <token>`.
+`POST /v1/jobs` (multipart: `video` file + `request` JSON) starts a job; `GET /v1/jobs/{id}` polls
+`status` and `progress`; `GET /v1/jobs/{id}/result` returns the result once `status` is `done`.
+All calls carry a Firebase ID token as a bearer header.
 
-Request JSON shape (normalised coordinates are 0–1 over the analysed frame):
+Request:
 
 ```json
 {
-  "segment": { "start_ms": 0, "end_ms": 4000 },
-  "batsman_handedness": "right",
+  "segment": {"start_ms": 0, "end_ms": 2200},
+  "video": {"rotation_deg": 0},
+  "tracking": {"sample_fps": 60, "max_frames": 180, "ball_color": "red", "detector": "auto"},
   "calibration": {
     "mode": "taps",
-    "pitch_dimensions_m": { "width": 3.05, "length": 20.12 },
-    "pitch_corners_norm": [ {"x":..,"y":..}, ... 4 corners: SL, SR, BR, BL ],
-    "stump_quads_norm": [ ... 8 points: striker TL,TR,BR,BL then bowler TL,TR,BR,BL ]
+    "pitch_dimensions_m": {"width": 3.05, "length": 20.12},
+    "pitch_corners_norm": [{"x": 0.31, "y": 0.62}, {"x": 0.69, "y": 0.62}, {"x": 0.55, "y": 0.28}, {"x": 0.45, "y": 0.28}],
+    "stump_quads_norm": [8 points: striker TL, TR, BR, BL, then bowler TL, TR, BR, BL]
   },
-  "tracking": { "sample_fps": 60, "max_frames": 180, "ball_color": "red" }
+  "batsman_handedness": "right"
 }
 ```
 
-Then poll and fetch:
+`pitch_dimensions_m.length` is optional. Pin it to 20.12 on a regulation pitch; leave it out on an
+indoor net and the calibration fits the length from the marks. `h_fov_deg` may be given to pin the
+focal length; otherwise it is swept.
 
-```
-GET /v1/jobs/{job_id}            -> { status: queued|running|succeeded|failed }
-GET /v1/jobs/{job_id}/result     -> { result: { lbw, metrics, world_trajectory, overlay, ... } }
-GET /v1/jobs/{job_id}/three-d    -> interactive 3-D viewer (HTML)
-```
+Result, the fields the app reads:
 
-Notes:
-- The YOLO weights are resolved server-side only; the request cannot choose them.
-- `ball_color` is a seed only — the detector also tries the alternates and the
-  learned detector, and keeps whichever forms the most ball-like arc.
-- A degenerate reconstruction is refused with a clear message rather than
-  returning a confident wrong verdict.
+| Field | Meaning |
+|---|---|
+| `lbw.decision`, `lbw.reason` | `out`, `not_out` or `umpires_call`, and why |
+| `lbw.checks` | `pitching_in_line`, `impact_in_line`, `wickets_hitting` |
+| `lbw.prediction.y_at_stumps_m`, `z_at_stumps_m` | where the ball crosses the stump plane |
+| `lbw.prediction.sigma_y_m`, `sigma_z_m` | one-sigma bounds propagated from the fit |
+| `events.bounce` | pitching point with `sigma_x_m`, `sigma_y_m`; null when no contact was seen |
+| `events.impact` | where the track ended (bat or pad) |
+| `metrics.speed_kmh`, `swing_sf`, `spin_deg` | release speed, lateral movement in the air (cm), turn off the pitch (degrees) |
+| `world_trajectory.model` | the nine fitted parameters, `restitution`, `bounce_observed` |
+| `overlay.*` | pixel-space flight, predicted path, stumps, corridor for drawing on the clip |
+| `calibration.quality` | reprojection error (px), score, notes |
+| `diagnostics.warnings` | anything the pipeline wants you to know, including why a verdict was declined |
 
-The `result.lbw` object carries `decision` (`out` / `not_out` / `umpires_call`),
-a human-readable `reason`, the three ICC checks, and the predicted `(y, z)` at
-the stump plane. `result.metrics` carries speed, swing, and spin.
+`lbw` is null when the calibration or the 3-D fit was rejected; `diagnostics.warnings` says which.
 
----
+## 4. Offline, without the app
 
-## 4. Offline validation (no server)
+`server/scripts/test3_e2e.py` builds a request for the bundled `test3.mp4`, runs the job in
+process, and renders the overlay and a 3-D view under `dump/validation/test3/`. Copy it to try
+another clip: change the video path and the twelve marks.
 
-```bash
-cd server
-.venv/bin/python scripts/synth_validate.py     # 8 synthetic deliveries vs ground truth
-.venv/bin/python scripts/test3_e2e.py          # real net clip, full pipeline + overlay
-.venv/bin/python scripts/test4_e2e.py
-.venv/bin/python scripts/test5_e2e.py
-```
-
-Each `test*_e2e.py` calls the same `run_pipeline` the API uses, with the clip's
-recovered calibration taps baked in, and writes the tracked overlay video, a
-sample frame, the 3-D render, and `result.json` under `dump/validation/`.
-
----
+The paper's harness is independent of the server: `paper/experiments/synth.py` generates
+deliveries with exact truth and `exp1_geometry.py` runs the estimator on them without any video.
 
 ## 5. Reading the verdict
 
-- **Pitching in line** — the ball must not pitch outside the leg-stump line
-  (outside off is legal). Leg/off is set by handedness and the camera end.
-- **Impact in line** — the ball must strike in line with the stumps.
-- **Wickets hitting** — the predicted path must clip the stumps.
-- **Umpire's call** — a marginal clip within one ball-radius laterally or one
-  ball-diameter vertically (the vertical band is wider because a single camera
-  resolves height less precisely than line).
-
-Absolute speed and the exact bounce location are shown as **indicative** — they
-depend on the depth axis, which one camera resolves least well. The line-based
-decision is the reliable output.
+The three Law 36 tests are applied to the model's pitching point, its position where the track
+ended, and its predicted stump-plane crossing. Each is compared with the ICC review band (one ball
+radius outside a boundary is umpire's call), widened to the propagated one-sigma bound when that is
+larger. A verdict is decisive only when every test is clear of its band. The bands are wider
+vertically than laterally because that is where a single camera is weakest, and the paper measures
+that the stated sigma is slightly optimistic: read a one-sigma band as roughly a 55 per cent bound.

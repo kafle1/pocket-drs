@@ -14,7 +14,7 @@ import 'drs_button.dart';
 /// Two handles on the timeline mark the segment start and end. The video
 /// preview seeks to whichever handle is dragged so the user can frame the
 /// trim against the actual footage. Only the bracketed segment is sent on
-/// for analysis — the backend already supports a ``segment.{start_ms,
+/// for analysis, the backend already supports a ``segment.{start_ms,
 /// end_ms}`` field so we don't physically cut the file here; the optional
 /// post-analysis cleanup in ``AnalyzeScreen`` (gated by the user setting)
 /// deletes the source once the result lands.
@@ -37,7 +37,7 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
   bool _ready = false;
   bool _selecting = false;
 
-  // Range slider state — units are video milliseconds.
+  // Range slider state, units are video milliseconds.
   RangeValues? _range;
   Timer? _seekDebounce;
 

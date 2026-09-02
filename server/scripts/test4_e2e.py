@@ -1,6 +1,6 @@
 """End-to-end production-pipeline test for test4.mp4 (indoor net, wide angle).
 
-Mirror of test3_e2e.py with calibration retuned for test4 — a different
+Mirror of test3_e2e.py with calibration retuned for test4, a different
 indoor-net delivery shot from the umpire-bowler end with the bowler in the
 foreground (big yellow stumps near, batsman + striker stumps far). Same
 production pipeline, same rendering primitives.
@@ -19,7 +19,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-ROOT = Path("/Users/nirajkafle/Desktop/niraj/dev-projects/pocket-drs")
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "server"))
 
 from app.pipeline.process_job import run_pipeline  # noqa: E402
@@ -70,7 +70,7 @@ def build_request() -> dict:
             # geometry-fits FOV (~28°) and the net length (~15.6 m) from the
             # stump marks (reproj ~3.7 px). The depth recovery is looser than a
             # full side-on pitch because this angle is more end-on, so the 3D
-            # fit lands ~1.3 m RMS — within the span-scaled acceptance band,
+            # fit lands ~1.3 m RMS, within the span-scaled acceptance band,
             # flagged low-confidence rather than refused. Pinning FOV=45 here
             # shortened the recovered span and pushed the fit back over the
             # bound, so we let the joint solver choose.
@@ -84,7 +84,7 @@ def build_request() -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Rendering — reuses the test3_e2e overlay primitives.
+# Rendering, reuses the test3_e2e overlay primitives.
 # --------------------------------------------------------------------------- #
 RED = (60, 60, 235)
 GOLD = (60, 200, 245)
@@ -108,7 +108,7 @@ def render_three_d_viewer(result: dict) -> None:
 
 
 def render_3d(result: dict) -> None:
-    """3D Hawk-Eye plot — same look as test3, retitled for test4."""
+    """3D Hawk-Eye plot, same look as test3, retitled for test4."""
     world_pts = result.get("world_trajectory") or {}
     pts = world_pts.get("points_m") or []
     pred = world_pts.get("predicted_to_stumps_m") or []
@@ -221,7 +221,7 @@ def render(result: dict) -> None:
     stumps = ov.get("stumps_px") or {}
 
     # Tracked (RED, solid) = the server's smooth projectile fit projected
-    # to pixels (path_px[phase=flight]) — one continuous curve, no per-
+    # to pixels (path_px[phase=flight]), one continuous curve, no per-
     # frame jitter. Predicted (BLUE, dashed) = path_px[phase=predicted];
     # we extend it linearly past the stump plane below so it visibly
     # carries the eye to where the ball was going.
@@ -338,7 +338,7 @@ def main() -> int:
     ov = result.get("overlay") or {}; diag = result.get("diagnostics") or {}
 
     print("=" * 64)
-    print("PocketDRS production pipeline — test4.mp4 end-to-end")
+    print("PocketDRS production pipeline, test4.mp4 end-to-end")
     print("=" * 64)
     print(f"calibration : reproj={cal.get('reproj_error_px', float('nan')):.2f}px  "
           f"score={cal.get('score', 0):.2f}  notes={cal.get('notes')}")

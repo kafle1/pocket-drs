@@ -117,7 +117,7 @@ class AppLogger {
     _bytesWritten += line.length + 1;
 
     if (_bytesWritten >= _maxBytesPerFile) {
-      // Rotate inline — keeps subsequent writes within the size cap.
+      // Rotate inline, keeps subsequent writes within the size cap.
       unawaited(_rotate());
     }
   }

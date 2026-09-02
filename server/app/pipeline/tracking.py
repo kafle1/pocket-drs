@@ -4,8 +4,8 @@ Detector returns per-frame candidate balls with pixel position, pixel radius
 (needed for monocular depth-from-size), and confidence.  Two strategies are
 fused:
 
-- Motion (MOG2 background subtraction) — finds anything that moves.
-- Color (HSV thresholding) — finds the ball by hue.
+- Motion (MOG2 background subtraction), finds anything that moves.
+- Color (HSV thresholding), finds the ball by hue.
 
 The ROI mask is shaped for an umpire-POV camera: it covers the pitch quad
 plus a generous *upward* envelope (in image space) to capture the airborne
@@ -123,7 +123,6 @@ def build_pitch_roi_mask(
     *,
     lateral_margin_frac: float = 0.05,
     vertical_envelope_px: float = 350.0,
-    margin_factor: float | None = None,  # legacy; retained for back-compat
 ) -> np.ndarray:
     """Pitch quad + airborne envelope above it.
 
@@ -133,7 +132,7 @@ def build_pitch_roi_mask(
         Four pitch corners in image pixels, ordered as the calibration step
         emits them: striker-left, striker-right, bowler-right, bowler-left
         (clockwise starting at striker-end).  Order is not strictly required
-        — we re-derive top/bottom from image-y.
+       , we re-derive top/bottom from image-y.
     lateral_margin_frac:
         Fractional outward margin on each side, expressed as a fraction of
         the pitch's image-width at the bottom edge.  Tight on purpose.
@@ -141,16 +140,9 @@ def build_pitch_roi_mask(
         How far above the pitch quad (toward image top) to extend the mask
         in order to cover the airborne ball.  Scaled per-corner by image-y
         so that the near-camera (bottom) end gets the most height.
-    margin_factor:
-        Legacy parameter kept so existing callers don't crash.  When set,
-        we approximate the old behaviour by deriving sensible new params.
     """
     h_img, w_img = frame_shape[:2]
     pts = np.array(corners_px, dtype=np.float32)
-
-    if margin_factor is not None:
-        # Map old margin_factor to a vertical envelope; ignore lateral.
-        vertical_envelope_px = max(vertical_envelope_px, float(margin_factor) * 600.0)
 
     # Identify top vs bottom corners by image y.
     y_min = float(pts[:, 1].min())
@@ -189,7 +181,7 @@ def build_pitch_roi_mask(
         near_norm = depth_norm if far_is_top else (1.0 - depth_norm)
         far_norm = 1.0 - near_norm
         far_dy = far_sign * vertical_envelope_px * (0.25 + 0.75 * near_norm)
-        # Batsman envelope is shorter — the impact zone sits just past the
+        # Batsman envelope is shorter, the impact zone sits just past the
         # near end and we do not want to swallow the whole bottom of the frame.
         near_dy = near_sign * (0.5 * vertical_envelope_px) * (0.25 + 0.75 * far_norm)
         dx = (-lat) if x < cx else lat
@@ -366,8 +358,8 @@ class YoloBallDetector:
 
     Motion+colour fails on real matches where moving people dominate the frame;
     a trained cricket-ball model isolates the ball directly. Drop-in replacement
-    for ``CombinedBallDetector`` — same ``detect`` signature, same candidate
-    dicts — so the trajectory finder, reconstruction, and LBW stages are
+    for ``CombinedBallDetector``, same ``detect`` signature, same candidate
+    dicts, so the trajectory finder, reconstruction, and LBW stages are
     unchanged. Optional: needs ``ultralytics`` plus a weights file, selected via
     the request (``tracking.detector = "yolo"``); otherwise the colour/motion
     detector is used.

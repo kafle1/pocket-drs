@@ -1,0 +1,15 @@
+{
+  "camera": {
+    "end": "striker",
+    "back_m": 2.8,
+    "height_m": 1.7,
+    "offset_m": 0.0,
+    "width": 1080,
+    "height": 1920,
+    "fov_deg": 90.5
+  },
+  "fps": 60.0,
+  "tap_px": 2.0,
+  "n": 100,
+  "seconds": 3212.4
+}

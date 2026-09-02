@@ -110,10 +110,6 @@ class JobStore:
         uid = meta.get("user_id")
         return uid if isinstance(uid, str) and uid else None
 
-    def read_request(self, paths: JobPaths) -> dict[str, Any]:
-        with self._lock:
-            return json.loads(paths.request_path.read_text())
-
     def write_status(
         self,
         paths: JobPaths,

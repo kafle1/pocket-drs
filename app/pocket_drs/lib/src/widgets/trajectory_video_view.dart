@@ -8,7 +8,7 @@ import '../utils/app_settings.dart';
 import '../utils/video_controller_factory.dart';
 
 /// Broadcast-style result view: the source clip with the Hawk-Eye overlay drawn
-/// over it — red ball path through the bounce, the blue on-stumps corridor on
+/// over it, red ball path through the bounce, the blue on-stumps corridor on
 /// the ground, gold stumps, and Speed / Spin / Swing metric cards. Modelled on
 /// the FullTrack-AI presentation: the live scene is dimmed so the telemetry
 /// reads cleanly, and the tracked flight continues, as one clean solid red
@@ -144,7 +144,7 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
                 child: VideoPlayer(c),
               ),
             ),
-            // Keep the scene bright like the broadcast render — only a faint
+            // Keep the scene bright like the broadcast render, only a faint
             // scrim so the overlay lines stay legible.
             const ColoredBox(color: Color(0x14000000)),
             if (overlay != null && imgW > 0 && imgH > 0)
@@ -201,7 +201,7 @@ class _OverlayPainter extends CustomPainter {
 
   final TrajectoryOverlay overlay;
 
-  /// Raw on-ball detections (pixel space) — the literal track the detector
+  /// Raw on-ball detections (pixel space), the literal track the detector
   /// saw. Drawn as the flight line so it sits on the ball, instead of the
   /// fit projection which can drift near impact.
   final List<BallTrackPoint> track;
@@ -225,9 +225,9 @@ class _OverlayPainter extends CustomPainter {
     final pathW = (5.0 * sx).clamp(1.5, 5.0);
 
     // ---- calibrated ground geometry (drawn under the ball path) ----
-    // Full pitch outline — blue (proves the pitch calibration).
+    // Full pitch outline, blue (proves the pitch calibration).
     _drawPolygon(canvas, [for (final p in overlay.pitchRect) map(p)], _blue, 2.2);
-    // On-stumps corridor between the two wickets — translucent blue channel.
+    // On-stumps corridor between the two wickets, translucent blue channel.
     final corridor = [for (final p in overlay.corridor) map(p)];
     if (corridor.length >= 4) {
       canvas.drawPath(
@@ -245,7 +245,7 @@ class _OverlayPainter extends CustomPainter {
       _blue.withValues(alpha: 0.75),
       1.6,
     );
-    // Both wickets — yellow (3 stumps + bail).
+    // Both wickets, yellow (3 stumps + bail).
     if (overlay.bowlerStumps != null) {
       _drawWicket(canvas, map(overlay.bowlerStumps!.base),
           map(overlay.bowlerStumps!.top), prominent: false);
@@ -256,12 +256,12 @@ class _OverlayPainter extends CustomPainter {
     }
 
     // ---- ball path ----
-    // Draw the RAW on-ball detections as the flight line — exactly like the
+    // Draw the RAW on-ball detections as the flight line, exactly like the
     // test3 validation render (server/scripts/test3_e2e.py). The smooth fit
     // projection (overlay.path phase=flight) can drift ~100 px off the real
     // ball near impact on phone footage, so the literal track is what sits on
     // the ball. Only the server's PREDICTED continuation is kept, anchored to
-    // the last detection so it flows straight out of the ball — no jump, no
+    // the last detection so it flows straight out of the ball, no jump, no
     // kink. One clean solid red curve, the broadcast look.
     final raw = List<BallTrackPoint>.of(track)
       ..sort((a, b) => a.t.compareTo(b.t));
@@ -317,7 +317,7 @@ class _OverlayPainter extends CustomPainter {
       nowMs,
     );
     if (ball != null) {
-      // Crisp white ball with a red ring — matches the validation render's
+      // Crisp white ball with a red ring, matches the validation render's
       // moving ball, no soft halo.
       canvas.drawCircle(ball, 8.5, Paint()..color = AppColors.bone);
       canvas.drawCircle(
@@ -364,7 +364,7 @@ class _OverlayPainter extends CustomPainter {
     final half = (0.16 * (base.dy - top.dy).abs()).clamp(4.0, 70.0);
     final width = prominent ? 4.0 : 3.0;
     const offs = <double>[-1, 0, 1];
-    // No glow halo on either wicket — the striker (near-batsman) stumps used
+    // No glow halo on either wicket, the striker (near-batsman) stumps used
     // to draw a soft yellow halo that read as "glowing"; both ends now render
     // as clean solid stumps, matching the bowler-end look.
     final stumpPaint = Paint()
@@ -433,7 +433,7 @@ class _OverlayPainter extends CustomPainter {
     );
   }
 
-  /// Bounce point — a flat solid red dot, no glow halo (matches the clean
+  /// Bounce point, a flat solid red dot, no glow halo (matches the clean
   /// broadcast reference; the soft halo read as a "glow" at the bounce).
   void _drawBouncePin(Canvas canvas, Offset c) {
     canvas.drawCircle(c, 4.0, Paint()..color = AppColors.signalRed);

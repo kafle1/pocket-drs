@@ -26,7 +26,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-ROOT = Path("/Users/nirajkafle/Desktop/niraj/dev-projects/pocket-drs")
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "server"))
 
 from app.pipeline.process_job import run_pipeline  # noqa: E402
@@ -38,9 +38,9 @@ OUT.mkdir(parents=True, exist_ok=True)
 
 # Recovered test3 calibration taps (normalised 0..1 over the 1080x1920 frame).
 # Each stump set is the bounding rectangle of the three-stump cluster
-# (TL, TR, BR, BL) — the same 4-corner taps the production calibration UI
+# (TL, TR, BR, BL), the same 4-corner taps the production calibration UI
 # emits via ``stump_quads_norm``. Half-cluster widths in normalised image
-# units: striker (far) ≈ 0.011, bowler (near) ≈ 0.048 — eyeballed from
+# units: striker (far) ≈ 0.011, bowler (near) ≈ 0.048, eyeballed from
 # the first frame and consistent with the perspective.
 # Taps recovered by colour-segmenting the actual first frame (not eyeballed):
 # the yellow stumps give clean vertical-blob clusters and the green strip its
@@ -78,7 +78,7 @@ def build_request() -> dict:
         "calibration": {
             "mode": "taps",
             # Break the (FOV × length) degeneracy by PINNING the real pitch
-            # length (full ICC 20.12 m — confirmed by Niraj that test3 is a
+            # length (full ICC 20.12 m, confirmed by Niraj that test3 is a
             # full-length net) and letting the solver fit FOV from the stump
             # geometry. This is the deterministic disambiguation the eyeballed
             # taps lacked. With the colour-derived taps the solver reprojects
@@ -95,7 +95,7 @@ def build_request() -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Rendering — draws the returned overlay payload (pixels already projected
+# Rendering, draws the returned overlay payload (pixels already projected
 # server-side; no camera maths happens here).
 # --------------------------------------------------------------------------- #
 RED = (60, 60, 235)
@@ -125,7 +125,7 @@ def render_three_d_viewer(result: dict) -> None:
             check=True, capture_output=True, timeout=120,
         )
         print(f"  wrote {png.name} (app WebGL 3D view)")
-    except Exception as exc:  # noqa: BLE001 — diagnostic convenience only
+    except Exception as exc:  # noqa: BLE001, diagnostic convenience only
         print(f"  (skipped app 3D PNG: {exc.__class__.__name__})")
 
 
@@ -147,7 +147,7 @@ def render_3d(result: dict) -> None:
     LBW corridor between them, bounce + impact markers, and the bounce-
     aware predicted continuation as a dashed line to the stump plane.
 
-    A single 3D axes — the previous "umpire POV looking straight down x"
+    A single 3D axes, the previous "umpire POV looking straight down x"
     compressed the trajectory into a vertical sliver because the pitch is
     6 m long and only 3 m wide, so the eye had nothing to read against.
     An oblique angle restores depth.
@@ -176,13 +176,13 @@ def render_3d(result: dict) -> None:
     ax = fig.add_subplot(111, projection="3d")
     ax.set_facecolor("#0d1117")
 
-    # Pitch surface — two-tone so the strip reads as a real pitch with a
+    # Pitch surface, two-tone so the strip reads as a real pitch with a
     # darker centre band rather than a flat green slab.
     pitch_quad = [(0, -half_w, 0), (0, half_w, 0), (L, half_w, 0), (L, -half_w, 0)]
     ax.add_collection3d(Poly3DCollection(
         [pitch_quad], facecolor="#1f4a2c", alpha=0.95, edgecolor="#4f9b66"))
 
-    # On-stumps corridor — a faint BLUE band down the pitch — plus the BLUE
+    # On-stumps corridor, a faint BLUE band down the pitch, plus the BLUE
     # WICKET ZONE: a translucent vertical wall at the stump plane the ball is
     # judged against (the "would it hit the stumps" volume), exactly like the
     # blue zone in real DRS graphics.
@@ -197,7 +197,7 @@ def render_3d(result: dict) -> None:
           (target_x, corr_half, H_STUMP), (target_x, -corr_half, H_STUMP)]],
         facecolor="#3f8bff", alpha=0.22, edgecolor="#8fc0ff", linewidths=1.0))
 
-    # White popping creases at 1.22 m from each stump line — recognisable
+    # White popping creases at 1.22 m from each stump line, recognisable
     # cricket markings, not generic 3D.
     POPPING_CREASE_M = 1.22
     for cx in (POPPING_CREASE_M, L - POPPING_CREASE_M):
@@ -237,12 +237,12 @@ def render_3d(result: dict) -> None:
             ax.plot([xs_i, xs_i], [ys_i, ys_i], [0.004, zs_i],
                     color="#9aa0a6", linewidth=0.7, alpha=0.35,
                     zorder=5)
-        # Thick red ball "tube" — layered strokes read as a broadcast 3D tube.
+        # Thick red ball "tube", layered strokes read as a broadcast 3D tube.
         for _w, _a in ((9.0, 0.16), (6.0, 0.34), (3.4, 1.0)):
             ax.plot(xs_t, ys_t, zs_t, color="#ff3b30", linewidth=_w,
                     alpha=_a, solid_capstyle="round", zorder=8)
 
-    # Predicted continuation — one clean SOLID red line (same colour as the
+    # Predicted continuation, one clean SOLID red line (same colour as the
     # tracked arc), terminating at the stump plane. Pre-pend the impact point
     # so it flows straight out of the tracked arc as a single curve.
     if pred:
@@ -291,7 +291,7 @@ def render_3d(result: dict) -> None:
         ax.set_box_aspect((L + 0.6, W + 0.4, 1.6))
     except AttributeError:
         pass
-    ax.set_axis_off()   # broadcast look — pitch + ball carry the geometry
+    ax.set_axis_off()   # broadcast look, pitch + ball carry the geometry
 
     # ---- DRS decision panel stack (real-broadcast style) ----
     checks = lbw.get("checks") or {}
@@ -367,7 +367,7 @@ def render(result: dict) -> None:
     corridor = ov.get("corridor_px") or []
     stumps = ov.get("stumps_px") or {}
 
-    # Solid flight is the raw image-space track — the literal positions the
+    # Solid flight is the raw image-space track, the literal positions the
     # detector saw the ball. The smooth projectile fit (path_px[phase=flight])
     # hides the bounce because it is a single parabola, but the raw points
     # carry the v-reversal so the user sees the ball go down to the pitch and
@@ -387,9 +387,9 @@ def render(result: dict) -> None:
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # Render window: from a few frames before release through a few frames
-    # after the last tracked observation. We stop at the bat — the post-bat
+    # after the last tracked observation. We stop at the bat, the post-bat
     # ball is the deflection, which is the umpire's business, not the
-    # bowler's — and let the dashed predicted line carry the eye to the
+    # bowler's, and let the dashed predicted line carry the eye to the
     # stumps.
     t_lo = flight_t[0] if flight_t else path[0]["t_ms"]
     t_hi = flight_t[-1] if flight_t else path[-1]["t_ms"]
@@ -414,7 +414,7 @@ def render(result: dict) -> None:
         frame = (frame * 0.62).astype(np.uint8)
 
         # Calibration overlay: pitch outline + the in-line LBW corridor
-        # ("pitching area" — between the two outermost stumps plus ball
+        # ("pitching area", between the two outermost stumps plus ball
         # radius). The corridor is filled translucent so it doesn't drown
         # the live frame; the outline gives it a defined edge.
         if rect is not None and len(rect) >= 3:
@@ -474,7 +474,7 @@ def render(result: dict) -> None:
 
     writer.release()
     cap.release()
-    if not sample_saved:  # short window — keep the last frame as the sample
+    if not sample_saved:  # short window, keep the last frame as the sample
         pass
     print(f"  wrote test3_tracked.mp4 ({f_hi - f_lo + 1} frames) + test3_sample.png")
 
@@ -497,7 +497,7 @@ def main() -> int:
     diag = result.get("diagnostics") or {}
 
     print("=" * 64)
-    print("PocketDRS production pipeline — test3.mp4 end-to-end")
+    print("PocketDRS production pipeline, test3.mp4 end-to-end")
     print("=" * 64)
     print(f"calibration : reproj={cal.get('reproj_error_px', float('nan')):.2f}px  "
           f"score={cal.get('score', 0):.2f}  notes={cal.get('notes')}")

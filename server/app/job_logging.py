@@ -34,8 +34,11 @@ def job_log_context(*, job_id: str, artifacts_dir: Path) -> Iterator[logging.Log
     dirs = ensure_log_dirs()
     central_log_path = dirs["server_jobs"] / f"{job_id}.log"
 
-    logger = logging.getLogger("pocket_drs.job")
+    # Per-job logger so concurrent jobs don't share handlers and cross-write
+    # into each other's artifacts/server.log.
+    logger = logging.getLogger(f"pocket_drs.job.{job_id}")
     logger.setLevel(logging.INFO)
+    logger.propagate = True  # bubble up to pocket_drs.job for server.log/errors.log as before
 
     artifact_handler = logging.FileHandler(artifact_log_path, encoding="utf-8")
     artifact_handler.setLevel(logging.INFO)

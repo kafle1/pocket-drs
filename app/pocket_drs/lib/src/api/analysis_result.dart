@@ -33,7 +33,7 @@ class AnalysisResult {
   /// Broadcast delivery metrics (speed / spin / swing).
   final DeliveryMetrics? metrics;
 
-  /// Pixel dimensions of the analysed frame — the coordinate space of
+  /// Pixel dimensions of the analysed frame, the coordinate space of
   /// [overlay] and [track]. The overlay scales against these.
   final int imageWidth;
   final int imageHeight;
@@ -378,7 +378,7 @@ class ProjectileFitInfo {
 }
 
 /// Pixel-space ball detections.  Used by the 2D overlay on the captured frame
-/// (debug/inspection only — no longer feeds the 3D viewer).
+/// (debug/inspection only, no longer feeds the 3D viewer).
 BallTrackResult _parsePixelTrack(
   Map<String, Object?> json, {
   required int width,

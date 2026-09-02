@@ -9,7 +9,6 @@ from firebase_admin import auth, credentials, firestore
 
 _DEFAULT_SERVICE_ACCOUNT_PATH: Final[Path] = Path(__file__).resolve().parents[1] / "firebase-service-account.json"
 
-_app: firebase_admin.App | None = None
 _db: firestore.Client | None = None
 
 
@@ -30,7 +29,7 @@ def initialize_firebase() -> firestore.Client:
     In production (Cloud Run, etc.), Application Default Credentials can be used.
     """
 
-    global _app, _db
+    global _db
 
     if _db is not None:
         return _db
@@ -38,7 +37,7 @@ def initialize_firebase() -> firestore.Client:
     sa_path = _service_account_path()
     if sa_path.exists():
         cred = credentials.Certificate(str(sa_path))
-        _app = firebase_admin.initialize_app(cred)
+        firebase_admin.initialize_app(cred)
     else:
         # Allow ADC only when it is likely configured.
         has_adc = bool((os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()) or bool(
@@ -51,7 +50,7 @@ def initialize_firebase() -> firestore.Client:
                 "Set FIREBASE_SERVICE_ACCOUNT to the key path or place the key at server/firebase-service-account.json. "
                 "Copy server/firebase-service-account.json.template and fill in your project credentials to get started."
             )
-        _app = firebase_admin.initialize_app()
+        firebase_admin.initialize_app()
 
     _db = firestore.client()
     return _db
@@ -69,7 +68,9 @@ def verify_user_token(id_token: str) -> str | None:
     if not token:
         return None
     try:
-        decoded = auth.verify_id_token(token)
+        # check_revoked catches sessions revoked server-side (password reset,
+        # account disable); RevokedIdTokenError falls into the except below.
+        decoded = auth.verify_id_token(token, check_revoked=True)
     except Exception:
         return None
 
