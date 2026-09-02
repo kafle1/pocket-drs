@@ -110,7 +110,7 @@ def fig_sweeps():
 
 def fig_coverage():
     g = [r for r in load("exp1_geometry.csv") if r["estimator"] == "anchored" and r["ok"] == "True" and r["bounce_observed"] == "True"]
-    fig, axes = plt.subplots(1, 2, figsize=(7.1, 2.2))
+    fig, axes = plt.subplots(1, 2, figsize=(3.4, 1.7))
     for ax, c, name in ((axes[0], "y", "lateral $y$"), (axes[1], "z", "vertical $z$")):
         ratio = np.array([fl(r, f"{c}_err_cm") / max(fl(r, f"sigma_{c}_cm"), 1e-3) for r in g])
         ratio = ratio[np.isfinite(ratio)]
