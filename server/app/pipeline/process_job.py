@@ -235,7 +235,7 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
         raise CalibrationError(
             f"Calibration rejected: recovered camera height {cam_z:.2f} m is not a hand-held phone. "
             "Re-mark the stumps in order: striker end then bowler end, top-left, top-right, bottom-right, bottom-left.")
-    if not (1.5 <= pose.pitch_length_m <= 25.0):
+    if not (2.0 <= pose.pitch_length_m <= 25.0):
         raise CalibrationError(f"Calibration rejected: derived pitch length {pose.pitch_length_m:.2f} m is implausible.")
     if pose.reproj_error_px > 8.0:
         warnings.append(f"high calibration reprojection error ({pose.reproj_error_px:.1f} px); re-tap the stump corners")

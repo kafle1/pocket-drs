@@ -231,7 +231,7 @@ for clip in ("test3", "test4", "test5"):
             continue
         verdict = {"not_out": "not out", "out": "out", "umpires_call": "umpire's call"}.get(r["verdict"], r["verdict"])
         L.append(f"{name} & {fr} & {r['reproj_px']:.1f} & {r['n_track']} & {r['bounce_x_m']:.1f} & "
-                 f"${r['y_cm']:+.0f} \\pm {r['sigma_y_cm']:.0f}$ & ${r['z_cm']:.0f} \\pm {r['sigma_z_cm']:.0f}$ & {verdict} \\\\")
+                 f"${r['y_cm']:+.1f} \\pm {r['sigma_y_cm']:.0f}$ & ${r['z_cm']:.1f} \\pm {r['sigma_z_cm']:.0f}$ & {verdict} \\\\")
     L.append(r"\midrule")
 L.pop()
 L += [r"\bottomrule", r"\end{tabular}"]

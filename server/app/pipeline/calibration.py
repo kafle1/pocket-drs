@@ -176,11 +176,11 @@ def solve_camera_pose(
             if pitch_length_m is not None:
                 lengths = [pitch_length_m]
             else:
-                coarse = min((solve(fov, L, use_corners) for L in np.arange(2.0, 26.0001, 0.5)),
+                coarse = min((solve(fov, L, use_corners) for L in np.arange(2.0, 25.0001, 0.5)),
                              key=lambda c: c[0] if c else np.inf, default=None)
                 if coarse is None:
                     continue
-                lengths = np.arange(max(2.0, coarse[5] - 0.5), min(26.0, coarse[5] + 0.5) + 1e-9, 0.05)
+                lengths = np.arange(max(2.0, coarse[5] - 0.5), min(25.0, coarse[5] + 0.5) + 1e-9, 0.05)
             for L in lengths:
                 sol = solve(fov, L, use_corners)
                 if sol is not None and (best is None or sol[0] < best[0]):
