@@ -7,6 +7,7 @@ import time
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,7 @@ from .models import (
     ProgressInfo,
 )
 from .pipeline.process_job import map_exception_to_api_error, run_pipeline
+from .three_d_viewer import render_html
 
 
 configure_logging(log_level=os.environ.get("POCKET_DRS_LOG_LEVEL", "info"))
@@ -49,7 +51,24 @@ def _require_user_id(authorization: str | None) -> str:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     return uid
 
-app = FastAPI(title="PocketDRS Server", version="1.0")
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # fail fast: without Firestore the server cannot store results or check tokens
+    db = initialize_firebase()
+    try:
+        db.collection("_health").document("startup").get()
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"Firestore is not reachable: {e}. Check connectivity, the service account "
+                           "project_id, and that Firestore is enabled in the Firebase console.")
+    _log.info("Firebase initialized and Firestore reachable")
+    # jobs still queued or running belong to a previous process whose worker pool is gone
+    recovered = _store.recover_interrupted_jobs()
+    if recovered:
+        _log.warning("Marked %d interrupted job(s) as failed on startup: %s", len(recovered), ", ".join(recovered))
+    yield
+
+
+app = FastAPI(title="PocketDRS Server", version="1.0", lifespan=_lifespan)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -92,29 +111,6 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 app.add_middleware(RequestLoggingMiddleware)
 
 
-@app.on_event("startup")
-def _startup() -> None:
-    # Fail fast: if Firebase isn't configured, the system can't meet its contract.
-    db = initialize_firebase()
-    try:
-        # A simple read forces credentials + Firestore availability checks.
-        db.collection("_health").document("startup").get()
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"Firestore is not reachable: {e}. Check internet connectivity, that the service account project_id matches your Firebase project, and that Firestore is enabled in the Firebase console.")
-    _log.info("Firebase initialized and Firestore reachable")
-
-    # Any job still marked queued/running belongs to a previous process whose
-    # worker executor is gone; fail them so clients stop polling forever.
-    try:
-        recovered = _store.recover_interrupted_jobs()
-        if recovered:
-            _log.warning(
-                "Marked %d interrupted job(s) as failed on startup: %s",
-                len(recovered),
-                ", ".join(recovered),
-            )
-    except Exception:  # noqa: BLE001
-        _log.exception("Startup job recovery failed")
 
 _cors_origins_raw = os.environ.get("POCKET_DRS_CORS_ORIGINS", "").strip()
 _cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
@@ -131,47 +127,15 @@ _store: JobStore = default_job_store()
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="job-worker")
 
 
-def _sanitize_for_firestore(value: Any) -> Any:
-    """Recursively coerce a result dict into Firestore-friendly primitives.
-
-    Firestore rejects numpy scalars/arrays, tuples, sets, NaN/Inf, and any
-    object whose runtime type isn't one of (dict, list, str, int, float, bool,
-    None, datetime).  We map everything to those.
-    """
-    import math as _math
-    try:
-        import numpy as _np
-        np_scalar = _np.generic
-        np_ndarray = _np.ndarray
-    except Exception:
-        np_scalar = ()  # type: ignore[assignment]
-        np_ndarray = ()  # type: ignore[assignment]
-
-    if value is None or isinstance(value, (bool, str)):
-        return value
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        if _math.isnan(value) or _math.isinf(value):
-            return None
-        return value
-    if np_scalar and isinstance(value, np_scalar):
-        v = value.item()
-        return _sanitize_for_firestore(v)
-    if np_ndarray and isinstance(value, np_ndarray):
-        return [_sanitize_for_firestore(x) for x in value.tolist()]
+def _firestore_safe(value: Any) -> Any:
+    """Firestore rejects arrays nested in arrays; the camera matrices are stored as row-indexed maps.
+    Everything else in a result is already JSON-clean (see process_job._finite)."""
     if isinstance(value, dict):
-        return {str(k): _sanitize_for_firestore(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        items = [_sanitize_for_firestore(x) for x in value]
-        # Firestore rejects arrays whose elements are themselves arrays
-        # ("Nested arrays are not allowed"). Wrap such matrices as a
-        # row-indexed map so e.g. the 3x3 camera intrinsic K survives storage.
-        if any(isinstance(x, list) for x in items):
-            return {str(i): x for i, x in enumerate(items)}
-        return items
-    # Fallback: stringify anything exotic so we don't lose the field entirely.
-    return str(value)
+        return {str(k): _firestore_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        items = [_firestore_safe(x) for x in value]
+        return {str(i): x for i, x in enumerate(items)} if any(isinstance(x, list) for x in items) else items
+    return value
 
 
 def _load_json(s: str) -> dict[str, Any]:
@@ -212,7 +176,7 @@ def _write_failed_status_safe(paths: JobPaths, message: str) -> None:
             pass
 
 
-def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], artifacts_dir: Path, user_id: str | None = None) -> None:
+def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], artifacts_dir: Path, user_id: str) -> None:
     paths = _store.job_paths(job_id)
     try:
         last_stage: str | None = None
@@ -231,9 +195,9 @@ def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], ar
             job_log.info(
                 "Processing job_id=%s user_id=%s video=%s size=%dMB",
                 job_id,
-                user_id or "anonymous",
+                user_id,
                 video_path.name,
-                video_path.stat().st_size // (1024 * 1024) if video_path.exists() else 0,
+                video_path.stat().st_size // (1024 * 1024),
             )
 
             def progress(pct: int, stage: str) -> None:
@@ -268,30 +232,24 @@ def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], ar
                     progress=ProgressInfo(pct=100, stage="succeeded"),
                     error=None,
                 )
-                warnings = out.result.get("diagnostics", {}).get("warnings", [])
-                n_points = len(out.result.get("track", {}).get("points", []))
-                job_log.info("✓ Completed: %d tracking points, %d warnings", n_points, len(warnings) if isinstance(warnings, list) else 0)
-
-                # Store in Firestore if user is authenticated
-                if user_id:
-                    try:
-                        db = get_firestore()
-                        pitch_id = request_json.get("calibration", {}).get("pitch_id")
-                        db.collection('users').document(user_id).collection('analyses').add({
-                            'jobId': job_id,
-                            'pitchId': pitch_id,
-                            'result': _sanitize_for_firestore(out.result),
-                            'createdAt': fb_firestore.SERVER_TIMESTAMP,
-                        })
-                        job_log.info("✓ Saved to Firestore for user %s", user_id)
-                    except Exception as e:
-                        job_log.warning("Failed to save to Firestore: %s", str(e))
+                track = out.result.get("track") or {}
+                job_log.info("Completed: %d tracking points, %d warnings",
+                             len(track.get("image_points") or []), len(out.warnings))
+                try:
+                    get_firestore().collection("users").document(user_id).collection("analyses").add({
+                        "jobId": job_id,
+                        "result": _firestore_safe(out.result),
+                        "createdAt": fb_firestore.SERVER_TIMESTAMP,
+                    })
+                    job_log.info("Saved to Firestore for user %s", user_id)
+                except Exception as e:  # noqa: BLE001
+                    job_log.warning("Failed to save to Firestore: %s", e)
 
             except Exception as e:  # noqa: BLE001
                 tb = traceback.format_exc()
                 error_type = e.__class__.__name__
                 error_msg = str(e) if str(e) else error_type
-                job_log.error("✗ Failed with %s: %s\n%s", error_type, error_msg, tb)
+                job_log.error("Failed with %s: %s\n%s", error_type, error_msg, tb)
                 err = map_exception_to_api_error(e)
                 _store.write_status(
                     paths,
@@ -328,7 +286,7 @@ async def create_job(
         raise HTTPException(status_code=400, detail=str(e))
 
     job_id, paths = _store.create_job()
-    _log.debug("Created job: job_id=%s user_id=%s filename=%s", job_id, user_id or "anonymous", video_file.filename)
+    _log.debug("Created job: job_id=%s user_id=%s filename=%s", job_id, user_id, video_file.filename)
 
     _store.write_request(paths, req_dict)
     _store.write_meta(paths, {"user_id": user_id})
@@ -347,13 +305,6 @@ async def create_job(
         raise HTTPException(status_code=500, detail=f"Failed to save video: {e}")
     finally:
         await video_file.close()
-
-    _store.write_status(
-        paths,
-        status=JobStatus.queued,
-        progress=ProgressInfo(pct=0, stage="queued"),
-        error=None,
-    )
 
     _executor.submit(_process_job, job_id, paths.video_path, req_dict, paths.artifacts_dir, user_id)
 
@@ -423,9 +374,7 @@ def get_job_three_d(job_id: str, token: str | None = None, authorization: str | 
     status_raw = _store.read_status(paths)
     if JobStatus(status_raw["status"]) != JobStatus.succeeded:
         raise HTTPException(status_code=409, detail="Job not finished")
-    result = _store.read_result(paths)
-    from .three_d_viewer import render_html
-    return Response(content=render_html(result), media_type="text/html")
+    return Response(content=render_html(_store.read_result(paths)), media_type="text/html")
 
 
 @app.get("/v1/jobs/{job_id}/artifacts/{name}")

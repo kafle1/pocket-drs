@@ -8,7 +8,7 @@ import numpy as np
 from scipy.interpolate import splev, splprep
 
 from .calibration import CameraPose, STUMP_HEIGHT_M
-from .reconstruction import Trajectory, sample_path
+from .reconstruction import Trajectory
 
 
 def _pt(pose: CameraPose, x: float, y: float, z: float) -> dict | None:
@@ -63,7 +63,7 @@ def build_overlay(
         base, top = _pt(pose, x, 0.0, 0.0), _pt(pose, x, 0.0, STUMP_HEIGHT_M)
         return None if base is None or top is None else {"base": base, "top": top}
 
-    L, hw = pose.pitch_length_m, 3.05 / 2.0
+    L, hw = pose.pitch_length_m, pose.pitch_width_m / 2.0
     corridor = [_pt(pose, 0.0, -corridor_half_m, 0.0), _pt(pose, 0.0, corridor_half_m, 0.0),
                 _pt(pose, L, corridor_half_m, 0.0), _pt(pose, L, -corridor_half_m, 0.0)]
     rect = [_pt(pose, 0.0, -hw, 0.0), _pt(pose, 0.0, hw, 0.0), _pt(pose, L, hw, 0.0), _pt(pose, L, -hw, 0.0)]

@@ -23,19 +23,14 @@ def _px(pose: CameraPose, p) -> tuple[int, int] | None:
     return None if q is None else (int(round(q[0])), int(round(q[1])))
 
 
-def render(truth: Truth, cam: Camera, path: Path, *, fps: float, ball_bgr=(40, 40, 220), blur: bool = True,
-           t_start: float = 0.0, end_at_crease: bool = True) -> dict:
+def render(truth: Truth, cam: Camera, path: Path, *, fps: float, ball_bgr=(40, 40, 220)) -> dict:
     """Write the clip and return the calibration block the app would send."""
     pose = cam.pose()
     W, H = cam.width, cam.height
     st = truth.states
     dt_state = st[1, 0] - st[0, 0]
-    t_end = float(st[-1, 0])
-    if end_at_crease:
-        idx = np.where(st[:, 1] <= CREASE_X)[0]
-        if len(idx):
-            t_end = float(st[idx[0], 0])
-    times = np.arange(t_start, t_end + 0.4, 1.0 / fps)     # a few frames after impact, ball gone
+    t_end = float(st[np.argmax(st[:, 1] <= CREASE_X), 0])      # the pad intercepts the ball at the crease
+    times = np.arange(0.0, t_end + 0.4, 1.0 / fps)             # a few frames after impact, ball gone
     writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (W, H))
     if not writer.isOpened():
         raise RuntimeError(f"cannot open video writer at {path}")
@@ -67,22 +62,23 @@ def render(truth: Truth, cam: Camera, path: Path, *, fps: float, ball_bgr=(40, 4
             q = pose.project_one(*p)
             if q is not None and q[2] > 0.3:
                 r = max(2.0, pose.fx * BALL_RADIUS_M / q[2])
-                if blur:
-                    # motion smear over the exposure: half a frame interval of travel
-                    j = min(len(st) - 1, i + int(round(0.5 / fps / dt_state)))
-                    q2 = pose.project_one(*st[j, 1:4])
-                    if q2 is not None:
-                        cv2.line(frame, (int(round(q[0])), int(round(q[1]))), (int(round(q2[0])), int(round(q2[1]))),
-                                 ball_bgr, int(round(2 * r)), cv2.LINE_AA)
+                # motion smear over the exposure: half a frame interval of travel
+                j = min(len(st) - 1, i + int(round(0.5 / fps / dt_state)))
+                q2 = pose.project_one(*st[j, 1:4])
+                if q2 is not None:
+                    cv2.line(frame, (int(round(q[0])), int(round(q[1]))), (int(round(q2[0])), int(round(q2[1]))),
+                             ball_bgr, int(round(2 * r)), cv2.LINE_AA)
                 cv2.circle(frame, (int(round(q[0])), int(round(q[1]))), int(round(r)), ball_bgr, -1, cv2.LINE_AA)
         writer.write(frame)
     writer.release()
 
     w, h = STUMP_OUTER_HALF_M, STUMP_HEIGHT_M
     side = [(-w, h), (w, h), (w, 0.0), (-w, 0.0)]
-    quads = [pose.project_one(0.0, dy, dz)[:2] for dy, dz in side] + \
-            [pose.project_one(PITCH_LENGTH_M, dy, dz)[:2] for dy, dz in side]
-    corners = [pose.project_one(*p)[:2] for p in pitch]
+    marks = [(0.0, dy, dz) for dy, dz in side] + [(PITCH_LENGTH_M, dy, dz) for dy, dz in side] + pitch
+    projected = [pose.project_one(*m) for m in marks]
+    if any(q is None for q in projected):
+        raise ValueError("a calibration mark is behind the camera for this placement")
+    quads, corners = [q[:2] for q in projected[:8]], [q[:2] for q in projected[8:]]
     return {
         "mode": "taps",
         "h_fov_deg": cam.fov_deg,

@@ -41,8 +41,6 @@ class TrajectoryFit:
     candidates_total: int # total candidates considered across frames
     rms_px: float         # RMS reprojection error in pixels
     px_per_ms_x: float    # mean image velocity, x
-    px_per_ms_y: float    # mean image velocity, y
-    notes: list[str]
 
 
 def _propagate(
@@ -269,8 +267,6 @@ def _search_best_arc(
                 candidates_total=total_candidates,
                 rms_px=rms_refined,
                 px_per_ms_x=float(vx_fit),
-                px_per_ms_y=float(vy_fit),
-                notes=[f"seed_g={g_seed:.1f}", f"refined ay={ay_fit:.3f}"],
             )
 
             # Score: prefer more inliers, then tighter fit.
@@ -355,10 +351,6 @@ def _merge_bounce_arcs(
         candidates_total=early.candidates_total,
         rms_px=rms,
         px_per_ms_x=early.px_per_ms_x,
-        px_per_ms_y=early.px_per_ms_y,
-        notes=list(early.notes) + list(late.notes) + [
-            f"merged post-bounce arc: +{len(l)} pts across {gap_ms:.0f}ms gap"
-        ],
     )
 
 
@@ -534,8 +526,6 @@ def find_ball_trajectory(
             candidates_total=best_fit.candidates_total,
             rms_px=best_fit.rms_px,
             px_per_ms_x=best_fit.px_per_ms_x,
-            px_per_ms_y=best_fit.px_per_ms_y,
-            notes=list(best_fit.notes) + [f"extended ends +{added}"],
         )
 
     # Final-track validation: a genuine ball traverses a meaningful fraction

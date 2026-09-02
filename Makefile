@@ -49,7 +49,7 @@ FLUTTER_WEB_HOSTNAME ?= localhost
 
 .PHONY: help dev setup setup-app setup-server dev-app dev-server dev-app-only dev-server-only \
 	free-port dev-server-fresh phone-connect dev-app-phone pick-device \
-	server-test app-test clean \
+	clean \
 	logs logs-server logs-flutter logs-errors logs-job logs-pull-android logs-clean
 
 help:
@@ -66,7 +66,6 @@ help:
 		"  make logs-job JOB=<id> Tail per-job log" \
 		"  make logs-pull-android Pull Flutter logs from connected Android device" \
 		"  make logs-clean        Remove all files under logs/" \
-		"  make server-test       Run backend tests" \
 		"  make clean             Remove generated dev artifacts"
 
 # ----- Setup -----
@@ -223,16 +222,7 @@ dev: setup
 			$(MAKE) -j2 dev-server-fresh dev-app-phone ;; \
 	esac
 
-# ----- Tests / cleanup -----
-
-server-test: setup-server
-	@cd "$(SERVER_DIR)" && "$(PYTHON)" -m pytest -q
-
-app-test: setup-app
-	@mkdir -p "$(ROOT_DIR)/logs/flutter"
-	@cd "$(APP_DIR)" && \
-		POCKET_DRS_FLUTTER_TEST_LOG_PATH="$(ROOT_DIR)/logs/flutter/flutter_test.log" \
-		flutter test $(FLUTTER_DART_DEFINES)
+# ----- Cleanup -----
 
 clean:
 	@rm -rf "$(SERVER_DIR)/.venv" \

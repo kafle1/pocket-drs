@@ -18,9 +18,8 @@ vertical rebound is tied to the pre-bounce descent through a restitution coeffic
 is itself estimated within physical bounds.
 
 A delivery whose bounce is not in the observed window (a full toss, or a clip cut before
-the pitch) falls back to the six-parameter single-parabola model of Ribnick et al. with the
-ball's apparent size as the scale cue. That estimate is reported with its own, larger,
-uncertainty.
+the pitch) is fitted with the six-parameter single-parabola model of Ribnick et al., with
+the ball's apparent size as the scale cue, and reported with its own, larger, uncertainty.
 """
 
 from __future__ import annotations
@@ -86,8 +85,6 @@ class Reconstruction:
     trajectory: Trajectory
     covariance: np.ndarray          # 9x9 over (t_b, x_b, y_b, v_pre, vx+, vy+, e)
     rms_px: float
-    n_pre: int
-    n_post: int
     notes: list[str]
 
 
@@ -329,9 +326,8 @@ def reconstruct(pose: CameraPose, dets: list[Detection], *, f_scale_px: float = 
             theta, cov, rms = best
             tr = _unpack(theta, True)
             notes.append(f"bounce anchored at frame {k}, t_b={tr.t_b:.3f}s, e={tr.restitution:.2f}")
-            n_post = int(np.sum(np.array([d[0] for d in dets]) >= tr.t_b))
-            return Reconstruction(tr, cov, rms, len(dets) - n_post, n_post, notes)
-        notes.append("bounce seen in image but no anchored fit converged")
+            return Reconstruction(tr, cov, rms, notes)
+        notes.append("bounce seen in the image but no anchored fit converged")
 
     # no contact in the window: one parabola, scale from gravity and apparent size
     th0 = _linear_parabola(pose, dets)
@@ -341,10 +337,8 @@ def reconstruct(pose: CameraPose, dets: list[Detection], *, f_scale_px: float = 
     if fit is None:
         return None
     theta, cov6, rms = fit
-    tr = _flight_as_trajectory(theta, pose)
-    cov = _flight_covariance(theta, cov6, pose)
     notes.append("no bounce in the tracked window; single-parabola fit")
-    return Reconstruction(tr, cov, rms, len(dets), 0, notes)
+    return Reconstruction(_flight_as_trajectory(theta), _flight_covariance(theta, cov6), rms, notes)
 
 
 def _anchor_candidates(pose: CameraPose, dets: list[Detection], k: int, t_b: float, u_b: float, v_b: float) -> list[np.ndarray]:
@@ -369,15 +363,10 @@ def _anchor_candidates(pose: CameraPose, dets: list[Detection], k: int, t_b: flo
         keep(np.array([th[0] + th[3] * tau, th[1] + th[4] * tau, BALL_RADIUS_M]))
     for i in (k - 1, k):
         keep(pose.backproject_to_plane(dets[i][1], dets[i][2], BALL_RADIUS_M))
-    if not out:
-        p = pose.backproject_to_plane(u_b, v_b, BALL_RADIUS_M)
-        x = float(np.clip(p[0], 0.5, L - 0.5)) if p is not None and np.isfinite(p[0]) else L / 3.0
-        y = float(np.clip(p[1], -1.5, 1.5)) if p is not None and np.isfinite(p[1]) else 0.0
-        out.append(np.array([x, y, BALL_RADIUS_M]))
     return out
 
 
-def _flight_as_trajectory(theta: np.ndarray, pose: CameraPose) -> Trajectory:
+def _flight_as_trajectory(theta: np.ndarray) -> Trajectory:
     """Express a single parabola in the bounce parameterisation by placing the (unobserved)
     contact where the parabola would meet the ground, with the prior restitution."""
     x0, y0, z0, vx, vy, vz = (float(a) for a in theta)
@@ -389,11 +378,11 @@ def _flight_as_trajectory(theta: np.ndarray, pose: CameraPose) -> Trajectory:
     return Trajectory(t_b, x0 + vx * t_b, y0 + vy * t_b, v_pre, v_post, False)
 
 
-def _flight_covariance(theta: np.ndarray, cov6: np.ndarray, pose: CameraPose) -> np.ndarray:
+def _flight_covariance(theta: np.ndarray, cov6: np.ndarray) -> np.ndarray:
     """Push the 6-parameter covariance through the reparameterisation numerically, and give
     the unobserved restitution and post-bounce deviation their prior spread."""
     def f(th):
-        tr = _flight_as_trajectory(th, pose)
+        tr = _flight_as_trajectory(th)
         return np.array([tr.t_b, tr.x_b, tr.y_b, *tr.v_pre, tr.v_post[0], tr.v_post[1], RESTITUTION_PRIOR])
     J = _numeric_jacobian(f, theta)
     cov = J @ cov6 @ J.T
@@ -457,6 +446,14 @@ def predict_stump_plane(rec: Reconstruction, x_target: float = 0.0) -> StumpPlan
     sy = float(math.sqrt(max(S[0, 0], 0.0)))
     sz = float(math.sqrt(max(S[1, 1], 0.0)))
     return StumpPlanePrediction(float(p[0]), float(p[1]), float(p[2]), sy, sz, int(p[3]))
+
+
+def position_sigma(rec: Reconstruction, t: float) -> tuple[float, float, float]:
+    """1-sigma of the modelled position at time ``t``, per axis."""
+    theta = _theta_of(rec.trajectory)
+    J = _numeric_jacobian(lambda th: _unpack(th, rec.trajectory.bounce_observed).position(t)[0], theta)
+    S = J @ rec.covariance @ J.T
+    return tuple(float(math.sqrt(max(S[i, i], 0.0))) for i in range(3))
 
 
 def bounce_sigma(rec: Reconstruction) -> tuple[float, float]:

@@ -29,7 +29,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from synth import (Camera, Delivery, calibration_taps, fly, observe, random_delivery,   # noqa: E402
                    truth_verdict, CREASE_X)
-from app.pipeline.reconstruction import (reconstruct, predict_stump_plane, bounce_sigma,  # noqa: E402
+from app.pipeline.reconstruction import (reconstruct, predict_stump_plane, bounce_sigma, position_sigma,  # noqa: E402
                                          _linear_parabola, _fit_flight, _flight_as_trajectory,
                                          _flight_covariance, Reconstruction)
 from app.pipeline.decision import decide                                                # noqa: E402
@@ -40,6 +40,8 @@ QUICK = "--quick" in sys.argv
 N = 60 if QUICK else 400
 
 BASE = dict(fps=60.0, noise_px=1.0, radius_noise=0.10, dropout=0.05, tap_px=2.0, physics=True)
+K_SHIPPED = 1.0
+K_VALUES = (0.0, 0.5, 1.0, 1.5, 2.0)
 SWEEPS = {
     "noise_px": [0.0, 0.5, 1.0, 2.0, 3.0, 5.0],
     "fps": [30.0, 60.0, 120.0, 240.0],
@@ -68,33 +70,31 @@ def parabola_estimate(pose, dets) -> Reconstruction | None:
     if fit is None:
         return None
     theta, cov6, rms = fit
-    return Reconstruction(_flight_as_trajectory(theta, pose), _flight_covariance(theta, cov6, pose),
-                          rms, len(dets), 0, [])
+    return Reconstruction(_flight_as_trajectory(theta), _flight_covariance(theta, cov6), rms, [])
 
 
-def evaluate(rec, truth, pose, k=1.0):
+def evaluate(rec, truth):
     """Errors and verdict for one reconstruction."""
     pred = predict_stump_plane(rec) if rec is not None else None
     if pred is None:
-        return dict(ok=False, verdict="no_verdict", **{f"verdict_k{kk:g}": "no_verdict" for kk in (0.0, 0.5, 1.5, 2.0)})
+        return dict(ok=False, verdict="no_verdict", **{f"verdict_k{kk:g}": "no_verdict" for kk in K_VALUES if kk != K_SHIPPED})
     tr = rec.trajectory
-    sx, sy = bounce_sigma(rec)
-    crease = tr.position(np.array([tr.t_b + (CREASE_X - tr.x_b) / tr.v_post[0]]))[0] if abs(tr.v_post[0]) > 1e-6 else None
-    v = decide(leg_sign=1.0,
-               pitch_y=float(tr.y_b) if tr.bounce_observed else None, pitch_sigma=sy,
-               impact_y=float(crease[1]) if crease is not None else None, impact_sigma=pred.sigma_y,
-               stump_y=pred.y, stump_z=pred.z, sigma_y=pred.sigma_y, sigma_z=pred.sigma_z, k=k)
-    # the same decision at other widenings of the uncertainty band, for the operating curve
-    by_k = {}
-    for kk in (0.0, 0.5, 1.5, 2.0):
-        by_k[f"verdict_k{kk:g}"] = decide(leg_sign=1.0,
-                                          pitch_y=float(tr.y_b) if tr.bounce_observed else None, pitch_sigma=sy,
-                                          impact_y=float(crease[1]) if crease is not None else None, impact_sigma=pred.sigma_y,
-                                          stump_y=pred.y, stump_z=pred.z, sigma_y=pred.sigma_y, sigma_z=pred.sigma_z, k=kk).decision
+    _, sy = bounce_sigma(rec)
+    t_crease = tr.t_b + (CREASE_X - tr.x_b) / tr.v_post[0] if abs(tr.v_post[0]) > 1e-6 else None
+    crease = tr.position(np.array([t_crease]))[0] if t_crease is not None else None
+    crease_sigma = position_sigma(rec, t_crease)[1] if t_crease is not None else 0.0
+    # the verdict at the shipped band widening and at the others, for the operating curve
+    verdicts = {}
+    for kk in K_VALUES:
+        verdicts[kk] = decide(leg_sign=1.0,
+                              pitch_y=float(tr.y_b) if tr.bounce_observed else None, pitch_sigma=sy,
+                              impact_y=float(crease[1]) if crease is not None else None, impact_sigma=crease_sigma,
+                              stump_y=pred.y, stump_z=pred.z, sigma_y=pred.sigma_y, sigma_z=pred.sigma_z, k=kk).decision
+    by_k = {f"verdict_k{kk:g}": v for kk, v in verdicts.items() if kk != K_SHIPPED}
     cx = np.nan if not np.isfinite(truth.contact[0]) else abs(tr.x_b - truth.contact[0]) * 100
     cy = np.nan if not np.isfinite(truth.contact[0]) else abs(tr.y_b - truth.contact[1]) * 100
     speed = float(np.linalg.norm(tr.velocity(0.0))) * 3.6
-    return dict(ok=True, verdict=v.decision, **by_k, bounce_observed=tr.bounce_observed,
+    return dict(ok=True, verdict=verdicts[K_SHIPPED], **by_k, bounce_observed=tr.bounce_observed,
                 y_err_cm=abs(pred.y - truth.stumps[1]) * 100, z_err_cm=abs(pred.z - truth.stumps[2]) * 100,
                 sigma_y_cm=pred.sigma_y * 100, sigma_z_cm=pred.sigma_z * 100,
                 contact_x_err_cm=cx, contact_y_err_cm=cy,
@@ -127,7 +127,7 @@ def run_cell(name, cam_name, cfg, n, seed):
                     restitution_true=round(d.restitution, 3), n_dets=len(dets), truth=gt,
                     calib_reproj_px=round(pose.reproj_error_px, 2))
         for est_name, rec in (("anchored", reconstruct(pose, dets)), ("parabola", parabola_estimate(pose, dets))):
-            r = evaluate(rec, truth, pose)
+            r = evaluate(rec, truth)
             rows.append(dict(base, estimator=est_name, **{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}))
     return rows
 

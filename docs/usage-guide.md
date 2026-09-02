@@ -6,8 +6,8 @@
   stumps and the full pitch must be in frame.
 - 60 Hz or higher if the phone offers it; 30 Hz works but leaves fewer frames after the bounce.
 - Portrait framing is fine. Avoid the ultra-wide lens: its distortion is not modelled.
-- The bounce has to be visible. A full toss, or a clip cut before the ball pitches, falls back to a
-  weaker estimator and comes back flagged.
+- The bounce has to be visible. A full toss, or a clip cut before the ball pitches, is fitted with a
+  single parabola instead and comes back flagged with a much wider band.
 - The bowler's end works, but the arc that decides the verdict is then 15 to 20 m away and
   foreshortened; expect wider bands.
 
@@ -23,8 +23,8 @@
 
 ## 3. The HTTP API
 
-`POST /v1/jobs` (multipart: `video` file + `request` JSON) starts a job; `GET /v1/jobs/{id}` polls
-`status` and `progress`; `GET /v1/jobs/{id}/result` returns the result once `status` is `done`.
+`POST /v1/jobs` (multipart: `video_file` + `request_json`) starts a job; `GET /v1/jobs/{id}` polls
+`status` and `progress`; `GET /v1/jobs/{id}/result` returns the result once `status` is `succeeded`.
 All calls carry a Firebase ID token as a bearer header.
 
 Request:
@@ -68,9 +68,9 @@ Result, the fields the app reads:
 
 ## 4. Offline, without the app
 
-`server/scripts/test3_e2e.py` builds a request for the bundled `test3.mp4`, runs the job in
-process, and renders the overlay and a 3-D view under `dump/validation/test3/`. Copy it to try
-another clip: change the video path and the twelve marks.
+`server/scripts/real_clip.py test3` builds the request for a bundled clip, runs the job in
+process, and renders the overlay under `dump/validation/test3/`. Add a clip by putting its
+twelve marks in the table at the top of that script.
 
 The paper's harness is independent of the server: `paper/experiments/synth.py` generates
 deliveries with exact truth and `exp1_geometry.py` runs the estimator on them without any video.

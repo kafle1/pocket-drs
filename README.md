@@ -62,7 +62,7 @@ Put Firebase credentials in `server/firebase-service-account.json` and the app's
 `firebase_options.dart`; both are gitignored. The API is `POST /v1/jobs` (multipart: clip +
 request JSON), `GET /v1/jobs/{id}`, `GET /v1/jobs/{id}/result`. The request needs the segment,
 the sampling rate, the twelve calibration taps in normalised image coordinates, the pitch
-dimensions and the batter's handedness; `server/scripts/test3_e2e.py` builds one.
+dimensions and the batter's handedness; `server/scripts/real_clip.py` builds one.
 
 ## Reproduce the paper
 

@@ -79,7 +79,7 @@ def fig_sweeps():
               ("fps", "Frame rate (Hz)", [30.0, 60.0, 120.0, 240.0]),
               ("tap_px", "Tap noise (px)", [0.0, 2.0, 4.0, 8.0, 12.0]),
               ("dropout", "Dropped frames", [0.0, 0.1, 0.25, 0.4])]
-    fig, axes = plt.subplots(2, 4, figsize=(7.1, 3.4), sharey="row")
+    fig, axes = plt.subplots(2, 4, figsize=(7.1, 3.0), sharey="row")
     for j, (key, label, vals) in enumerate(sweeps):
         for est, col, mk in (("anchored", BLUE, "o"), ("parabola", ORANGE, "s")):
             ag, my, mz = [], [], []
@@ -126,82 +126,7 @@ def fig_coverage():
     fig.savefig(os.path.join(FIGS, "coverage.pdf")); plt.close(fig)
 
 
-def fig_kcurve():
-    g = [r for r in load("exp1_geometry.csv") if r["estimator"] == "anchored"]
-    keys = [("verdict_k0", 0.0), ("verdict_k0.5", 0.5), ("verdict", 1.0), ("verdict_k1.5", 1.5), ("verdict_k2", 2.0)]
-    keys = [(k, v) for k, v in keys if k in g[0]]
-    n = len(g)
-    fo = [100.0 * sum(1 for r in g if r[k] == "out" and r["truth"] == "not_out") / sum(1 for r in g if r["truth"] == "not_out") for k, _ in keys]
-    mo = [100.0 * sum(1 for r in g if r[k] == "not_out" and r["truth"] == "out") / max(1, sum(1 for r in g if r["truth"] == "out")) for k, _ in keys]
-    um = [100.0 * sum(1 for r in g if r[k] == "umpires_call") / n for k, _ in keys]
-    fig, ax = plt.subplots(figsize=(3.4, 2.2))
-    ks = [v for _, v in keys]
-    ax.plot(ks, fo, marker="o", ms=3.5, color=RED, label="false out (% of not-out)")
-    ax.plot(ks, mo, marker="s", ms=3.5, color=ORANGE, label="missed out (% of out)")
-    ax.set_ylabel("Error rate (%)"); ax.set_xlabel("Band widening $k$ (multiples of $\\sigma$)")
-    ax2 = ax.twinx()
-    ax2.plot(ks, um, marker="^", ms=3.5, color=BLUE, label="umpire's call (% of all)")
-    ax2.set_ylabel("Umpire's call (%)"); ax2.grid(False); ax2.spines["top"].set_visible(False)
-    h1, l1 = ax.get_legend_handles_labels(); h2, l2 = ax2.get_legend_handles_labels()
-    ax.legend(h1 + h2, l1 + l2, frameon=False, loc="upper center", fontsize=6.5)
-    fig.savefig(os.path.join(FIGS, "kcurve.pdf")); plt.close(fig)
-
-
-def fig_cameras():
-    g = load("exp1_geometry.csv")
-    cams = ["striker_low", "striker_ref", "striker_high", "striker_side", "bowler_ref", "bowler_side"]
-    lab = ["S low", "S ref", "S high", "S side", "B ref", "B side"]
-    fig, axes = plt.subplots(1, 2, figsize=(7.1, 2.2))
-    x = np.arange(len(cams))
-    for est, col, off in (("anchored", BLUE, -0.18), ("parabola", ORANGE, 0.18)):
-        ag, my, mz = [], [], []
-        for c in cams:
-            rs = [r for r in g if r["sweep"] == f"camera={c}" and r["estimator"] == est]
-            ag.append(100.0 * sum(1 for r in rs if r["verdict"] == r["truth"]) / max(1, len(rs)))
-            ok = [r for r in rs if r["ok"] == "True"]
-            my.append(nanmed([fl(r, "y_err_cm") for r in ok])); mz.append(nanmed([fl(r, "z_err_cm") for r in ok]))
-        axes[0].bar(x + off, ag, width=0.36, color=col, label="anchored" if est == "anchored" else "single parabola")
-        axes[1].bar(x + off, my, width=0.36, color=col, alpha=0.9)
-        axes[1].bar(x + off, mz, width=0.36, color="none", edgecolor=col, lw=1.0)
-    axes[0].set_xticks(x); axes[0].set_xticklabels(lab); axes[0].set_ylabel("Verdict agreement (%)"); axes[0].set_ylim(0, 100)
-    axes[0].legend(frameon=False, loc="lower left")
-    axes[1].set_xticks(x); axes[1].set_xticklabels(lab); axes[1].set_ylabel("Median error (cm): $y$ filled, $z$ outline")
-    axes[1].set_yscale("log")
-    fig.subplots_adjust(wspace=0.3)
-    fig.savefig(os.path.join(FIGS, "cameras.pdf")); plt.close(fig)
-
-
-def fig_rendered():
-    e = load("exp2_rendered_striker_ref.csv")
-    lengths = sorted({fl(r, "length_m") for r in e}); lines = sorted({fl(r, "line_m") for r in e})
-    grid = np.zeros((len(lines), len(lengths)))
-    for i, ln in enumerate(lines):
-        for j, lg in enumerate(lengths):
-            rs = [r for r in e if fl(r, "length_m") == lg and fl(r, "line_m") == ln]
-            grid[i, j] = 100.0 * sum(1 for r in rs if r["verdict"] == r["truth"]) / max(1, len(rs))
-    fig, axes = plt.subplots(1, 2, figsize=(7.1, 2.4))
-    im = axes[0].imshow(grid, cmap="Blues", vmin=0, vmax=100, aspect="auto", origin="lower")
-    axes[0].set_xticks(range(len(lengths))); axes[0].set_xticklabels([f"{l:g}" for l in lengths])
-    axes[0].set_yticks(range(len(lines))); axes[0].set_yticklabels([f"{l:+.1f}" for l in lines])
-    axes[0].set_xlabel("Pitching length (m)"); axes[0].set_ylabel("Line (m, + leg)"); axes[0].grid(False)
-    for i in range(len(lines)):
-        for j in range(len(lengths)):
-            axes[0].text(j, i, f"{grid[i, j]:.0f}", ha="center", va="center", fontsize=7, color="white" if grid[i, j] > 60 else "black")
-    fig.colorbar(im, ax=axes[0], fraction=0.046, pad=0.03, label="Agreement (%)")
-    ok = [r for r in e if r.get("y_err_cm") not in ("", None)]
-    cols = {"not_out": GREY, "out": RED, "umpires_call": ORANGE}
-    for cls, c in cols.items():
-        rs = [r for r in ok if r["verdict"] == cls]
-        axes[1].scatter([fl(r, "y_err_cm") for r in rs], [fl(r, "z_err_cm") for r in rs], s=12, color=c,
-                        label={"not_out": "not out", "out": "out", "umpires_call": "umpire's call"}[cls], alpha=0.85, edgecolors="none")
-    axes[1].set_xlabel("Lateral error $|y|$ (cm)"); axes[1].set_ylabel("Vertical error $|z|$ (cm)")
-    axes[1].set_xscale("symlog", linthresh=1); axes[1].set_yscale("symlog", linthresh=1)
-    axes[1].legend(frameon=False, title="returned verdict", fontsize=6.5, title_fontsize=6.5)
-    fig.subplots_adjust(wspace=0.35)
-    fig.savefig(os.path.join(FIGS, "rendered.pdf")); plt.close(fig)
-
-
 if __name__ == "__main__":
-    for fn in (fig_geometry, fig_sweeps, fig_coverage, fig_kcurve, fig_cameras, fig_rendered):
+    for fn in (fig_geometry, fig_sweeps, fig_coverage):
         fn(); print("ok", fn.__name__)
     print("figures written to", FIGS)

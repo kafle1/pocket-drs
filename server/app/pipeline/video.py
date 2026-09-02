@@ -122,7 +122,7 @@ class VideoReader:
                 return self._last_frame.copy()
             # Trust the container's real frame index rather than a virtual +1,
             # so a keyframe landing or a dropped frame can't drift the
-            # labelling. Fall back to +1 only if POS_FRAMES is unavailable.
+            # labelling. Use +1 only if POS_FRAMES is unavailable.
             pos = int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
             self._cursor_idx = (pos - 1) if pos > 0 else (self._cursor_idx + 1)
             frame = raw
@@ -131,13 +131,13 @@ class VideoReader:
             # Cursor already at/after target but nothing decoded this call;
             # the cached last_frame is the correct response.
             return (self._last_frame.copy() if self._last_frame is not None
-                    else self._read_nonseek_fallback(t_ms))
+                    else self._read_sequential(t_ms))
 
         self._consecutive_stale = 0
         self._last_frame = frame
         return frame
 
-    def _read_nonseek_fallback(self, t_ms: int) -> np.ndarray:
+    def _read_sequential(self, t_ms: int) -> np.ndarray:
         ok, frame = self._cap.read()
         if not ok or frame is None:
             raise VideoDecodeError(f"Failed to decode frame at {t_ms}ms")

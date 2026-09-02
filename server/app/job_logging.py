@@ -48,7 +48,6 @@ def job_log_context(*, job_id: str, artifacts_dir: Path) -> Iterator[logging.Log
     central_handler.setLevel(logging.INFO)
     central_handler.setFormatter(_make_formatter(job_id))
 
-    # Avoid double-handlers if something calls this twice for the same job.
     logger.addHandler(artifact_handler)
     logger.addHandler(central_handler)
     try:

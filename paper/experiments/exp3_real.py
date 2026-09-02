@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import os
 import sys
 import tempfile
@@ -26,17 +27,10 @@ ROOT = Path(HERE).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "server"))
 sys.path.insert(0, str(ROOT / "server" / "scripts"))
 from app.pipeline.process_job import run_pipeline   # noqa: E402
+from real_clip import CLIPS, build_request           # noqa: E402
 
 OUT = os.path.join(HERE, "raw")
 os.makedirs(OUT, exist_ok=True)
-
-CLIPS = {"test3": "test3_e2e", "test4": "test4_e2e", "test5": "test5_e2e"}
-
-
-def request_for(name):
-    mod = __import__(CLIPS[name])
-    return mod.build_request() if hasattr(mod, "build_request") else mod.REQUEST
-
 
 def run(name, req, parity):
     """parity: None for every frame, 0 or 1 to keep only even or odd sampled frames."""
@@ -52,9 +46,13 @@ def run(name, req, parity):
     pred = lbw.get("prediction") or {}
     ev = out.get("events") or {}
     model = (out.get("world_trajectory") or {}).get("model") or {}
+    discarded = next((w for w in out["diagnostics"]["warnings"] if w.startswith("3-D reconstruction discarded (")), None)
+    residual = re.search(r"\(([\d.]+) px residual\)", discarded) if discarded else None
     return dict(clip=name, frames="all" if parity is None else ("even" if parity == 0 else "odd"),
                 reproj_px=round(out["calibration"]["quality"]["reproj_error_px"], 2),
                 n_track=len(out["track"]["image_points"]),
+                length_m=round(out["calibration"]["pose"]["pitch_length_m"], 1),
+                discard_px=None if residual is None else float(residual.group(1)),
                 verdict=lbw.get("decision"), reason=lbw.get("reason"),
                 y_cm=None if pred.get("y_at_stumps_m") is None else round(pred["y_at_stumps_m"] * 100, 1),
                 z_cm=None if pred.get("z_at_stumps_m") is None else round(pred["z_at_stumps_m"] * 100, 1),
@@ -71,7 +69,7 @@ def run(name, req, parity):
 def main():
     rows = []
     for name in CLIPS:
-        req = request_for(name)
+        req = build_request(name)
         for parity in (None, 0, 1):
             try:
                 r = run(name, req, parity)

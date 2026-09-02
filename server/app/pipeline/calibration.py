@@ -34,6 +34,7 @@ class CameraPose:
     reproj_error_px: float
     fov_deg: float
     pitch_length_m: float
+    pitch_width_m: float
     used_corners: bool
 
     @property
@@ -55,11 +56,6 @@ class CameraPose:
     @property
     def centre_world(self) -> np.ndarray:
         return -self.R.T @ self.t
-
-    @property
-    def behind_striker(self) -> bool:
-        """True when the camera sits at the striker's end (world x below mid-pitch)."""
-        return float(self.centre_world[0]) < self.pitch_length_m / 2.0
 
     @property
     def notes(self) -> list[str]:
@@ -164,21 +160,31 @@ def solve_camera_pose(
     corner_img = None if pitch_corners_px is None else np.asarray(pitch_corners_px, dtype=float)
 
     fovs = [fov_deg] if fov_deg is not None else [28, 34, 40, 46, 52, 58, 64, 70, 78, 86]
-    lengths = [pitch_length_m] if pitch_length_m is not None else list(np.arange(2.0, 26.0001, 0.05))
+
+    def solve(fov, L, use_corners):
+        K = intrinsics(width, height, float(fov))
+        obj, img = _stump_object_points(L), stump_img
+        if use_corners:
+            obj, img = np.vstack([obj, _corner_object_points(L, pitch_width_m)]), np.vstack([img, corner_img])
+        sol = _pnp(obj, img, K)
+        return None if sol is None else (sol[0], sol[1], sol[2], K, float(fov), float(L))
 
     def sweep(use_corners: bool):
+        # a pinned length is one solve per FOV; otherwise half-metre steps, then 5 cm around the best
         best = None
         for fov in fovs:
-            K = intrinsics(width, height, float(fov))
+            if pitch_length_m is not None:
+                lengths = [pitch_length_m]
+            else:
+                coarse = min((solve(fov, L, use_corners) for L in np.arange(2.0, 26.0001, 0.5)),
+                             key=lambda c: c[0] if c else np.inf, default=None)
+                if coarse is None:
+                    continue
+                lengths = np.arange(max(2.0, coarse[5] - 0.5), min(26.0, coarse[5] + 0.5) + 1e-9, 0.05)
             for L in lengths:
-                obj = _stump_object_points(L)
-                img = stump_img
-                if use_corners:
-                    obj = np.vstack([obj, _corner_object_points(L, pitch_width_m)])
-                    img = np.vstack([img, corner_img])
-                sol = _pnp(obj, img, K)
+                sol = solve(fov, L, use_corners)
                 if sol is not None and (best is None or sol[0] < best[0]):
-                    best = (sol[0], sol[1], sol[2], K, float(fov), float(L))
+                    best = sol
         return best
 
     joint = sweep(True) if corner_img is not None else None
@@ -195,4 +201,4 @@ def solve_camera_pose(
 
     err, R, t, K, fov, L = best
     return CameraPose(K=K, R=R, t=t, reproj_error_px=err, fov_deg=fov,
-                      pitch_length_m=L, used_corners=used_corners)
+                      pitch_length_m=L, pitch_width_m=pitch_width_m, used_corners=used_corners)

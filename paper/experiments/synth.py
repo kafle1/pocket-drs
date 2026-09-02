@@ -18,7 +18,8 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-import sys, os
+import os
+import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "server"))
 from app.pipeline.calibration import (CameraPose, intrinsics, solve_camera_pose,       # noqa: E402
                                       STUMP_HEIGHT_M, STUMP_OUTER_HALF_M, PITCH_LENGTH_M,
@@ -69,7 +70,7 @@ class Camera:
         d = np.cross(f, r)
         R = np.stack([r, d, f])
         return CameraPose(K=K, R=R, t=-R @ eye, reproj_error_px=0.0, fov_deg=self.fov_deg,
-                          pitch_length_m=PITCH_LENGTH_M, used_corners=True)
+                          pitch_length_m=PITCH_LENGTH_M, pitch_width_m=PITCH_WIDTH_M, used_corners=True)
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,7 @@ def _launch(d: Delivery) -> tuple[np.ndarray, np.ndarray]:
     def miss(alpha):
         vx = -s * math.cos(alpha); vz = s * math.sin(alpha)
         t = dx / vx
-        return p0[2] + vz * t - 0.5 * GRAVITY * t * t - 0.5 * d.swing_ms2 * 0 - BALL_RADIUS_M
+        return p0[2] + vz * t - 0.5 * GRAVITY * t * t - BALL_RADIUS_M
 
     lo, hi = math.radians(-45.0), math.radians(20.0)
     for _ in range(80):
@@ -149,16 +150,11 @@ def fly(d: Delivery, dt: float = 1e-3) -> Truth:
 
 
 def observe(truth: Truth, pose: CameraPose, *, fps: float, noise_px: float, radius_noise: float,
-            dropout: float, rng: np.random.Generator, t_start: float = 0.0,
-            end_at_crease: bool = True) -> list[tuple[float, float, float, float, float]]:
+            dropout: float, rng: np.random.Generator) -> list[tuple[float, float, float, float, float]]:
     """Per-frame detections (t, u, v, radius_px, weight) the tracker would hand on."""
     st = truth.states
-    t_end = float(st[-1, 0])
-    if end_at_crease:
-        idx = np.where(st[:, 1] <= CREASE_X)[0]
-        if len(idx):
-            t_end = float(st[idx[0], 0])
-    times = np.arange(t_start, t_end, 1.0 / fps)
+    t_end = float(st[np.argmax(st[:, 1] <= CREASE_X), 0])      # the pad intercepts the ball at the crease
+    times = np.arange(0.0, t_end, 1.0 / fps)
     out = []
     for tt in times:
         i = int(round(tt / (st[1, 0] - st[0, 0])))
@@ -208,7 +204,7 @@ def truth_verdict(truth: Truth, leg_sign: float = 1.0) -> str:
     return v.decision
 
 
-def grid(rng: np.random.Generator | None = None) -> list[Delivery]:
+def grid() -> list[Delivery]:
     """The fixed evaluation grid: 5 speeds x 5 lines x 4 lengths = 100 deliveries."""
     out = []
     for s in (90, 105, 120, 135, 145):
