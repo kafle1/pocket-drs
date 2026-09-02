@@ -535,14 +535,13 @@ clips show only self-consistency. The next step is real deliveries with instrume
 second synchronised phone at right angles.
 
 \textbf{The uncertainty is a first-order approximation.} Coverage is below the Gaussian nominal at every
-level, and one real clip shows why: with an ambiguous contact split the solution is multimodal and a
-linearised covariance about one mode does not know about the other. A sampling-based uncertainty or a test
-of the alternative split would address this.
+level, and one real clip shows why: with an ambiguous contact split the solution is multimodal, and a
+linearised covariance about one mode does not know about the other. Sampling, or a test of the alternative
+split, would address this.
 
-\textbf{The estimator ignores drag, swing, friction and spin.} The constant-velocity model absorbs them over short arcs
-at a cost of \PhysOffAgree\% to \PhysOnAgree\% agreement, but a long pre-contact arc under strong swing
-would fit worse, and the reported release speed is an average over the observed arc, not the speed at the
-hand.
+\textbf{The estimator ignores drag, swing, friction and spin.} The constant-velocity model absorbs them over
+short arcs at a cost of \PhysOffAgree\% to \PhysOnAgree\% agreement, but a long pre-contact arc under strong
+swing would fit worse, and the reported release speed is an average over the arc, not the speed at the hand.
 
 \textbf{The contact must be seen.} A full toss, a clip cut before the pitch, or a camera position from which
 the batter hides the contact falls back to the flagged single-parabola estimator, the orange curve in
@@ -555,24 +554,29 @@ and creases automatically would remove the step and the tap error with it.
 
 A single phone behind the batter can reconstruct a cricket delivery in metres if it uses the one event the
 delivery always contains. The bounce fixes a point on a known plane at a known instant, and with that anchor
-the monocular projectile problem, ill-conditioned along the depth of a ball flying toward the camera, becomes
-two over-determined linear problems joined by a restitution coefficient. On \GeoTotal{} synthetic deliveries
+the monocular projectile problem, ill-conditioned along the depth of a ball flying at the camera, becomes two
+over-determined linear problems joined by a restitution coefficient. On \GeoTotal{} synthetic deliveries
 with exact truth the anchored estimator agrees with the true verdict in \GeoAgreeAll\% of cases with
 \GeoFalseOut{} false outs and median stump-plane errors of \GeoMedYAll{} and \GeoMedZAll~cm, against
 \GeoAgreeAllParabola\% and errors ten times larger without the anchor; through the full pipeline it agrees on \EteAgree{} of \EteN{} with no false outs. The propagated uncertainty is slightly optimistic, is reported as such,
-and is used as the Laws use umpire's call: to decline a call the evidence does not support. The system is a
+and is used as the Laws use umpire's call, to decline a call the evidence does not support. The system is a
 coaching instrument that says how sure it is, not a substitute for a multi-camera rig.
 
 \section*{Data, Code and Declarations}
 
 The pipeline, the synthetic generator and renderer, the experiment scripts, the raw result files and the
-scripts that generate every number, table and figure here are at \url{https://github.com/kafle1/pocket-drs}
-under the AGPL-3.0 licence; \texttt{paper/experiments/verify\_claims.py} regenerates the numbers from the raw
-files and fails if the manuscript is stale. The author declares no competing interests and received no
-funding. The real clips were recorded by the author at net sessions with the consent of those present and
-contain no identifiable personal data at the resolution used.
+generators for every number, table and figure are at \url{https://github.com/kafle1/pocket-drs} under
+AGPL-3.0; \texttt{verify\_claims.py} regenerates the numbers and fails if the manuscript is stale. The author
+declares no competing interests and received no funding. The real clips were recorded by the author at net
+sessions with the consent of those present and contain no identifiable personal data at the resolution used.
 
 \bibliographystyle{IEEEtran}
 \bibliography{refs}
+
+\begin{IEEEbiographynophoto}{Niraj Kafle}
+received the bachelor's degree in computing from Phoenix College of Management, Lincoln University
+College, Kathmandu, Nepal. He is an independent researcher in Kathmandu, working on open-source measurement
+systems built from equipment people already own.
+\end{IEEEbiographynophoto}
 
 \end{document}
