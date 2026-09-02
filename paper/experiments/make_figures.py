@@ -79,7 +79,7 @@ def fig_sweeps():
               ("fps", "Frame rate (Hz)", [30.0, 60.0, 120.0, 240.0]),
               ("tap_px", "Tap noise (px)", [0.0, 2.0, 4.0, 8.0, 12.0]),
               ("dropout", "Dropped frames", [0.0, 0.1, 0.25, 0.4])]
-    fig, axes = plt.subplots(2, 4, figsize=(7.1, 3.0), sharey="row")
+    fig, axes = plt.subplots(2, 4, figsize=(7.1, 2.7), sharey="row")
     for j, (key, label, vals) in enumerate(sweeps):
         for est, col, mk in (("anchored", BLUE, "o"), ("parabola", ORANGE, "s")):
             ag, my, mz = [], [], []

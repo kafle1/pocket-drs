@@ -101,17 +101,6 @@ m("GeoMedYAllParabola", med([r["y_err_cm"] for r in okP])); m("GeoMedZAllParabol
 m("GeoMedSpeedErr", med([r["speed_err_kmh"] for r in okA])); m("GeoMedContactX", med([r["contact_x_err_cm"] for r in okA]))
 m("GeoMedContactY", med([r["contact_y_err_cm"] for r in okA]))
 
-# confusion matrix table
-classes = ["not_out", "out", "umpires_call"]
-preds = ["not_out", "out", "umpires_call", "no_verdict"]
-lab = {"not_out": "Not out", "out": "Out", "umpires_call": "Umpire's call", "no_verdict": "No verdict"}
-L = [r"\begin{tabular}{lcccc}", r"\toprule", r"Truth $\backslash$ returned & Not out & Out & Umpire's call & No verdict \\", r"\midrule"]
-for c in classes:
-    sub = [r for r in A if r["truth"] == c]
-    L.append(f"{lab[c]} ({len(sub)}) & " + " & ".join(str(sum(1 for r in sub if r["verdict"] == p)) for p in preds) + r" \\")
-L += [r"\bottomrule", r"\end{tabular}"]
-write_table("confusion.tex", L)
-
 # sweep table: one row per cell, both estimators
 def cell_stats(rs):
     ok = [r for r in rs if r["ok"]]
@@ -119,9 +108,10 @@ def cell_stats(rs):
                 y=med([r["y_err_cm"] for r in ok]), z=med([r["z_err_cm"] for r in ok]),
                 y90=p90([r["y_err_cm"] for r in ok]), z90=p90([r["z_err_cm"] for r in ok]))
 
-order = ["noise_px=0.0", "noise_px=0.5", "noise_px=1.0", "noise_px=2.0", "noise_px=3.0", "noise_px=5.0",
-         "fps=30.0", "fps=60.0", "fps=120.0", "fps=240.0", "tap_px=0.0", "tap_px=2.0", "tap_px=4.0", "tap_px=8.0", "tap_px=12.0",
-         "dropout=0.0", "dropout=0.1", "dropout=0.25", "dropout=0.4", "physics=False", "physics=True"]
+# the table shows the ends and the reference of each sweep; the figure carries every point
+order = ["noise_px=0.0", "noise_px=1.0", "noise_px=2.0", "noise_px=3.0", "noise_px=5.0",
+         "fps=30.0", "fps=60.0", "fps=240.0", "tap_px=0.0", "tap_px=2.0", "tap_px=8.0", "tap_px=12.0",
+         "dropout=0.0", "dropout=0.25", "dropout=0.4", "physics=False", "physics=True"]
 names = {"noise_px": "Pixel noise $\\sigma$ (px)", "fps": "Frame rate (Hz)", "tap_px": "Tap noise $\\sigma$ (px)",
          "dropout": "Dropped frames", "physics": "Unmodelled physics"}
 L = [r"\begin{tabular}{llcccccccc}", r"\toprule",
@@ -183,21 +173,14 @@ for c in ("y", "z"):
 m("BounceObservedPct", 100.0 * sum(1 for r in A if r["ok"] and r["bounce_observed"]) / max(1, sum(1 for r in A if r["ok"])))
 m("MedSigmaY", med([r["sigma_y_cm"] for r in okb])); m("MedSigmaZ", med([r["sigma_z_cm"] for r in okb]))
 
-# operating curve over k
-ks = [("verdict_k0", 0.0), ("verdict_k0.5", 0.5), ("verdict", 1.0), ("verdict_k1.5", 1.5), ("verdict_k2", 2.0)]
-L = [r"\begin{tabular}{lccccc}", r"\toprule", r"$k$ & Agree (\%) & False out & Missed out & Umpire's call (\%) & Decisive (\%) \\", r"\midrule"]
-for key, k in ks:
+# operating curve over k (macros only; the paper quotes them in prose)
+for key, k in [("verdict_k0", 0.0), ("verdict_k0.5", 0.5), ("verdict", 1.0), ("verdict_k1.5", 1.5), ("verdict_k2", 2.0)]:
     if key not in A[0]:
         continue
-    n = len(A)
-    u = 100.0 * ump(A, key) / n
-    dec = 100.0 * sum(1 for r in A if r[key] in ("out", "not_out")) / n
-    L.append(f"{k:g} & {agree(A, key):.1f} & {false_out(A, key)} & {missed_out(A, key)} & {u:.1f} & {dec:.1f} \\\\")
+    u = 100.0 * ump(A, key) / len(A)
     tag = {0.0: "Zero", 0.5: "Half", 1.0: "One", 1.5: "OneHalf", 2.0: "Two"}[k]
     m(f"K{tag}Agree", agree(A, key)); m(f"K{tag}FalseOut", false_out(A, key), "{}"); m(f"K{tag}Ump", u); m(f"K{tag}MissedOut", missed_out(A, key), "{}")
     m(f"K{tag}UmpInverse", round(100.0 / max(u, 1e-9)), "{}")
-L += [r"\bottomrule", r"\end{tabular}"]
-write_table("kcurve.tex", L)
 
 # ------------------------------------------------------------------ experiment 2: rendered end to end
 e2 = rows("exp2_rendered_striker_ref.csv")
@@ -216,7 +199,7 @@ m("EteMedSpeedErr", med([r["speed_err_kmh"] for r in ok2])); m("EteMedReproj", m
 m("EteMedTrack", med([r["n_track"] for r in e2]), "{:.0f}"); m("EteTapPx", cfg2["tap_px"], "{:.0f}")
 m("EteMedSigmaY", med([r["sigma_y_cm"] for r in ok2])); m("EteMedSigmaZ", med([r["sigma_z_cm"] for r in ok2]))
 L = [r"\begin{tabular}{lcccccc}", r"\toprule", r"Factor & Value & $n$ & Agree (\%) & Umpire's call & Median $y$ (cm) & Median $z$ (cm) \\", r"\midrule"]
-for fac, key, fmt in (("Length (m)", "length_m", "{:g}"), ("Speed (km/h)", "speed_kmh", "{:g}"), ("Line (m)", "line_m", "{:+.1f}")):
+for fac, key, fmt in (("Length (m)", "length_m", "{:g}"), ("Line (m)", "line_m", "{:+.1f}")):
     vals = sorted({r[key] for r in e2})
     for i, v in enumerate(vals):
         sub = [r for r in e2 if r[key] == v]
