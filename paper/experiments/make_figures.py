@@ -99,7 +99,7 @@ def fig_sweeps():
                 ax.xaxis.set_major_locator(FixedLocator(vals)); ax.xaxis.set_major_formatter(FixedFormatter([f"{int(v)}" for v in vals]))
                 ax.xaxis.set_minor_locator(FixedLocator([])); ax.xaxis.set_minor_formatter(NullFormatter())
         axes[1, j].set_yscale("log")
-    axes[0, 0].set_ylabel("Verdict agreement (%)"); axes[1, 0].set_ylabel("Median stump-plane error (cm)")
+    axes[0, 0].set_ylabel("Agreement (%)"); axes[1, 0].set_ylabel("Median error (cm)")
     axes[0, 0].set_ylim(0, 100)
     axes[0, 0].legend(frameon=False, loc="lower left")
     h, l = axes[1, 0].get_legend_handles_labels()
