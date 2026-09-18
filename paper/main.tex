@@ -63,7 +63,7 @@ school and age-group matches, and every net session, ask the same questions with
 This paper asks how far a single phone can go. One camera cannot triangulate and should not claim the
 accuracy of a rig. But a cricket delivery is not an arbitrary object in an arbitrary scene.
 It is a sphere of known radius flying ballistically over a plane of known geometry, past two rigid
-regulation-height targets that are always in view, and it touches that plane exactly once. Each of those
+regulation-height targets that are always in view, and a pitched delivery touches that plane exactly once. Each of those
 facts is a constraint, and together they are enough to make the monocular problem well posed. The paper
 is written as a measurement paper: a calibration from reference artefacts, an estimator with a propagated
 uncertainty, a test of how well that uncertainty covers the true error, and a decision rule that uses it.
@@ -116,7 +116,7 @@ result carries an uncertainty that is itself tested. On consumer hardware this i
 practice of its own: six degrees of freedom of a moving rigid body from smartphone
 cameras~\cite{zhu2022smartphone6dof}, and calibration of a mobile camera from scene structure and the onboard
 accelerometer rather than a printed target~\cite{arik2022mobilecalib}.
-Ours is of that kind; the target is the pitch itself.
+Ours also calibrates without a printed target, from the pitch itself, and uses no inertial sensor.
 
 Ball trajectories have been measured with calibrated high-speed stereo rigs for table
 tennis~\cite{zhang2010tabletennis} and golf~\cite{wang2019golf}. Single-view measurement of a moving target is
@@ -142,7 +142,7 @@ which is how measurement uncertainty enters a statement of conformity~\cite{caru
 \centering
 \caption{Vision-based measurement of a moving target in the I\&M literature. \emph{Views}: viewpoints the
 metric scale depends on; $u$: an uncertainty reported on the measurand; \emph{band}: a decision limit set
-from it.}
+from it. The instrument in the last row is a consumer rolling-shutter sensor on a nominal frame clock; Section~\ref{sec:setup} gives its electronic error sources.}
 \label{tab:soa}
 \footnotesize
 \begin{tabular}{@{}llccc@{}}
@@ -580,8 +580,8 @@ and creases automatically would remove the step and the tap error with it.
 
 \section{Conclusion}
 
-A single phone behind the batter can reconstruct a cricket delivery in metres if it uses the one event the
-delivery always contains. The bounce fixes a point on a known plane at a known instant, and with that anchor
+A single phone behind the batter can reconstruct a cricket delivery in metres if it uses the one event a
+pitched delivery contains. The bounce fixes a point on a known plane at a known instant, and with that anchor
 the monocular projectile problem, ill-conditioned along the depth of a ball flying at the camera, becomes two
 over-determined linear problems joined by a restitution coefficient. On \GeoTotal{} synthetic deliveries
 with exact truth the anchored estimator agrees with the true verdict in \GeoAgreeAll\% of cases with
