@@ -73,41 +73,6 @@ def fig_geometry():
     fig.savefig(os.path.join(FIGS, "geometry.pdf")); plt.close(fig)
 
 
-def fig_sweeps():
-    g = load("exp1_geometry.csv")
-    sweeps = [("noise_px", "Pixel noise (px)", [0.0, 0.5, 1.0, 2.0, 3.0, 5.0]),
-              ("fps", "Frame rate (Hz)", [30.0, 60.0, 120.0, 240.0]),
-              ("tap_px", "Tap noise (px)", [0.0, 2.0, 4.0, 8.0, 12.0]),
-              ("dropout", "Dropped frames", [0.0, 0.1, 0.25, 0.4])]
-    fig, axes = plt.subplots(2, 4, figsize=(7.1, 2.7), sharey="row")
-    for j, (key, label, vals) in enumerate(sweeps):
-        for est, col, mk in (("anchored", BLUE, "o"), ("parabola", ORANGE, "s")):
-            ag, my, mz = [], [], []
-            for v in vals:
-                rs = [r for r in g if r["sweep"] == f"{key}={v}" and r["estimator"] == est]
-                ag.append(100.0 * sum(1 for r in rs if r["verdict"] == r["truth"]) / max(1, len(rs)))
-                ok = [r for r in rs if r["ok"] == "True"]
-                my.append(nanmed([fl(r, "y_err_cm") for r in ok])); mz.append(nanmed([fl(r, "z_err_cm") for r in ok]))
-            axes[0, j].plot(vals, ag, marker=mk, ms=3, color=col, label="anchored" if est == "anchored" else "single parabola")
-            axes[1, j].plot(vals, my, marker=mk, ms=3, color=col, label=f"lateral $y$")
-            axes[1, j].plot(vals, mz, marker=mk, ms=3, color=col, ls="--", label=f"vertical $z$")
-        axes[1, j].set_xlabel(label)
-        if key == "fps":
-            from matplotlib.ticker import NullFormatter, FixedLocator, FixedFormatter
-            for ax in (axes[0, j], axes[1, j]):
-                ax.set_xscale("log")
-                ax.xaxis.set_major_locator(FixedLocator(vals)); ax.xaxis.set_major_formatter(FixedFormatter([f"{int(v)}" for v in vals]))
-                ax.xaxis.set_minor_locator(FixedLocator([])); ax.xaxis.set_minor_formatter(NullFormatter())
-        axes[1, j].set_yscale("log")
-    axes[0, 0].set_ylabel("Agreement (%)"); axes[1, 0].set_ylabel("Median error (cm)")
-    axes[0, 0].set_ylim(0, 100)
-    axes[0, 0].legend(frameon=False, loc="lower left")
-    h, l = axes[1, 0].get_legend_handles_labels()
-    axes[1, 3].legend([h[0], h[1]], ["lateral $y$", "vertical $z$"], frameon=False, loc="lower right", handlelength=1.8)
-    fig.subplots_adjust(hspace=0.35, wspace=0.12)
-    fig.savefig(os.path.join(FIGS, "sweeps.pdf")); plt.close(fig)
-
-
 def fig_coverage():
     g = [r for r in load("exp1_geometry.csv") if r["estimator"] == "anchored" and r["ok"] == "True" and r["bounce_observed"] == "True"]
     fig, axes = plt.subplots(1, 2, figsize=(3.4, 1.7))
@@ -127,6 +92,6 @@ def fig_coverage():
 
 
 if __name__ == "__main__":
-    for fn in (fig_geometry, fig_sweeps, fig_coverage):
+    for fn in (fig_geometry, fig_coverage):
         fn(); print("ok", fn.__name__)
     print("figures written to", FIGS)
