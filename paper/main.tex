@@ -69,6 +69,15 @@ facts is a constraint, and together they are enough to make the monocular proble
 is written as a measurement paper: a calibration from reference artefacts, an estimator with a propagated
 uncertainty, a test of how well that uncertainty covers the true error, and a decision rule that uses it.
 
+In the terms of instrumentation and measurement, the instrument is a consumer camera of unknown intrinsics,
+the reference artefacts are the stumps and creases whose dimensions the Laws of Cricket fix, the measurand is
+the ball's position where its projected path crosses the stump plane, and the output is a statement of
+conformity against a limit the Laws set, carrying a band that accounts for the uncertainty of the measurement
+itself~\cite{carullo2024conformity}. What we have not found reported together in one instrument is a single
+hand-held uncalibrated camera, an uncertainty propagated to a measurand the camera never observes directly,
+and an acceptance band widened by that uncertainty so the instrument declines a call it cannot support.
+Table~\ref{tab:soa} places the method among the closest systems in that literature.
+
 Monocular projectile estimation~\cite{ribnick2009projectiles} recovers scale from gravity, a cue that is
 strong when the parabola is seen side-on and weak when the ball travels along the optical axis, as it does from the natural phone position behind
 either set of stumps. The apparent size of the ball~\cite{vanzandycke2022ball3d}
@@ -103,13 +112,61 @@ here are new.
 \subsection{Vision-based measurement}
 
 We treat the phone as a measuring instrument in the sense of Shirmohammadi and
-Ferrero~\cite{shirmohammadi2014camera}: the camera is the sensor, the calibration artefacts are the stumps
-and creases whose dimensions the Laws fix, the measurand is the ball's position at the stump plane, and the
-result carries an uncertainty that is itself tested. Ball trajectories have been measured with calibrated
-high-speed stereo rigs for table tennis~\cite{zhang2010tabletennis} and golf~\cite{wang2019golf}, and Di Leo
-et al.~\cite{dileo2011covariance} propagate covariance through stereo triangulation to an uncertainty on the
-reconstructed point. Here there is one hand-held camera with unknown intrinsics, the object is a few pixels wide, and the
-uncertainty must be carried through a nonlinear fit and an extrapolation to a decision.
+Ferrero~\cite{shirmohammadi2014camera}: the camera is the sensor, the stumps and creases whose dimensions the
+Laws fix are the calibration artefacts, the measurand is the ball's position at the stump plane, and the
+result carries an uncertainty that is itself tested. Vision-based measurement is now the practical option
+wherever dedicated sensors cannot be installed~\cite{mi2021vbm}, the phone included: six degrees of freedom of
+a moving rigid body from smartphone cameras~\cite{zhu2022smartphone6dof}, and calibration of a mobile camera
+from scene structure and the onboard accelerometer rather than a printed target~\cite{arik2022mobilecalib}.
+Ours is of that kind; the target is the pitch itself.
+
+Ball trajectories have been measured with calibrated high-speed stereo rigs for table
+tennis~\cite{zhang2010tabletennis} and golf~\cite{wang2019golf}. Single-view measurement of a moving target is
+reported for moving points~\cite{huang2025monotraj}, high-speed objects with a steered mirror or a second
+moving platform~\cite{wang2024quasi1d,guo2026pose}, tracked outlines~\cite{hong2025outline}, manipulated
+objects~\cite{xia2020vmp}, and learned monocular detection~\cite{yang2024monopstr}; in sport, for tennis ball
+speed and spin from one camera~\cite{zhu2026tennis}, for the ball-racket rebound of a table-tennis
+robot~\cite{sun2024rebound}, which is the closest analogue here to the bounce we anchor on, and for projectile
+estimation without a velocity input~\cite{deng2020spinning}. Each fixes scale with a second view, a steered or
+known range, a controlled setting, or a learned prior, and none is a hand-held phone looking down twenty
+metres of pitch at a ball a few pixels wide.
+
+The uncertainty of the result is the other half of this literature: covariance through stereo
+triangulation~\cite{dileo2011covariance}, Monte Carlo evaluation of a tracking-based
+system~\cite{jiang2021uncertainty}, analytic propagation for convergent stereo~\cite{ezebili2024uncertainty},
+prediction of binocular uncertainty from a first-order linearised covariance~\cite{he2026binocular}, which is
+the device used here, and propagation along a whole measurement chain in computer-assisted
+surgery~\cite{he2024orthopedic} and multi-robot pose-graph merging~\cite{feng2025errorprop}. Where a learned
+component sits in the chain, as our detector does, the guidance is to quantify what the learning
+contributes~\cite{alosman2021mluq,buchicchio2025uq}, which is why we report end-to-end agreement with the
+detector in the loop separately, and Section~\ref{sec:results} sweeps the extrinsic calibration error whose
+effect on monocular measurement is quantified in~\cite{wang2024extrinsicerror}. What is new is not the
+propagation or the single view but what they are for: the propagated sigma sets the width of a decision band,
+which is how measurement uncertainty enters a statement of conformity~\cite{carullo2024conformity}.
+
+\begin{table}[t]
+\centering
+\caption{Vision-based measurement of a moving target in the instrumentation and measurement literature.
+\emph{Views}: viewpoints the metric scale depends on; $u$: an uncertainty reported on the measured quantity;
+\emph{band}: a decision limit set from that uncertainty.}
+\label{tab:soa}
+\footnotesize
+\begin{tabular}{@{}llccc@{}}
+\toprule
+Work & Target & Views & Mount & $u$, band \\
+\midrule
+\cite{zhang2010tabletennis} & table-tennis ball & 2 & fixed & --, -- \\
+\cite{wang2019golf} & golf ball & 2 & fixed & --, -- \\
+\cite{dileo2011covariance} & scene point & 2 & fixed & $u$, -- \\
+\cite{he2026binocular} & scene point & 2 & fixed & $u$, -- \\
+\cite{huang2025monotraj} & moving points & 1 & fixed & --, -- \\
+\cite{wang2024quasi1d} & high-speed object & 1 + mirror & fixed & --, -- \\
+\cite{guo2026pose} & high-speed object & 2 & moving & --, -- \\
+\cite{zhu2026tennis} & tennis ball & 1 & fixed & --, -- \\
+This work & cricket ball at the stumps & 1 & hand-held & $u$, band \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Multi-camera ball tracking}
 
@@ -302,7 +359,9 @@ if a shot was offered, which we cannot see, so impact outside the line on either
 $z^\star \leq h_s$ for the centre. The playing conditions~\cite{icc2023drs} treat a centre within one ball
 radius outside a boundary as umpire's call. We widen each band to $\max(R, k\sigma)$ with $k = 1$ and the
 relevant propagated sigma, so a decision the estimate cannot support at one sigma is returned as umpire's
-call rather than asserted. The choice of $k$ trades false outs against umpire's calls and
+call rather than asserted. This is a guard band: the acceptance limit is
+moved by the uncertainty of the measurement, so a result too close to the limit is not declared to lie on one
+side of it~\cite{carullo2024conformity}. The choice of $k$ trades false outs against umpire's calls and
 Section~\ref{sec:kcurve} traces the curve.
 
 \section{Experimental Setup}
@@ -557,7 +616,9 @@ with exact truth the anchored estimator agrees with the true verdict in \GeoAgre
 \GeoFalseOut{} false outs and median stump-plane errors of \GeoMedYAll{} and \GeoMedZAll~cm, against
 \GeoAgreeAllParabola\% and errors ten times larger without the anchor; through the full pipeline it agrees on \EteAgree{} of \EteN{} with no false outs. The propagated uncertainty is slightly optimistic, is reported as such,
 and is used as the Laws use umpire's call, to decline a call the evidence does not support. The system is a
-coaching instrument that says how sure it is, not a substitute for a multi-camera rig.
+coaching instrument that says how sure it is, not a substitute for a multi-camera rig. As an instrument it is a measurement chain that
+installs nothing: artefacts the playing surface already carries, a covariance taken from pixels to a measurand
+the camera never sees, and an acceptance band set by that covariance rather than a fixed tolerance.
 
 \section*{Acknowledgments and Declarations}
 
