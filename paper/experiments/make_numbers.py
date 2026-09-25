@@ -6,6 +6,7 @@ Usage:  python make_numbers.py   (writes ../numbers.tex and ../tables/*.tex)
 import csv
 import json
 import os
+import re
 import statistics
 
 import numpy as np
@@ -170,6 +171,7 @@ for c in ("y", "z"):
     ratio = np.array([r[f"{c}_err_cm"] / max(r[f"sigma_{c}_cm"], 1e-3) for r in okb])
     m(f"Cov{c.upper()}One", 100.0 * np.mean(ratio <= 1.0)); m(f"Cov{c.upper()}Two", 100.0 * np.mean(ratio <= 2.0))
     m(f"Cov{c.upper()}Three", 100.0 * np.mean(ratio <= 3.0)); m(f"Cov{c.upper()}Median", float(np.median(ratio)), "{:.2f}")
+    m(f"KEmpExpOne{c.upper()}Sixtyeight", np.percentile(ratio, 68.27), "{:.2f}"); m(f"KEmpExpOne{c.upper()}Ninetyfive", np.percentile(ratio, 95.0), "{:.2f}")
 m("BounceObservedPct", 100.0 * sum(1 for r in A if r["ok"] and r["bounce_observed"]) / max(1, sum(1 for r in A if r["ok"])))
 m("MedSigmaY", med([r["sigma_y_cm"] for r in okb])); m("MedSigmaZ", med([r["sigma_z_cm"] for r in okb]))
 
@@ -246,6 +248,355 @@ for clip in ("test3", "test4"):
 t5 = next(x for x in e3 if x["clip"] == "test5" and x["frames"] == "all")
 m("RealTestFiveReproj", t5["reproj_px"]); m("RealTestFiveTrack", t5["n_track"], "{}")
 m("RealTestFiveLength", t5["length_m"]); m("RealTestFiveResidual", t5["discard_px"], "{:.0f}")
+
+# ------------------------------------------------------------------ revision: uncertainty experiments 4-9
+# each block runs only when its raw files exist, so the committed results above stay reproducible alone
+def have(*names):
+    return all(os.path.exists(os.path.join(RAW, n)) for n in names)
+
+
+def js(name):
+    return json.load(open(os.path.join(RAW, name)))
+
+
+def f1(x, fmt="{:.1f}"):
+    return "--" if x is None or (isinstance(x, float) and np.isnan(x)) else fmt.format(x)
+
+
+ALPHA_TAG = {"0.01": "One", "0.05": "Five"}
+QTY = ("pitch_y", "crease_y", "y", "z")
+
+
+DIGITS = "Zero One Two Three Four Five Six Seven Eight Nine".split()
+FPS_TAG = {"30": "Thirty", "60": "Sixty", "120": "OneTwenty", "240": "TwoForty"}
+
+
+def mtag(s):
+    # latex macro names take letters only, so digits are spelled out
+    s = re.sub(r"\d", lambda d: f" {DIGITS[int(d.group())]} ", s)
+    return "".join(w[:1].upper() + w[1:] for w in re.split(r"[^A-Za-z]+", s) if w)
+
+if have("exp1_ablation.csv"):
+    ab = [r for r in rows("exp1_ablation.csv") if r["estimator"] == "anchored"]
+    for cell, tag in (("calib=app", "App"), ("calib=pin_fov", "Pinned"), ("calib=free_length", "FreeLength"),
+                      ("fov70 calib=app", "WideApp"), ("fov70 calib=pin_fov", "WidePinned")):
+        sub = [r for r in ab if r["sweep"] == cell]
+        if not sub:
+            continue
+        ok = [r for r in sub if r["ok"]]
+        m(f"Abl{tag}FocalErr", med([abs(r["calib_focal_err_pct"]) for r in sub if r["calib_focal_err_pct"] is not None]), "{:.2f}")
+        m(f"Abl{tag}ContactX", med([r["contact_x_err_cm"] for r in ok]))
+        m(f"Abl{tag}MedY", med([r["y_err_cm"] for r in ok])); m(f"Abl{tag}MedZ", med([r["z_err_cm"] for r in ok]))
+        m(f"Abl{tag}Agree", agree(sub)); m(f"Abl{tag}FalseOut", false_out(sub), "{}")
+
+BUDGET_PDF = {
+    "calibration taps": ("B", "N(0, 2 px)"), "ball centre": ("B", "N(0, 1 px)"),
+    "frame-time jitter": ("B", "N(0, 0.5 ms)"), "frame phase": ("B", "U[0, T]"),
+    "shipped frame sampler": ("bug", "17 ms grid"), "bounce split": ("A", "20 draws"),
+    "frame rate 59.80 vs 60 Hz": ("B", "U[0.99673, 1]"), "rolling shutter, uncorrected": ("B", "U[-30, 30] ms"),
+    "lens distortion": ("B", "U[-1, 1] \\%"), "pitch length L": ("B", "U[-5, 5] cm"), "pitch width W": ("B", "U[-10, 10] cm"),
+    "stump height H": ("B", "U[-1, 1] cm"), "wicket half-width w": ("B", "U[-2.5, 2.5] mm"),
+    "bails tapped as top": ("B", "U[0, 1.27] cm"), "restitution e": ("B", "U[0.40, 0.70]"), "drag Cd": ("B", "U[0.35, 0.55]"),
+    "swing Cs": ("B", "U[-0.3, 0.3]"), "seam deviation": ("B", "U[-2, 2] deg"), "friction at contact": ("B", "U[0.05, 0.20]"),
+}
+SAMPLER_ROW = "shipped frame sampler"
+
+if have("exp4_budget_rep.csv", "exp4_budget.json"):
+    rep4 = rows("exp4_budget_rep.csv")
+    b4 = js("exp4_budget.json")
+    dist4 = b4["distribution"]
+    # u_c with and without the shipped-sampler bug (a correctable offset, not an uncertainty)
+    for q in ("y", "z"):
+        us = [r[f"u_{q}_mm"] for r in rep4 if r[f"u_{q}_mm"] is not None]
+        us_ns = [r[f"u_{q}_mm"] for r in rep4 if r[f"u_{q}_mm"] is not None and r["row"] != SAMPLER_ROW]
+        m(f"BudRepUc{q.upper()}", float(np.sqrt(np.sum(np.square(us)))))
+        m(f"BudRepUcNoSampler{q.upper()}", float(np.sqrt(np.sum(np.square(us_ns)))))
+        m(f"BudRepPipeSigma{q.upper()}", b4["pipeline_sigma_mm"][q])
+        # exp4's own distribution u_c counts the sampler bug, so rebuild it per delivery without that row
+        per = []
+        for r in rows("exp4_budget_dist.csv"):
+            v = [r[k] for k in r if k.endswith(f"|{q}") and not k.startswith(("u_c|", SAMPLER_ROW + "|")) and r[k] is not None]
+            if v:
+                per.append((float(np.sqrt(np.sum(np.square(v)))), max((r[k] or 0.0, k.split("|")[0]) for k in r
+                            if k.endswith(f"|{q}") and not k.startswith(("u_c|", SAMPLER_ROW + "|")))[1]))
+        ucs = np.array([u for u, _ in per])
+        dom = {}
+        for _, row in per:
+            dom[row] = dom.get(row, 0) + 1
+        dom = sorted(dom.items(), key=lambda kv: -kv[1])
+        dist4[q]["u_c_nosampler_median_mm"] = float(np.median(ucs))
+        m(f"BudDistUcMed{q.upper()}", float(np.median(ucs))); m(f"BudDistUcPNinety{q.upper()}", float(np.percentile(ucs, 90)))
+        m(f"BudDistUcMedWithSampler{q.upper()}", dist4[q]["u_c_median_mm"])
+        m(f"BudDistDominant{q.upper()}", dom[0][0]); m(f"BudDistDominantCount{q.upper()}", dom[0][1], "{}")
+        top = sorted(((r[f"u_{q}_mm"] or 0.0, r["row"]) for r in rep4 if r["row"] != SAMPLER_ROW), reverse=True)
+        m(f"BudRepTop{q.upper()}", top[0][1]); m(f"BudRepTop{q.upper()}Mm", top[0][0])
+        m(f"BudRepSecond{q.upper()}", top[1][1]); m(f"BudRepSecond{q.upper()}Mm", top[1][0])
+    m("BudDistN", dist4["n_deliveries"], "{}")
+    samp = next(r for r in rep4 if r["row"] == SAMPLER_ROW)
+    m("BudSamplerY", samp["u_y_mm"]); m("BudSamplerZ", samp["u_z_mm"])
+    L = [r"\begin{tabular}{llcccc}", r"\toprule",
+         r"& & \multicolumn{2}{c}{Representative (mm)} & \multicolumn{2}{c}{Median of " + f"{dist4['n_deliveries']}" + r" (mm)} \\",
+         r"\cmidrule(lr){3-4}\cmidrule(lr){5-6}",
+         r"Input $x_i$ & Type, PDF & $u_i(y)$ & $u_i(z)$ & $u_i(y)$ & $u_i(z)$ \\", r"\midrule"]
+    for r in rep4:
+        if r["row"] == SAMPLER_ROW:
+            continue
+        t, pdf = BUDGET_PDF.get(r["row"], ("", ""))
+        py = dist4["y"]["per_row"].get(r["row"], {}).get("median"); pz = dist4["z"]["per_row"].get(r["row"], {}).get("median")
+        L.append(f"{r['row'].replace('Cd', '$C_d$').replace('Cs', '$C_s$')} & {t}, {pdf} & {f1(r['u_y_mm'])} & {f1(r['u_z_mm'])} & "
+                 f"{f1(py)} & {f1(pz)} \\\\")
+    L += [r"\midrule",
+          f"Combined $u_c$ & & {macros['BudRepUcNoSamplerY']} & {macros['BudRepUcNoSamplerZ']} & "
+          f"{f1(dist4['y']['u_c_nosampler_median_mm'])} & {f1(dist4['z']['u_c_nosampler_median_mm'])} \\\\",
+          f"Pipeline's own $\\sigma$ & & {f1(b4['pipeline_sigma_mm']['y'])} & {f1(b4['pipeline_sigma_mm']['z'])} & & \\\\",
+          f"Shipped 17 ms sampler (bug) & offset & {f1(samp['u_y_mm'])} & {f1(samp['u_z_mm'])} & "
+          f"{f1(dist4['y']['per_row'].get(SAMPLER_ROW, {}).get('median'))} & {f1(dist4['z']['per_row'].get(SAMPLER_ROW, {}).get('median'))} \\\\",
+          r"\bottomrule", r"\end{tabular}"]
+    write_table("budget.tex", L)
+
+if have("exp5_mc.json"):
+    b5 = js("exp5_mc.json")
+    r5 = b5["representative"]
+    m("McM", r5["M"], "{}"); m("McBatches", r5["batches"], "{}")
+    m("McStable", "yes" if r5["adaptive_stable"] else "no"); m("McFailed", r5["failed_trials"], "{}")
+    L = [r"\begin{tabular}{lcccccc}", r"\toprule",
+         r"& \multicolumn{2}{c}{JCGM 100 (linear)} & \multicolumn{2}{c}{JCGM 101 (Monte Carlo)} & & \\",
+         r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}",
+         r"Measurand & $u_c$ (mm) & 95\,\% interval (mm) & $u$ (mm) & 95\,\% interval (mm) & $d_\mathrm{low}$ / $d_\mathrm{high}$ (mm) & $\delta$ (mm) \\",
+         r"\midrule"]
+    for q, name in (("y", "Lateral $y$"), ("z", "Vertical $z$")):
+        e = r5[q]
+        lo, hi = e["y_gum"] - 1.96 * e["u_c"], e["y_gum"] + 1.96 * e["u_c"]
+        L.append(f"{name} & {e['u_c'] * 1000:.1f} & [{lo * 1000:.1f}, {hi * 1000:.1f}] & {e['mc_u'] * 1000:.1f} & "
+                 f"[{e['mc_low'] * 1000:.1f}, {e['mc_high'] * 1000:.1f}] & {e['d_low'] * 1000:.1f} / {e['d_high'] * 1000:.1f} & "
+                 f"{e['delta'] * 1000:.1f} \\\\")
+        Q = q.upper()
+        m(f"McUc{Q}", e["u_c"] * 1000); m(f"McU{Q}", e["mc_u"] * 1000); m(f"McMean{Q}", e["mc_mean"] * 1000)
+        m(f"McLow{Q}", e["mc_low"] * 1000); m(f"McHigh{Q}", e["mc_high"] * 1000); m(f"McGum{Q}", e["y_gum"] * 1000)
+        m(f"McGumLow{Q}", lo * 1000); m(f"McGumHigh{Q}", hi * 1000)
+        m(f"McDLow{Q}", e["d_low"] * 1000); m(f"McDHigh{Q}", e["d_high"] * 1000); m(f"McDelta{Q}", e["delta"] * 1000)
+        m(f"McValid{Q}", "passes" if e["valid"] else "fails"); m(f"McRatio{Q}", e["mc_u"] / e["u_c"], "{:.2f}")
+    L += [r"\bottomrule", r"\end{tabular}"]
+    write_table("mc.tex", L)
+    s5 = b5["subset"]
+    m("McSubN", s5["n"], "{}"); m("McSubTrials", s5["trials_each"], "{}")
+    m("McSubValidY", s5["valid_y"], "{}"); m("McSubValidZ", s5["valid_z"], "{}")
+    for q in ("y", "z"):
+        rr = s5[f"ratio_u_{q}"]
+        if rr:
+            m(f"McSubRatioMin{q.upper()}", min(rr), "{:.2f}"); m(f"McSubRatioMax{q.upper()}", max(rr), "{:.2f}")
+            m(f"McSubRatioMed{q.upper()}", float(np.median(rr)), "{:.2f}")
+    for i, q in enumerate(("y", "z")):
+        # numerical tolerance the MC actually reached, and the pipeline's own sigma over the same trials
+        m(f"McTwoSMax{q.upper()}", max(r5["history"][-1]["two_s_mm"][i]))
+        m(f"McPipeSigmaMed{q.upper()}", r5["pipeline_sigma_median_mm"][q])
+
+    if have("exp4_budget_rep.csv", "exp4_budget.json", "exp4_budget_dist.csv"):
+        # grouped budget for the 8-page paper; the per-input table (budget.tex) goes to the supplement
+        GROUPS = (("Taps", "Calibration taps", "B", ("calibration taps",)),
+                  ("Ball", "Ball centre, bounce split", "A, B", ("ball centre", "bounce split")),
+                  ("Timing", "Frame timing", "B", ("frame-time jitter", "frame phase", "frame rate 59.80 vs 60 Hz",
+                                                   "rolling shutter, uncorrected")),
+                  ("Scene", "Scene dimensions", "B", ("pitch length L", "pitch width W", "stump height H",
+                                                      "wicket half-width w", "bails tapped as top")),
+                  ("Lens", "Lens distortion", "B", ("lens distortion",)),
+                  ("Flight", "Unmodelled flight", "B", ("restitution e", "drag Cd", "swing Cs", "seam deviation",
+                                                         "friction at contact")))
+        ungrouped = {r["row"] for r in rep4} - {n for *_, ns in GROUPS for n in ns} - {SAMPLER_ROW}
+        assert not ungrouped, f"budget rows missing from GROUPS: {ungrouped}"
+        dist_rows = rows("exp4_budget_dist.csv")
+
+        def rss(vals):
+            v = [x for x in vals if x is not None]
+            return float(np.sqrt(np.sum(np.square(v)))) if v else None
+
+        L = [r"\begin{tabular}{llcccc}", r"\toprule",
+             r"& & \multicolumn{2}{c}{Representative} & \multicolumn{2}{c}{Median of " + f"{dist4['n_deliveries']}" + r"} \\",
+             r"\cmidrule(lr){3-4}\cmidrule(lr){5-6}",
+             r"Input group & Type & $u(y)$ & $u(z)$ & $u(y)$ & $u(z)$ \\", r"\midrule"]
+        for tag, label, typ, names in GROUPS:
+            rep = [rss(r[f"u_{q}_mm"] for r in rep4 if r["row"] in names) for q in ("y", "z")]
+            # RSS within the group per delivery, then the median over deliveries
+            dm = [med([rss(d.get(f"{n}|{q}") for n in names) for d in dist_rows]) for q in ("y", "z")]
+            L.append(f"{label} & {typ} & {f1(rep[0])} & {f1(rep[1])} & {f1(dm[0])} & {f1(dm[1])} \\\\")
+            for q, a, b in (("Y", rep[0], dm[0]), ("Z", rep[1], dm[1])):
+                m(f"BudGrp{tag}Rep{q}", a if a is not None else float("nan")); m(f"BudGrp{tag}Med{q}", b)
+        flight = GROUPS[-1][3]
+        for q in ("y", "z"):
+            # measurement inputs only, to set beside the pipeline's own sigma
+            m(f"BudRepMeas{q.upper()}", rss(r[f"u_{q}_mm"] for r in rep4 if r["row"] not in flight and r["row"] != SAMPLER_ROW))
+        L += [r"\midrule",
+              f"Combined $u_c$ (JCGM 100) & & {macros['BudRepUcNoSamplerY']} & {macros['BudRepUcNoSamplerZ']} & "
+              f"{macros['BudDistUcMedY']} & {macros['BudDistUcMedZ']} \\\\",
+              f"Monte Carlo $u$ (JCGM 101) & & {macros['McUY']} & {macros['McUZ']} & & \\\\",
+              f"Pipeline's own $\\sigma$ & & {macros['BudRepPipeSigmaY']} & {macros['BudRepPipeSigmaZ']} & & \\\\",
+              r"\bottomrule", r"\end{tabular}"]
+        write_table("budget_short.tex", L)
+
+if have("exp6_model_error.json", "exp6_worldb.csv"):
+    b6 = js("exp6_model_error.json")
+    SETS6 = (("fit only (as shipped)", "Fit"), ("fit + calibration", "FitCal"), ("fit + calibration + model", "Full"))
+    m("CovBN", b6["n"], "{}"); m("CovBFitted", b6["fitted"], "{}"); m("CovBBounce", b6["bounce_observed"], "{}")
+    L = [r"\begin{tabular}{lcccc}", r"\toprule",
+         r"& \multicolumn{2}{c}{Lateral $y$} & \multicolumn{2}{c}{Vertical $z$} \\", r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}",
+         r"1-$\sigma$ used & $|e| \le \sigma$ & $|e| \le 1.96\sigma$ & $|e| \le \sigma$ & $|e| \le 1.96\sigma$ \\", r"\midrule",
+         f"Exp.~1, pipeline $\\sigma$ (before) & {macros['CovYOne']} & -- & {macros['CovZOne']} & -- \\\\"]
+    for key, tag in SETS6:
+        c = b6["coverage"]
+        L.append(f"World B, {key} & {c['y'][key]['one']:.1f} & {c['y'][key]['p95']:.1f} & {c['z'][key]['one']:.1f} & {c['z'][key]['p95']:.1f} \\\\")
+        for q in QTY:
+            Q = {"pitch_y": "Pitch", "crease_y": "Crease", "y": "Y", "z": "Z"}[q]
+            m(f"CovB{tag}{Q}One", c[q][key]["one"]); m(f"CovB{tag}{Q}Ninetyfive", c[q][key]["p95"])
+            m(f"CovB{tag}{Q}Ratio", c[q][key]["median_ratio"], "{:.2f}")
+    L += [r"\midrule", r"Nominal & 68.3 & 95.0 & 68.3 & 95.0 \\", r"\bottomrule", r"\end{tabular}"]
+    write_table("coverage.tex", L)
+    # the multiple of each sigma that really covers 68.3 % and 95 % of errors (diagnostic, review item 11)
+    use6 = [r for r in rows("exp6_worldb.csv") if r["ok"] and r["bounce"]]
+    for key, tag in SETS6:
+        terms = ("sfit", "scal", "smod")[:{"Fit": 1, "FitCal": 2, "Full": 3}[tag]]
+        for q in ("y", "z"):
+            a = np.array([abs(r[f"err_{q}"]) / np.sqrt(sum(r[f"{t}_{q}"] ** 2 for t in terms)) for r in use6
+                          if all(r.get(f"{t}_{q}") is not None for t in ("err", "sfit", "scal", "smod"))])
+            m(f"KEmp{tag}{q.upper()}Sixtyeight", np.percentile(a, 68.27), "{:.2f}")
+            m(f"KEmp{tag}{q.upper()}Ninetyfive", np.percentile(a, 95.0), "{:.2f}")
+    for q in QTY:
+        Q = {"pitch_y": "Pitch", "crease_y": "Crease", "y": "Y", "z": "Z"}[q]
+        f = b6["forms"][q]
+        m(f"Mod{Q}Form", f["chosen"]); m(f"Mod{Q}ParamOne", f["params_m"][0] * 1000, "{:.2f}")   # mm, or mm per m of x_b
+        if len(f["params_m"]) > 1:
+            m(f"Mod{Q}ParamTwo", f["params_m"][1] * 1000, "{:.2f}")
+        m(f"Mod{Q}MeanErr", f["mean_err_mm"]); m(f"Mod{Q}MedErr", f["median_abs_err_mm"])
+        m(f"Mod{Q}SigFit", f["median_sigma_fit_mm"]); m(f"Mod{Q}SigCal", f["median_sigma_cal_mm"]); m(f"Mod{Q}SigMod", f["median_sigma_mod_mm"])
+    sw = b6["sweeps"]
+    L = [r"\begin{tabular}{lccccc}", r"\toprule",
+         r"Configuration & $n$ & Median $|e_y|$ / $|e_z|$ (mm) & Mean $e_y$ / $e_z$ (mm) & 1-$\sigma$ cover $y$ / $z$, fit (\%) & 1-$\sigma$ cover $y$ / $z$, full (\%) \\",
+         r"\midrule"]
+    for key, ent in sw.items():
+        if "y" not in ent or "z" not in ent:
+            continue
+        parts = key.split("|")
+        if parts[0] == "rs":
+            lab = f"readout {float(parts[1]) * 1000:+.0f} ms, {'corrected' if parts[2] == 'True' else 'uncorrected'}"
+            if float(parts[1]) == 0.0:
+                lab = "global shutter"
+        else:
+            lab = parts[1].replace("59.80", "59.80 Hz")
+        y, z = ent["y"], ent["z"]
+        L.append(f"{lab} & {ent['n']} & {y['median_abs_mm']:.1f} / {z['median_abs_mm']:.1f} & {y['mean_mm']:+.1f} / {z['mean_mm']:+.1f} & "
+                 f"{y['cov_fit']['one']:.0f} / {z['cov_fit']['one']:.0f} & {y['cov_full']['one']:.0f} / {z['cov_full']['one']:.0f} \\\\")
+    L += [r"\bottomrule", r"\end{tabular}"]
+    write_table("coverage_sweeps.tex", L)
+    for key, tag in (("rs|0.0|False", "RsZero"), ("rs|0.03|False", "RsThirty"), ("rs|0.03|True", "RsThirtyCorr"),
+                     ("rs|-0.03|False", "RsMinusThirty"), ("sampler|timestamps", "SampTs"),
+                     ("sampler|timestamps, 59.80 metadata", "SampTsMeta"), ("sampler|shipped 17 ms grid", "SampShipped"),
+                     ("sampler|shipped 17 ms grid, 59.80 metadata", "SampShippedMeta")):
+        ent = sw.get(key, {})
+        for q in ("y", "z"):
+            if q in ent:
+                Q = q.upper()
+                m(f"Sw{tag}Med{Q}", ent[q]["median_abs_mm"]); m(f"Sw{tag}Mean{Q}", ent[q]["mean_mm"])
+                m(f"Sw{tag}CovFit{Q}", ent[q]["cov_fit"]["one"]); m(f"Sw{tag}CovFull{Q}", ent[q]["cov_full"]["one"])
+
+if have("exp7_risk.json"):
+    b7 = js("exp7_risk.json")
+    m("RiskN", b7["n"], "{}")
+    for c in ("out", "umpires_call", "not_out"):
+        m("RiskTruth" + {"out": "Out", "umpires_call": "Ump", "not_out": "NotOut"}[c], b7["truth_mix"][c], "{}")
+    for a, b in b7["bounds"].items():
+        m(f"RiskBoundSingle{ALPHA_TAG[a]}", b["single_test"], "{:.2f}"); m(f"RiskBoundFour{ALPHA_TAG[a]}", b["four_tests"], "{:.2f}")
+    for s, stag in (("fit", "Fit"), ("fit+cal", "FitCal"), ("full", "Full")):
+        for a, ch in b7["chosen"][s].items():
+            A_ = ALPHA_TAG[a]
+            m(f"Risk{stag}K{A_}", "none" if ch["k_specific"] is None else f"{ch['k_specific']:.2f}")
+            m(f"Risk{stag}KGlobal{A_}", "none" if ch["k_global_joint"] is None else f"{ch['k_global_joint']:.2f}")
+            r = ch["at_k_specific"]
+            if r:
+                m(f"Risk{stag}Agree{A_}", r["agree_pct"]); m(f"Risk{stag}Ump{A_}", r["ump_pct"]); m(f"Risk{stag}Out{A_}", r["out_pct"])
+                m(f"Risk{stag}FalseOut{A_}", r["false_out"], "{}"); m(f"Risk{stag}MissedOut{A_}", r["missed_out"], "{}")
+                m(f"Risk{stag}FalseOutCp{A_}", r["false_out_joint_cp95_pct"], "{:.2f}")
+                m(f"Risk{stag}OutToUmp{A_}", r["true_out_to_ump_pct"])
+        r1 = b7["at_k"][s]["1"]
+        m(f"Risk{stag}KOneAgree", r1["agree_pct"]); m(f"Risk{stag}KOneUmp", r1["ump_pct"])
+        m(f"Risk{stag}KOneFalseOut", r1["false_out"], "{}"); m(f"Risk{stag}KOneMaxSpec", r1["max_specific_false_out_pct"])
+        m(f"Risk{stag}KOneMissedOut", r1["missed_out"], "{}")
+        r0 = b7["at_k"][s]["0"]
+        m(f"Risk{stag}KZeroAgree", r0["agree_pct"]); m(f"Risk{stag}KZeroFalseOut", r0["false_out"], "{}")
+        m(f"Risk{stag}KZeroMaxSpec", r0["max_specific_false_out_pct"])
+    sh = b7["shipped"]
+    if "max_specific_false_out_full_sigma_pct" in sh:
+        m("RiskShippedMaxSpecFull", sh["max_specific_false_out_full_sigma_pct"])
+        m("RiskShippedMeanSpecFull", sh["mean_specific_false_out_full_sigma_pct"])
+        m("RiskShippedOutsOverFive", sh["outs_over_5pct_full_sigma"], "{}")
+        m("RiskShippedOutToUmp", sh["true_out_to_ump_pct"])
+
+if have("exp8_physics.json"):
+    b8 = js("exp8_physics.json")
+    ph = b8.get("physics", {})
+    if ph:
+        keys = list(next(iter(ph.values()))["agree_pct"])
+        full_keys = [k for k in keys if k.startswith("full")]
+        L = [r"\begin{tabular}{lcccc" + "c" * len(full_keys) + "}", r"\toprule",
+             r"Unmodelled effect & Median $|e_y|$ / $|e_z|$ (mm) & Mean $e_y$ / $e_z$ (mm) & 1-$\sigma$ cover $y$ / $z$, full (\%) & "
+             r"Agree, fit $k{=}1$ (\%)" + "".join(f" & Agree, full $k{{=}}{k.split('=')[1]}$ (\\%)" for k in full_keys) + r" \\", r"\midrule"]
+        for name, ent in ph.items():
+            if "y" not in ent or "z" not in ent:
+                continue
+            y, z = ent["y"], ent["z"]
+            L.append(f"{name.replace('Cd', '$C_d$').replace('Cs', '$C_s$')} & {y['median_abs_mm']:.1f} / {z['median_abs_mm']:.1f} & "
+                     f"{y['mean_mm']:+.1f} / {z['mean_mm']:+.1f} & {y['cov_full'][0]:.0f} / {z['cov_full'][0]:.0f} & "
+                     f"{ent['agree_pct']['fit k=1']:.1f}" + "".join(f" & {ent['agree_pct'][k]:.1f}" for k in full_keys) + r" \\")
+            t = mtag(name)
+            m(f"Phys{t}MedY", y["median_abs_mm"]); m(f"Phys{t}MedZ", z["median_abs_mm"])
+            m(f"Phys{t}MeanY", y["mean_mm"]); m(f"Phys{t}MeanZ", z["mean_mm"])
+            m(f"Phys{t}CovFullY", y["cov_full"][0]); m(f"Phys{t}CovFullZ", z["cov_full"][0])
+            m(f"Phys{t}CovFitY", y["cov_fit"][0]); m(f"Phys{t}CovFitZ", z["cov_fit"][0])
+            m(f"Phys{t}AgreeFit", ent["agree_pct"]["fit k=1"]); m(f"Phys{t}UmpFit", ent["ump_pct"]["fit k=1"])
+            for j, k in enumerate(full_keys):
+                suffix = "" if j == 0 else "Alt"
+                m(f"Phys{t}AgreeFull{suffix}", ent["agree_pct"][k]); m(f"Phys{t}UmpFull{suffix}", ent["ump_pct"][k])
+        L += [r"\bottomrule", r"\end{tabular}"]
+        write_table("physics.tex", L)
+    tp = b8.get("taps")
+    if tp:
+        m("TapsN", tp["n_deliveries"], "{}"); m("TapsMismatch", tp["mismatch_vs_exp6"], "{}")
+        rules = list(next(iter(tp["cases"].values()))["flips"])
+        L = [r"\begin{tabular}{lccc" + "c" * len(rules) + "}", r"\toprule",
+             r"Tap perturbation & Median / 90th $|\Delta y|$ (mm) & Median / 90th $|\Delta z|$ (mm) & Median $|\Delta y_\mathrm{crease}|$ (mm)"
+             + "".join(f" & Flips, {rl.replace('k=', '$k{=}') + '$'}" for rl in rules) + r" \\", r"\midrule"]
+        for key, ent in tp["cases"].items():
+            if ent["median_dy_mm"] is None:
+                continue
+            L.append(f"{key} & {ent['median_dy_mm']:.1f} / {ent['p90_dy_mm']:.1f} & {ent['median_dz_mm']:.1f} / {ent['p90_dz_mm']:.1f} & "
+                     f"{ent['median_dcrease_mm']:.1f}" + "".join(f" & {ent['flips'][rl]} ({ent['flip_pct'][rl]:.1f}\\,\\%)" for rl in rules) + r" \\")
+            t = mtag(key.replace("+", "plus ").replace("-", "minus "))
+            m(f"Tap{t}MedY", ent["median_dy_mm"]); m(f"Tap{t}MedZ", ent["median_dz_mm"])
+            m(f"Tap{t}PNinetyY", ent["p90_dy_mm"]); m(f"Tap{t}PNinetyZ", ent["p90_dz_mm"])
+            for j, rl in enumerate(rules):
+                suffix = "Fit" if rl == "fit k=1" else ("Full" if j == 1 else "FullAlt")
+                m(f"Tap{t}Flips{suffix}", ent["flips"][rl], "{}"); m(f"Tap{t}FlipPct{suffix}", ent["flip_pct"][rl])
+                if "out_notout_flips" in ent:
+                    m(f"Tap{t}HardFlips{suffix}", ent["out_notout_flips"][rl], "{}")
+        L += [r"\bottomrule", r"\end{tabular}"]
+        write_table("taps.tex", L)
+
+if have("exp9_fps.json"):
+    b9 = js("exp9_fps.json")
+    L = [r"\begin{tabular}{llcccc}", r"\toprule",
+         r"Frame rate & Sampler & Median $|e_y|$ / $|e_z|$ (mm) & 1-$\sigma$ cover $y$ / $z$ (\%) & Agree (\%) & Umpire's call (\%) \\", r"\midrule"]
+    last = None
+    for key, ent in b9["cells"].items():
+        fps, smp = key.split("|")
+        if last is not None and fps != last:
+            L.append(r"\midrule")
+        L.append(f"{fps + ' Hz' if fps != last else ''} & {smp.replace('@', 'at ')} & {ent['y']['median_abs_mm']:.1f} / {ent['z']['median_abs_mm']:.1f} & "
+                 f"{ent['y']['cov1_fit']:.0f} / {ent['z']['cov1_fit']:.0f} & {f1(ent['agree_pct'])} & {f1(ent['ump_pct'])} \\\\")
+        last = fps
+        t = f"{FPS_TAG.get(fps, mtag(fps))}{mtag(smp.replace('@60', 'at sixty').replace('@', 'at '))}"
+        m(f"Fps{t}MedY", ent["y"]["median_abs_mm"]); m(f"Fps{t}MedZ", ent["z"]["median_abs_mm"])
+        m(f"Fps{t}Agree", ent["agree_pct"]); m(f"Fps{t}Ump", ent["ump_pct"])
+    L += [r"\bottomrule", r"\end{tabular}"]
+    write_table("fps.tex", L)
+    m("FpsN", b9["n"], "{}")
 
 with open(os.path.join(PAPER, "numbers.tex"), "w") as fh:
     fh.write("% generated by experiments/make_numbers.py from experiments/raw; do not edit\n")
