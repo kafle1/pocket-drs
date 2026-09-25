@@ -76,7 +76,7 @@ const PAYLOAD = __PAYLOAD__;
 const L = PAYLOAD.pitch_length_m;
 const PW = PAYLOAD.pitch_width_m;
 const halfW = PW / 2;
-const STUMP_H = 0.711, STUMP_DX = 0.114, CORR_HALF = STUMP_DX + 0.036;
+const STUMP_H = 0.711, STUMP_DX = 0.0953, CORR_HALF = 0.1143 + 0.036;  // Law 8: 22.86 cm over the outer edges
 const TARGET_X = 0;                          // striker wicket — the judged end
 let W = window.innerWidth, H = window.innerHeight;
 

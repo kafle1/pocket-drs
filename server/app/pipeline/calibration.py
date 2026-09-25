@@ -14,10 +14,11 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
+# Law 8: the wicket is 22.86 cm wide over the outer edges and 71.12 cm tall, stumps at most 3.81 cm across
 STUMP_HEIGHT_M = 0.711
-STUMP_LATERAL_DX_M = 0.114        # middle stump centre to outer stump centre
-STUMP_HALF_WIDTH_M = 0.018        # half thickness of one stump
-STUMP_OUTER_HALF_M = STUMP_LATERAL_DX_M + STUMP_HALF_WIDTH_M   # outer edge of the outer stump
+STUMP_HALF_WIDTH_M = 0.01905      # half thickness of one stump
+STUMP_OUTER_HALF_M = 0.1143       # outer edge of the outer stump, half of 22.86 cm
+STUMP_LATERAL_DX_M = STUMP_OUTER_HALF_M - STUMP_HALF_WIDTH_M   # middle stump centre to outer stump centre
 PITCH_LENGTH_M = 20.12
 PITCH_WIDTH_M = 3.05
 
