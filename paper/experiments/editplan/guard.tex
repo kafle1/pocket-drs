@@ -1,0 +1,24 @@
+\subsection{Choosing the guard band from false-out risk}
+\label{sec:kcurve}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{risk.pdf}
+\caption{World~B. Left: largest specific false-out risk among OUT calls against $k$, with 1 and 5\,\%
+limits. Right: agreement (dashed) and umpire's call (solid). Vertical lines: the chosen $k$.}
+\label{fig:risk}
+\end{figure}
+
+Following JCGM~106~\cite{jcgm106}, the specific risk of an OUT call is the probability, given the estimate,
+that the true verdict is not out, $1 - \prod_i \Phi((m_i + R_i)/\sigma_i)$ over the signed margins $m_i$
+of the four limits (pitching line, impact line, stump edge, top of the bails), with $R_i = R$ except on the
+pitching line and a flat prior. Fig.~\ref{fig:risk} traces it on the \RiskN{} World~B
+deliveries, \RiskTruthOut{} of them truly out. The shipped rule, pipeline sigma and $k = 1$, makes out calls
+whose risk under the full sigma reaches \RiskShippedMaxSpecFull\%, with \RiskShippedOutsOverFive{} above
+5\,\%. With the full sigma every out call is below 5\,\% from $k = \RiskFullKFive$ and below 1\,\% from
+$k = \RiskFullKOne$; the sample-free bounds with all four limits binding at once are \RiskBoundFourFive{} and
+\RiskBoundFourOne. The price is agreement, \RiskFitKOneAgree\% as shipped against \RiskFullAgreeFive\%
+and \RiskFullAgreeOne\%, and umpire's call on \RiskFullUmpFive\% and \RiskFullUmpOne\% of deliveries,
+because \RiskFullOutToUmpFive\% of true outs come back as umpire's call at $k = \RiskFullKFive$. No setting
+has a missed out. For coaching we use the full sigma with $k = \RiskFullKFive$; officiating would want
+$k = \RiskFullKOne$.

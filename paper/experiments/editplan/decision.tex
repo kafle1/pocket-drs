@@ -1,0 +1,5 @@
+The playing conditions~\cite{icc2023drs} return umpire's call when the centre is outside a stump edge by
+less than one ball radius $R$. We add a guard band on top of that rule~\cite{jcgm106,carullo2024conformity}: a
+test is passed only if the centre is at least $k\sigma$ inside its limit, and failed only if it is more than
+$R + k\sigma$ outside, with $\sigma$ the standard uncertainty of that coordinate; anything in between is
+umpire's call. Section~\ref{sec:kcurve} sets $k$ from the risk of a false out.

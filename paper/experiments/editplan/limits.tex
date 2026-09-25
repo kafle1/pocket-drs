@@ -1,0 +1,10 @@
+\textbf{The stated uncertainty misses the flight model.} The covariance is a fair measurement-noise sigma,
+but swing, drag and pitch variation, the largest inputs of the budget, are outside it. The model term was
+fitted on the same generator it is tested on, and the Monte Carlo interval is shifted as well as wider. With
+an ambiguous contact split the solution is also multimodal, which no Gaussian sigma represents.
+
+\textbf{The estimator ignores drag, swing, friction and spin.} Swing with a side-force coefficient of 0.3
+moves the median lateral error from \PhysBaselineMedY{} to \PhysSwingCsZeroThreeMedY~mm and biases the
+height by \PhysSwingCsZeroThreeMeanZ~mm; a pitch with restitution 0.40 biases it by
+\PhysRestitutionZeroFourZeroMeanZ~mm. The reported release speed is an average over the arc, not the speed
+at the hand.
