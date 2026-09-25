@@ -1,5 +1,6 @@
-"""Leg before wicket under Law 36 of the MCC Laws of Cricket, with the review bands the
-ICC playing conditions use for ball tracking and the estimator's own uncertainty folded in.
+"""Leg before wicket under Law 36 of the MCC Laws of Cricket, with the review bands of the
+ICC playing conditions (Men's Test, Dec 2023, Appendix D 3.4) and the estimator's own
+uncertainty folded in.
 
 Three questions decide the appeal: did the ball pitch in line (or outside off), did it
 strike the batter in line, and would it have hit the stumps. A monocular estimate of any
@@ -15,6 +16,8 @@ from .calibration import STUMP_HEIGHT_M, STUMP_OUTER_HALF_M
 from .reconstruction import BALL_RADIUS_M
 
 OUT, NOT_OUT, UMPIRES_CALL = "out", "not_out", "umpires_call"
+BAIL_RISE_M = 0.0127                                  # Law 8.3.1: bails sit at most 1.27 cm above the stumps
+WICKET_TOP_M = STUMP_HEIGHT_M + BAIL_RISE_M           # ICC 2021: zone top is the top of the stumps with bails
 
 
 @dataclass(frozen=True)
@@ -26,16 +29,16 @@ class Verdict:
     wickets_hitting: bool
 
 
-def _band(value: float, edge: float, sigma: float, k: float) -> str:
-    """Classify a signed distance to a boundary. Positive = inside.
+def _band(value: float, outer: float, sigma: float, k: float) -> str:
+    """Classify the ball centre's signed distance inside a boundary. Positive = inside.
 
-    ``edge`` is the ICC umpire's-call width (a ball radius: less than half the ball inside
-    the line is the umpire's decision). The band is widened to the estimate's own k-sigma
-    when that is larger, so a marginal monocular call is never asserted."""
-    band = max(edge, k * sigma)
-    if value >= band:
+    ICC umpire's call sits only outside the edge: centre outside but part of the ball still
+    in, so ``outer`` is a ball radius for impact and wickets and 0 for pitching. k*sigma
+    widens that band on both sides so the estimate's own uncertainty never asserts a call."""
+    g = k * sigma
+    if value >= g:
         return "in"
-    if value >= -band:
+    if value > -outer - g:
         return "marginal"
     return "out"
 
@@ -61,11 +64,12 @@ def decide(
     reasons: list[str] = []
     marginal = False
 
-    # Law 36.1.3: a ball pitching outside the line of the leg stump cannot bring an lbw
+    # Law 36.1.3: a ball pitching outside the line of the leg stump cannot bring an lbw.
+    # Judged on the ball centre with no umpire's call (Appendix D 3.4.4).
     pitching = True
     if pitch_y is not None:
         leg_dist = w - pitch_y * leg_sign          # positive = on or inside the leg line
-        state = _band(leg_dist, R, pitch_sigma, k)
+        state = _band(leg_dist, 0.0, pitch_sigma, k)
         if state == "out":
             pitching = False
             reasons.append(f"pitched outside leg ({abs(pitch_y) * 100:.0f} cm)")
@@ -89,7 +93,7 @@ def decide(
     hitting = False
     if stump_y is not None and stump_z is not None:
         lat = _band(w - abs(stump_y), R, sigma_y, k)
-        top = _band(STUMP_HEIGHT_M - stump_z, R, sigma_z, k)
+        top = _band(WICKET_TOP_M - stump_z, R, sigma_z, k)   # ponytail: per-axis, ignores the rounded corner
         if lat == "out" or top == "out" or stump_z < 0.0:
             reasons.append("missing the stumps")
         else:
@@ -99,10 +103,10 @@ def decide(
     else:
         reasons.append("no stump-plane prediction")
 
+    # a clear fail on any of the three is not out, even when another one is marginal
     if pitching and impact and hitting:
         if marginal:
-            return Verdict(UMPIRES_CALL, "umpire's call: clipping the stumps", pitching, impact, hitting)
+            return Verdict(UMPIRES_CALL, "umpire's call: marginal on pitching, impact or wickets",
+                           pitching, impact, hitting)
         return Verdict(OUT, "hitting the stumps", pitching, impact, hitting)
-    if marginal and pitching and impact:
-        return Verdict(UMPIRES_CALL, "umpire's call: " + "; ".join(reasons), pitching, impact, hitting)
     return Verdict(NOT_OUT, "; ".join(reasons) or "not out", pitching, impact, hitting)
