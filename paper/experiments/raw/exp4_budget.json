@@ -1,0 +1,509 @@
+{
+  "seed": 404,
+  "representative": {
+    "speed_kmh": 120.0,
+    "length_m": 6.0,
+    "line_m": -0.1,
+    "restitution": 0.55,
+    "fps": 60.0,
+    "camera": "striker_ref, 2.8 m back, 1.7 m up",
+    "phases": 8,
+    "quadrature_nodes": 5
+  },
+  "u_c_mm": {
+    "pitch_y": 16.463,
+    "crease_y": 32.142,
+    "y": 43.061,
+    "z": 108.372
+  },
+  "share": {
+    "pitch_y": {
+      "calibration taps": 0.14,
+      "ball centre": 0.0389,
+      "frame-time jitter": 0.0001,
+      "frame phase": 0.0,
+      "shipped frame sampler": 0.0024,
+      "bounce split": 0.0,
+      "frame rate 59.80 vs 60 Hz": 0.0,
+      "rolling shutter, uncorrected": 0.0,
+      "lens distortion": 0.0,
+      "pitch length L": 0.0,
+      "pitch width W": 0.0077,
+      "stump height H": 0.0002,
+      "wicket half-width w": 0.0,
+      "bails tapped as top": 0.0003,
+      "restitution e": 0.0,
+      "drag Cd": 0.0,
+      "swing Cs": 0.8103,
+      "seam deviation": 0.0001,
+      "friction at contact": 0.0
+    },
+    "crease_y": {
+      "calibration taps": 0.0199,
+      "ball centre": 0.0307,
+      "frame-time jitter": 0.005,
+      "frame phase": 0.0001,
+      "shipped frame sampler": 0.172,
+      "bounce split": 0.0,
+      "frame rate 59.80 vs 60 Hz": 0.0,
+      "rolling shutter, uncorrected": 0.0003,
+      "lens distortion": 0.0,
+      "pitch length L": 0.0,
+      "pitch width W": 0.002,
+      "stump height H": 0.0001,
+      "wicket half-width w": 0.0,
+      "bails tapped as top": 0.0001,
+      "restitution e": 0.0004,
+      "drag Cd": 0.0083,
+      "swing Cs": 0.7595,
+      "seam deviation": 0.0012,
+      "friction at contact": 0.0003
+    },
+    "y": {
+      "calibration taps": 0.0173,
+      "ball centre": 0.0286,
+      "frame-time jitter": 0.0044,
+      "frame phase": 0.0001,
+      "shipped frame sampler": 0.1504,
+      "bounce split": 0.0,
+      "frame rate 59.80 vs 60 Hz": 0.0,
+      "rolling shutter, uncorrected": 0.0003,
+      "lens distortion": 0.0,
+      "pitch length L": 0.0,
+      "pitch width W": 0.0011,
+      "stump height H": 0.0,
+      "wicket half-width w": 0.0,
+      "bails tapped as top": 0.0001,
+      "restitution e": 0.0004,
+      "drag Cd": 0.0073,
+      "swing Cs": 0.7887,
+      "seam deviation": 0.0011,
+      "friction at contact": 0.0003
+    },
+    "z": {
+      "calibration taps": 0.0021,
+      "ball centre": 0.1054,
+      "frame-time jitter": 0.0212,
+      "frame phase": 0.0005,
+      "shipped frame sampler": 0.6359,
+      "bounce split": 0.0,
+      "frame rate 59.80 vs 60 Hz": 0.0001,
+      "rolling shutter, uncorrected": 0.0013,
+      "lens distortion": 0.0,
+      "pitch length L": 0.0,
+      "pitch width W": 0.0133,
+      "stump height H": 0.0002,
+      "wicket half-width w": 0.0,
+      "bails tapped as top": 0.0003,
+      "restitution e": 0.0029,
+      "drag Cd": 0.0306,
+      "swing Cs": 0.1844,
+      "seam deviation": 0.0001,
+      "friction at contact": 0.0014
+    }
+  },
+  "pipeline_sigma_mm": {
+    "pitch_y": 3.89,
+    "crease_y": 6.125,
+    "y": 9.411,
+    "z": 44.647
+  },
+  "noise_only_scatter_mm": {
+    "pitch_y": 3.749,
+    "crease_y": 5.47,
+    "y": 7.371,
+    "z": 36.768
+  },
+  "pipeline_n": 20,
+  "split": {
+    "counts": {
+      "0": 10,
+      "1": 5,
+      "2": 5
+    },
+    "delta_minus_mm": [
+      -0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "delta_plus_mm": [
+      0.0,
+      -0.0,
+      -0.0,
+      -0.0
+    ]
+  },
+  "distribution": {
+    "n_deliveries": 100,
+    "phases": 2,
+    "quadrature_nodes": 3,
+    "ranges": "speed 60-150 km/h, length 1-10 m, line +-0.6 m, release height 1.8-2.3 m, release y +-0.4 m, e 0.55",
+    "pitch_y": {
+      "n": 100,
+      "u_c_median_mm": 19.188499999999998,
+      "u_c_p90_mm": 29.378600000000002,
+      "dominant": {
+        "swing Cs": 69,
+        "calibration taps": 25,
+        "shipped frame sampler": 3,
+        "ball centre": 2,
+        "drag Cd": 1
+      },
+      "per_row": {
+        "calibration taps": {
+          "median": 6.877000000000001,
+          "p90": 10.742500000000001
+        },
+        "ball centre": {
+          "median": 3.224,
+          "p90": 4.697700000000001
+        },
+        "frame-time jitter": {
+          "median": 0.311,
+          "p90": 0.9901000000000001
+        },
+        "frame phase": {
+          "median": 0.011,
+          "p90": 0.11190000000000033
+        },
+        "shipped frame sampler": {
+          "median": 1.919,
+          "p90": 9.95880000000001
+        },
+        "bounce split": {
+          "median": 0.0,
+          "p90": 0.0
+        },
+        "frame rate 59.80 vs 60 Hz": {
+          "median": 0.077,
+          "p90": 0.2534
+        },
+        "rolling shutter, uncorrected": {
+          "median": 0.20850000000000002,
+          "p90": 0.9857000000000014
+        },
+        "lens distortion": {
+          "median": 0.2625,
+          "p90": 0.4471000000000001
+        },
+        "pitch length L": {
+          "median": 0.009,
+          "p90": 0.017
+        },
+        "pitch width W": {
+          "median": 4.7175,
+          "p90": 8.2782
+        },
+        "stump height H": {
+          "median": 0.7495,
+          "p90": 1.2832000000000001
+        },
+        "wicket half-width w": {
+          "median": 0.031,
+          "p90": 0.054
+        },
+        "bails tapped as top": {
+          "median": 0.959,
+          "p90": 1.6812000000000005
+        },
+        "restitution e": {
+          "median": 0.0435,
+          "p90": 0.15510000000000002
+        },
+        "drag Cd": {
+          "median": 0.20400000000000001,
+          "p90": 0.9763000000000035
+        },
+        "swing Cs": {
+          "median": 15.322,
+          "p90": 28.0349
+        },
+        "seam deviation": {
+          "median": 0.0655,
+          "p90": 0.1733
+        },
+        "friction at contact": {
+          "median": 0.041,
+          "p90": 0.1708000000000001
+        }
+      }
+    },
+    "crease_y": {
+      "n": 100,
+      "u_c_median_mm": 42.851,
+      "u_c_p90_mm": 95.36980000000005,
+      "dominant": {
+        "swing Cs": 42,
+        "shipped frame sampler": 42,
+        "ball centre": 7,
+        "drag Cd": 6,
+        "calibration taps": 2,
+        "frame-time jitter": 1
+      },
+      "per_row": {
+        "calibration taps": {
+          "median": 4.8705,
+          "p90": 10.443000000000003
+        },
+        "ball centre": {
+          "median": 11.201,
+          "p90": 21.616700000000016
+        },
+        "frame-time jitter": {
+          "median": 4.859,
+          "p90": 12.612100000000007
+        },
+        "frame phase": {
+          "median": 0.17099999999999999,
+          "p90": 1.3549000000000018
+        },
+        "shipped frame sampler": {
+          "median": 12.565,
+          "p90": 85.477
+        },
+        "bounce split": {
+          "median": 0.0,
+          "p90": 0.0
+        },
+        "frame rate 59.80 vs 60 Hz": {
+          "median": 0.2745,
+          "p90": 0.9205000000000004
+        },
+        "rolling shutter, uncorrected": {
+          "median": 2.2285,
+          "p90": 12.7573
+        },
+        "lens distortion": {
+          "median": 0.224,
+          "p90": 0.49780000000000013
+        },
+        "pitch length L": {
+          "median": 0.043,
+          "p90": 0.12090000000000008
+        },
+        "pitch width W": {
+          "median": 4.2095,
+          "p90": 9.4246
+        },
+        "stump height H": {
+          "median": 0.714,
+          "p90": 1.7739000000000003
+        },
+        "wicket half-width w": {
+          "median": 0.031,
+          "p90": 0.0651
+        },
+        "bails tapped as top": {
+          "median": 0.859,
+          "p90": 2.3099000000000003
+        },
+        "restitution e": {
+          "median": 0.8089999999999999,
+          "p90": 5.323500000000003
+        },
+        "drag Cd": {
+          "median": 7.875,
+          "p90": 24.114500000000014
+        },
+        "swing Cs": {
+          "median": 18.009,
+          "p90": 40.6242
+        },
+        "seam deviation": {
+          "median": 0.351,
+          "p90": 1.8253000000000001
+        },
+        "friction at contact": {
+          "median": 0.7495,
+          "p90": 2.9204000000000003
+        }
+      }
+    },
+    "y": {
+      "n": 100,
+      "u_c_median_mm": 64.979,
+      "u_c_p90_mm": 166.23480000000006,
+      "dominant": {
+        "swing Cs": 48,
+        "shipped frame sampler": 38,
+        "ball centre": 7,
+        "drag Cd": 5,
+        "frame-time jitter": 1,
+        "calibration taps": 1
+      },
+      "per_row": {
+        "calibration taps": {
+          "median": 6.5825,
+          "p90": 12.6007
+        },
+        "ball centre": {
+          "median": 15.5525,
+          "p90": 29.12050000000003
+        },
+        "frame-time jitter": {
+          "median": 6.859500000000001,
+          "p90": 17.2068
+        },
+        "frame phase": {
+          "median": 0.2205,
+          "p90": 2.1135000000000006
+        },
+        "shipped frame sampler": {
+          "median": 18.2765,
+          "p90": 99.7205000000001
+        },
+        "bounce split": {
+          "median": 0.0,
+          "p90": 0.0
+        },
+        "frame rate 59.80 vs 60 Hz": {
+          "median": 0.422,
+          "p90": 1.5203000000000009
+        },
+        "rolling shutter, uncorrected": {
+          "median": 3.149,
+          "p90": 15.386200000000004
+        },
+        "lens distortion": {
+          "median": 0.185,
+          "p90": 0.5908000000000003
+        },
+        "pitch length L": {
+          "median": 0.01,
+          "p90": 0.03740000000000003
+        },
+        "pitch width W": {
+          "median": 4.078,
+          "p90": 10.744
+        },
+        "stump height H": {
+          "median": 0.702,
+          "p90": 2.085200000000001
+        },
+        "wicket half-width w": {
+          "median": 0.029,
+          "p90": 0.0641
+        },
+        "bails tapped as top": {
+          "median": 0.89,
+          "p90": 2.7701000000000002
+        },
+        "restitution e": {
+          "median": 1.037,
+          "p90": 8.693900000000017
+        },
+        "drag Cd": {
+          "median": 10.5715,
+          "p90": 31.115100000000005
+        },
+        "swing Cs": {
+          "median": 31.585,
+          "p90": 73.78030000000003
+        },
+        "seam deviation": {
+          "median": 0.436,
+          "p90": 5.8911000000000024
+        },
+        "friction at contact": {
+          "median": 0.9994999999999999,
+          "p90": 5.144000000000003
+        }
+      }
+    },
+    "z": {
+      "n": 100,
+      "u_c_median_mm": 82.928,
+      "u_c_p90_mm": 199.83430000000018,
+      "dominant": {
+        "shipped frame sampler": 52,
+        "swing Cs": 27,
+        "ball centre": 12,
+        "drag Cd": 4,
+        "pitch width W": 2,
+        "restitution e": 2,
+        "frame-time jitter": 1
+      },
+      "per_row": {
+        "calibration taps": {
+          "median": 5.7605,
+          "p90": 14.524000000000001
+        },
+        "ball centre": {
+          "median": 24.826500000000003,
+          "p90": 48.00480000000003
+        },
+        "frame-time jitter": {
+          "median": 9.6325,
+          "p90": 22.530200000000022
+        },
+        "frame phase": {
+          "median": 0.515,
+          "p90": 6.319200000000009
+        },
+        "shipped frame sampler": {
+          "median": 37.423500000000004,
+          "p90": 142.74350000000007
+        },
+        "bounce split": {
+          "median": 0.0,
+          "p90": 0.0
+        },
+        "frame rate 59.80 vs 60 Hz": {
+          "median": 1.2725,
+          "p90": 4.9573
+        },
+        "rolling shutter, uncorrected": {
+          "median": 6.678,
+          "p90": 18.413300000000007
+        },
+        "lens distortion": {
+          "median": 0.874,
+          "p90": 1.663200000000002
+        },
+        "pitch length L": {
+          "median": 0.025,
+          "p90": 0.04530000000000002
+        },
+        "pitch width W": {
+          "median": 15.1105,
+          "p90": 24.627200000000006
+        },
+        "stump height H": {
+          "median": 1.831,
+          "p90": 3.034700000000001
+        },
+        "wicket half-width w": {
+          "median": 0.1375,
+          "p90": 0.22410000000000002
+        },
+        "bails tapped as top": {
+          "median": 2.356,
+          "p90": 3.878500000000001
+        },
+        "restitution e": {
+          "median": 4.4350000000000005,
+          "p90": 29.512200000000014
+        },
+        "drag Cd": {
+          "median": 20.5565,
+          "p90": 36.67380000000003
+        },
+        "swing Cs": {
+          "median": 25.257,
+          "p90": 77.82770000000002
+        },
+        "seam deviation": {
+          "median": 0.5674999999999999,
+          "p90": 1.5189000000000015
+        },
+        "friction at contact": {
+          "median": 2.0934999999999997,
+          "p90": 10.782400000000004
+        }
+      }
+    }
+  },
+  "workers": 6,
+  "seconds": 3399.4
+}

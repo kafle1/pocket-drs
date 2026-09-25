@@ -1,0 +1,20 @@
+row,type,u_x,u_x_unit,c_y,c_z,u_pitch_mm,u_crease_mm,u_y_mm,u_z_mm,bias_y_mm,bias_z_mm,n_eval
+calibration taps,B: 2 px per coordinate (real clips: 2.05-10.55 px reprojection),2.0,px,0.00283503,0.00247362,6.159,4.538,5.67,4.947,,,24
+ball centre,B: 1 px per coordinate (assumed),1.0,px,0.00727705,0.0351838,3.247,5.632,7.277,35.184,,,66
+frame-time jitter,B: 0.5 ms per frame (assumed; PTS jitter measures the muxer only),0.5,ms,0.0057174,0.0315784,0.152,2.268,2.859,15.789,,,33
+frame phase,"B: release instant U[0, T] against the frame clock",4.811252,ms,8.96735e-05,0.000517302,0.007,0.344,0.431,2.489,1.516,8.715,8
+shipped frame sampler,"B: effect of the 17 ms request grid, RMS over phases",,,nan,nan,0.8,13.331,16.698,86.422,0.673,3.947,8
+bounce split,A: split index from 20 noisy draws x effect of k+-1,0.5,P(k moves),nan,nan,0.0,0.0,0.0,0.0,,,22
+frame rate 59.80 vs 60 Hz,"B: container rate over timestamp rate, U[0.99673, 1] (test5.mp4)",0.001889,rate_ratio,0.0791303,0.523951,0.017,0.115,0.149,0.989,-0.129,-0.855,40
+"rolling shutter, uncorrected","B: readout 0-30 ms, either direction (assumed)",0.017321,rs_s,-0.0199684,-0.119263,0.014,0.542,0.681,3.967,0.027,0.15,40
+lens distortion,B: +-1 % radial at the corner (assumed),0.005774,distortion,0.0108987,-0.126825,0.078,0.068,0.063,0.733,0.001,0.001,40
+pitch length L,"B: +-5 cm marking, rectangular",0.028868,dL,-3.47737e-05,-0.00110783,0.002,0.013,0.002,0.033,0.001,-0.004,40
+pitch width W,"B: +-10 cm, corners are unmarked",0.057735,dW,0.0246642,-0.216696,1.444,1.424,1.424,12.515,-0.017,0.212,40
+stump height H,B: +-1 cm set depth,0.005774,dH,0.0443604,-0.274479,0.232,0.255,0.256,1.586,0.001,-0.006,40
+wicket half-width w,B: +-2.5 mm stump spacing,0.001443,dw,0.0062729,-0.0792953,0.009,0.01,0.009,0.115,0.001,-0.005,40
+bails tapped as top,"B: 0-1.27 cm, Law 8.3.1, uncorrected",0.007332,top_tap,0.0444771,-0.276315,0.297,0.326,0.327,2.023,0.284,-1.752,40
+restitution e,"B: model, U[0.40, 0.70] (James et al. 2004 pitch range)",0.086603,restitution,-0.00878465,-0.064974,0.034,0.659,0.827,5.875,-0.199,-0.281,40
+drag Cd,"B: model, U[0.35, 0.55] (Mehta 2005), not modelled",0.453689,cd,-0.00811622,-0.0430343,0.014,2.937,3.67,18.951,-3.59,-18.453,40
+swing Cs,"B: model, U[-0.3, 0.3] (Mehta 2005), not modelled",0.173205,cs,0.221654,-0.00316383,14.82,28.012,38.243,46.542,-6.423,-37.046,40
+seam deviation,"B: model, U[-2, 2] deg off the seam",1.154701,seam,-0.00115694,0.000659133,0.158,1.13,1.428,0.982,-0.212,-0.386,40
+friction at contact,"B: model, U[0.05, 0.20] speed loss",0.05,friction,0.0103775,0.0542521,0.038,0.591,0.748,4.083,0.22,1.084,40
