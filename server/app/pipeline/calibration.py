@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 import cv2
 import numpy as np
+from scipy.optimize import minimize
 
 # Law 8: the wicket is 22.86 cm wide over the outer edges and 71.12 cm tall, stumps at most 3.81 cm across
 STUMP_HEIGHT_M = 0.711
@@ -21,6 +22,8 @@ STUMP_OUTER_HALF_M = 0.1143       # outer edge of the outer stump, half of 22.86
 STUMP_LATERAL_DX_M = STUMP_OUTER_HALF_M - STUMP_HALF_WIDTH_M   # middle stump centre to outer stump centre
 PITCH_LENGTH_M = 20.12
 PITCH_WIDTH_M = 3.05
+FOV_RANGE_DEG = (20.0, 130.0)     # long-axis field of view, telephoto to ultra-wide
+LENGTH_RANGE_M = (2.0, 25.0)
 
 
 class CalibrationError(Exception):
@@ -160,7 +163,11 @@ def solve_camera_pose(
     stump_img = np.asarray(stump_quads_px, dtype=float)
     corner_img = None if pitch_corners_px is None else np.asarray(pitch_corners_px, dtype=float)
 
-    fovs = [fov_deg] if fov_deg is not None else [28, 34, 40, 46, 52, 58, 64, 70, 78, 86]
+    fov_grid = [fov_deg] if fov_deg is not None else np.arange(FOV_RANGE_DEG[0], FOV_RANGE_DEG[1] + 1e-9, 5.0)
+    len_grid = [pitch_length_m] if pitch_length_m is not None else np.arange(LENGTH_RANGE_M[0], LENGTH_RANGE_M[1] + 1e-9, 0.5)
+    free = [i for i, v in enumerate((fov_deg, pitch_length_m)) if v is None]
+    lo = np.array([FOV_RANGE_DEG[0], LENGTH_RANGE_M[0]])
+    hi = np.array([FOV_RANGE_DEG[1], LENGTH_RANGE_M[1]])
 
     def solve(fov, L, use_corners):
         K = intrinsics(width, height, float(fov))
@@ -171,22 +178,23 @@ def solve_camera_pose(
         return None if sol is None else (sol[0], sol[1], sol[2], K, float(fov), float(L))
 
     def sweep(use_corners: bool):
-        # a pinned length is one solve per FOV; otherwise half-metre steps, then 5 cm around the best
-        best = None
-        for fov in fovs:
-            if pitch_length_m is not None:
-                lengths = [pitch_length_m]
-            else:
-                coarse = min((solve(fov, L, use_corners) for L in np.arange(2.0, 25.0001, 0.5)),
-                             key=lambda c: c[0] if c else np.inf, default=None)
-                if coarse is None:
-                    continue
-                lengths = np.arange(max(2.0, coarse[5] - 0.5), min(25.0, coarse[5] + 0.5) + 1e-9, 0.05)
-            for L in lengths:
-                sol = solve(fov, L, use_corners)
-                if sol is not None and (best is None or sol[0] < best[0]):
-                    best = sol
-        return best
+        # grid over whatever is free (5 deg, 0.5 m), then a continuous polish from the best cell
+        cells = (solve(f, L, use_corners) for f in fov_grid for L in len_grid)
+        best = min((c for c in cells if c is not None), key=lambda c: c[0], default=None)
+        if best is None or not free:
+            return best
+        x0 = np.array([best[4], best[5]])
+
+        def err(x):
+            z = x0.copy(); z[free] = x
+            sol = solve(z[0], z[1], use_corners)
+            return sol[0] if sol is not None else 1e9
+
+        res = minimize(err, x0[free], method="Nelder-Mead", bounds=list(zip(lo[free], hi[free])),
+                       options={"xatol": 1e-2, "fatol": 1e-3})
+        z = x0.copy(); z[free] = res.x
+        sol = solve(z[0], z[1], use_corners)
+        return sol if sol is not None and sol[0] < best[0] else best
 
     joint = sweep(True) if corner_img is not None else None
     stumps_only = sweep(False)

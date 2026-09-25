@@ -174,8 +174,12 @@ def observe(truth: Truth, pose: CameraPose, *, fps: float, noise_px: float, radi
     return out
 
 
-def calibration_taps(pose: CameraPose, *, noise_px: float, rng: np.random.Generator):
-    """The twelve marks the user taps, perturbed, and the pose the app would solve from them."""
+def calibration_taps(pose: CameraPose, *, noise_px: float, rng: np.random.Generator,
+                     fov_deg: float | None = None, pitch_length_m: float | None = PITCH_LENGTH_M):
+    """The twelve marks the user taps, perturbed, and the pose the app would solve from them.
+
+    Like the app, the solver gets the regulation pitch length and has to find the focal
+    length itself. Pass ``fov_deg=pose.fov_deg`` or ``pitch_length_m=None`` for the ablations."""
     w, h = STUMP_OUTER_HALF_M, STUMP_HEIGHT_M
     side = [(-w, h), (w, h), (w, 0.0), (-w, 0.0)]
     stump_pts = np.array([(0.0, dy, dz) for dy, dz in side] + [(PITCH_LENGTH_M, dy, dz) for dy, dz in side])
@@ -186,7 +190,7 @@ def calibration_taps(pose: CameraPose, *, noise_px: float, rng: np.random.Genera
     stumps = [(float(a + rng.normal(0, noise_px)), float(b + rng.normal(0, noise_px))) for a, b in zip(su, sv)]
     corners = [(float(a + rng.normal(0, noise_px)), float(b + rng.normal(0, noise_px))) for a, b in zip(cu, cv)]
     solved = solve_camera_pose(image_size=(int(pose.cx * 2), int(pose.cy * 2)), stump_quads_px=stumps,
-                               pitch_corners_px=corners, fov_deg=pose.fov_deg, pitch_length_m=PITCH_LENGTH_M)
+                               pitch_corners_px=corners, fov_deg=fov_deg, pitch_length_m=pitch_length_m)
     return solved, stumps, corners
 
 

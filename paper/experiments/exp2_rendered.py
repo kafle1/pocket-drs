@@ -5,9 +5,11 @@ Experiment 1 feeds the estimator ideal detections with controlled noise. This on
 each delivery of the 100-delivery grid to a 60 frame/s portrait clip, hands the clip and the
 tapped marks to the production job exactly as the app would, and scores the verdict the
 pipeline returns against the ground truth. Detection and association errors are therefore
-included. Tap positions are perturbed by 2 px so the calibration is not handed the truth.
+included. Tap positions are perturbed by 2 px, and the focal length is left for the solver to
+find, so the calibration is not handed the truth. The pitch length is the regulation 20.12 m
+the app sends. --pin-fov hands the solver the true field of view (ablation only).
 
-Usage:  server/.venv/bin/python paper/experiments/exp2_rendered.py [--quick] [--camera striker_ref]
+Usage:  server/.venv/bin/python paper/experiments/exp2_rendered.py [--quick] [--camera striker_ref] [--pin-fov]
 """
 from __future__ import annotations
 
@@ -33,6 +35,8 @@ CLIPS = Path(os.environ.get("POCKET_DRS_CLIPS", os.path.join(HERE, "clips")))
 CLIPS.mkdir(parents=True, exist_ok=True)
 QUICK = "--quick" in sys.argv
 CAM_NAME = sys.argv[sys.argv.index("--camera") + 1] if "--camera" in sys.argv else "striker_ref"
+PIN_FOV = "--pin-fov" in sys.argv
+TAG = CAM_NAME + ("_pinfov" if PIN_FOV else "")
 CAMERAS = {"striker_ref": Camera(end="striker", back_m=2.8, height_m=1.7),
            "bowler_ref": Camera(end="bowler", back_m=2.8, height_m=1.7)}
 FPS = 60.0
@@ -52,6 +56,8 @@ def main():
         clip = CLIPS / f"{CAM_NAME}_{i:03d}.mp4"
         cal = render(truth, cam, clip, fps=FPS)
         n_frames = cal.pop("n_frames")
+        if not PIN_FOV:
+            cal.pop("h_fov_deg")                     # the app never sends it
         for key in ("pitch_corners_px", "stump_quads_px"):
             cal[key] = [{"x": p["x"] + rng.normal(0, TAP_PX), "y": p["y"] + rng.normal(0, TAP_PX)} for p in cal[key]]
         req = {"segment": {"start_ms": 0, "end_ms": int(1000 * (n_frames - 1) / FPS)},
@@ -76,6 +82,8 @@ def main():
         y, z = pred.get("y_at_stumps_m"), pred.get("z_at_stumps_m")
         rows.append(dict(row, verdict=verdict, n_track=len(track.get("image_points") or []),
                          reproj_px=round(out["calibration"]["quality"]["reproj_error_px"], 2),
+                         calib_fov_deg=round(out["calibration"]["pose"]["fov_deg"], 3),
+                         focal_err_pct=round((out["calibration"]["pose"]["fx"] / cam.pose().fx - 1) * 100, 3),
                          y_err_cm=None if y is None else round(abs(y - truth.stumps[1]) * 100, 2),
                          z_err_cm=None if z is None else round(abs(z - truth.stumps[2]) * 100, 2),
                          sigma_y_cm=None if pred.get("sigma_y_m") is None else round(pred["sigma_y_m"] * 100, 2),
@@ -89,14 +97,14 @@ def main():
               f"truth={r['truth']:<12} got={verdict:<12} y={r['y_err_cm']} z={r['z_err_cm']} track={r['n_track']}", flush=True)
 
     keys = sorted({k for r in rows for k in r}, key=lambda k: (k not in rows[0], k))
-    with open(os.path.join(OUT, f"exp2_rendered_{CAM_NAME}.csv"), "w", newline="") as fh:
+    with open(os.path.join(OUT, f"exp2_rendered_{TAG}.csv"), "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=keys)
         w.writeheader(); w.writerows(rows)
     agree = sum(1 for r in rows if r["verdict"] == r["truth"])
     false_out = sum(1 for r in rows if r["verdict"] == "out" and r["truth"] != "out")
     print(f"agreement {agree}/{len(rows)}  false out {false_out}  ({time.time() - t_start:.0f}s)")
-    with open(os.path.join(OUT, f"exp2_config_{CAM_NAME}.json"), "w") as fh:
-        json.dump({"camera": CAMERAS[CAM_NAME].__dict__, "fps": FPS, "tap_px": TAP_PX, "n": len(rows),
+    with open(os.path.join(OUT, f"exp2_config_{TAG}.json"), "w") as fh:
+        json.dump({"camera": CAMERAS[CAM_NAME].__dict__, "fps": FPS, "tap_px": TAP_PX, "pin_fov": PIN_FOV, "n": len(rows),
                    "seconds": round(time.time() - t_start, 1)}, fh, indent=2)
 
 
