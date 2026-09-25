@@ -1,0 +1,77 @@
+{
+  "n_per_cell": 400,
+  "base": {
+    "fps": 60.0,
+    "noise_px": 1.0,
+    "radius_noise": 0.1,
+    "dropout": 0.05,
+    "tap_px": 2.0,
+    "physics": true
+  },
+  "sweeps": null,
+  "cells": [
+    "calib=app",
+    "calib=pin_fov",
+    "calib=free_length",
+    "fov70 calib=app",
+    "fov70 calib=pin_fov"
+  ],
+  "cameras": {
+    "striker_low": {
+      "end": "striker",
+      "back_m": 2.8,
+      "height_m": 1.2,
+      "offset_m": 0.0,
+      "width": 1080,
+      "height": 1920,
+      "fov_deg": 90.5
+    },
+    "striker_ref": {
+      "end": "striker",
+      "back_m": 2.8,
+      "height_m": 1.7,
+      "offset_m": 0.0,
+      "width": 1080,
+      "height": 1920,
+      "fov_deg": 90.5
+    },
+    "striker_high": {
+      "end": "striker",
+      "back_m": 4.0,
+      "height_m": 2.6,
+      "offset_m": 0.0,
+      "width": 1080,
+      "height": 1920,
+      "fov_deg": 90.5
+    },
+    "striker_side": {
+      "end": "striker",
+      "back_m": 2.8,
+      "height_m": 1.7,
+      "offset_m": 1.5,
+      "width": 1080,
+      "height": 1920,
+      "fov_deg": 90.5
+    },
+    "bowler_ref": {
+      "end": "bowler",
+      "back_m": 2.8,
+      "height_m": 1.7,
+      "offset_m": 0.0,
+      "width": 1080,
+      "height": 1920,
+      "fov_deg": 90.5
+    },
+    "bowler_side": {
+      "end": "bowler",
+      "back_m": 4.0,
+      "height_m": 2.0,
+      "offset_m": 2.0,
+      "width": 1080,
+      "height": 1920,
+      "fov_deg": 90.5
+    }
+  },
+  "workers": 5,
+  "seconds": 1137.6
+}
