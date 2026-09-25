@@ -13,16 +13,25 @@ Two estimators run on identical detections:
              Ribnick et al. (2009), which is what a monocular method without a contact
              constraint can do
 
-Usage:  server/.venv/bin/python paper/experiments/exp1_geometry.py [--quick]
+Cells run in parallel worker processes, each with its own seed, so the output does not
+depend on the worker count. --ablation runs the calibration ablations instead (focal length
+handed to the solver, pitch length left free, a 70 degree camera) into exp1_ablation.csv.
+
+Usage:  server/.venv/bin/python paper/experiments/exp1_geometry.py [--quick] [--ablation] [--workers 8]
 """
 from __future__ import annotations
 
+import os
+for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_v, "1")
+
 import csv
 import json
-import os
+import multiprocessing as mp
 import sys
 import time
 
+import cv2
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -33,11 +42,18 @@ from app.pipeline.reconstruction import (reconstruct, predict_stump_plane, bounc
                                          _linear_parabola, _fit_flight, _flight_as_trajectory,
                                          _flight_covariance, Reconstruction)
 from app.pipeline.decision import decide                                                # noqa: E402
+from app.pipeline.calibration import CalibrationError                                   # noqa: E402
+
+cv2.setNumThreads(1)
 
 OUT = os.path.join(HERE, "raw")
 os.makedirs(OUT, exist_ok=True)
 QUICK = "--quick" in sys.argv
+ABLATION = "--ablation" in sys.argv
+WORKERS = int(sys.argv[sys.argv.index("--workers") + 1]) if "--workers" in sys.argv else max(1, (os.cpu_count() or 2) - 1)
 N = 60 if QUICK else 400
+# solver arguments per calibration variant; None means hand it the true focal length
+CALIB = {"app": {}, "pin_fov": None, "free_length": {"pitch_length_m": None}}
 
 BASE = dict(fps=60.0, noise_px=1.0, radius_noise=0.10, dropout=0.05, tap_px=2.0, physics=True)
 K_SHIPPED = 1.0
@@ -77,7 +93,11 @@ def evaluate(rec, truth):
     """Errors and verdict for one reconstruction."""
     pred = predict_stump_plane(rec) if rec is not None else None
     if pred is None:
-        return dict(ok=False, verdict="no_verdict", **{f"verdict_k{kk:g}": "no_verdict" for kk in K_VALUES if kk != K_SHIPPED})
+        return dict(ok=False, verdict="no_verdict", **{f"verdict_k{kk:g}": "no_verdict" for kk in K_VALUES if kk != K_SHIPPED},
+                    bounce_observed=None, y_err_cm=None, z_err_cm=None, sigma_y_cm=None, sigma_z_cm=None,
+                    contact_x_err_cm=None, contact_y_err_cm=None, speed_err_kmh=None, rms_px=None,
+                    restitution=None, est_y_cm=None, est_z_cm=None, est_pitch_y_cm=None, pitch_sigma_cm=None,
+                    est_crease_y_cm=None, crease_sigma_cm=None)
     tr = rec.trajectory
     _, sy = bounce_sigma(rec)
     t_crease = tr.t_b + (CREASE_X - tr.x_b) / tr.v_post[0] if abs(tr.v_post[0]) > 1e-6 else None
@@ -99,12 +119,15 @@ def evaluate(rec, truth):
                 sigma_y_cm=pred.sigma_y * 100, sigma_z_cm=pred.sigma_z * 100,
                 contact_x_err_cm=cx, contact_y_err_cm=cy,
                 speed_err_kmh=abs(speed - truth.release_speed_kmh), rms_px=rec.rms_px,
-                restitution=tr.restitution)
+                restitution=tr.restitution, est_y_cm=pred.y * 100, est_z_cm=pred.z * 100,
+                est_pitch_y_cm=tr.y_b * 100 if tr.bounce_observed else None, pitch_sigma_cm=sy * 100,
+                est_crease_y_cm=None if crease is None else crease[1] * 100, crease_sigma_cm=crease_sigma * 100)
 
 
-def run_cell(name, cam_name, cfg, n, seed):
+def run_cell(name, cam_name, cfg, n, seed, cam=None):
     rng = np.random.default_rng(seed)
-    cam = CAMERAS[cam_name]
+    cam = cam or CAMERAS[cam_name]
+    calib = cfg.get("calib", "app")
     pose_true = cam.pose()
     rows = []
     for i in range(n):
@@ -114,51 +137,77 @@ def run_cell(name, cam_name, cfg, n, seed):
         except ValueError:
             continue
         if cfg["tap_px"] > 0:
-            pose, _, _ = calibration_taps(pose_true, noise_px=cfg["tap_px"], rng=rng)
+            kw = CALIB[calib] if CALIB[calib] is not None else {"fov_deg": cam.fov_deg}
+            try:
+                pose, _, _ = calibration_taps(pose_true, noise_px=cfg["tap_px"], rng=rng, **kw)
+            except CalibrationError:
+                pose = None
         else:
             pose = pose_true
         dets = observe(truth, pose_true, fps=cfg["fps"], noise_px=cfg["noise_px"],
                        radius_noise=cfg["radius_noise"], dropout=cfg["dropout"], rng=rng)
-        if len(dets) < 6:
+        if pose is None or len(dets) < 6:       # observe still ran, so paired cells keep the same draws
             continue
         gt = truth_verdict(truth)
         base = dict(sweep=name, camera=cam_name, **{k: cfg[k] for k in BASE}, i=i,
                     speed_kmh=round(d.speed_kmh, 1), length_m=round(d.length_m, 2), line_m=round(d.line_m, 3),
                     restitution_true=round(d.restitution, 3), n_dets=len(dets), truth=gt,
-                    calib_reproj_px=round(pose.reproj_error_px, 2))
+                    calib_reproj_px=round(pose.reproj_error_px, 2), calib=calib,
+                    calib_fov_deg=round(pose.fov_deg, 3), calib_focal_err_pct=round((pose.fx / pose_true.fx - 1) * 100, 3),
+                    calib_length_m=round(pose.pitch_length_m, 3), calib_used_corners=pose.used_corners,
+                    truth_y_cm=round(truth.stumps[1] * 100, 3), truth_z_cm=round(truth.stumps[2] * 100, 3),
+                    truth_crease_y_cm=round(truth.crease[1] * 100, 3),
+                    truth_contact_x_m=round(float(truth.contact[0]), 4) if np.isfinite(truth.contact[0]) else None,
+                    truth_contact_y_cm=round(float(truth.contact[1]) * 100, 3) if np.isfinite(truth.contact[0]) else None)
         for est_name, rec in (("anchored", reconstruct(pose, dets)), ("parabola", parabola_estimate(pose, dets))):
             r = evaluate(rec, truth)
             rows.append(dict(base, estimator=est_name, **{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}))
     return rows
 
 
+def _cell(args):
+    return run_cell(*args)
+
+
 def main():
     t_start = time.time()
-    rows = []
-    seed = 0
-    # one-factor sweeps around the reference camera
-    for key, values in SWEEPS.items():
-        for val in values:
-            cfg = dict(BASE); cfg[key] = val
+    cells, seed = [], 0
+    if ABLATION:
+        # paired: the three calibrations see the same deliveries and the same tap noise
+        for calib in CALIB:
+            cells.append((f"calib={calib}", "striker_ref", dict(BASE, calib=calib), N, 101))
+        fov70 = Camera(end="striker", back_m=2.8, height_m=1.7, fov_deg=70.0)
+        for calib in ("app", "pin_fov"):
+            cells.append((f"fov70 calib={calib}", "striker_fov70", dict(BASE, calib=calib), N, 102, fov70))
+    else:
+        # one-factor sweeps around the reference camera
+        for key, values in SWEEPS.items():
+            for val in values:
+                cfg = dict(BASE); cfg[key] = val
+                seed += 1
+                cells.append((f"{key}={val}", "striker_ref", cfg, N, seed))
+        # camera placements at the reference noise
+        for cam_name in CAMERAS:
             seed += 1
-            cell = run_cell(f"{key}={val}", "striker_ref", cfg, N, seed)
+            cells.append((f"camera={cam_name}", cam_name, dict(BASE), N, seed))
+    rows = []
+    with mp.get_context("spawn").Pool(WORKERS) as pool:
+        for cell in pool.imap(_cell, cells):          # imap keeps the cell order
             rows.extend(cell)
             _report(cell)
-    # camera placements at the reference noise
-    for cam_name in CAMERAS:
-        seed += 1
-        cell = run_cell(f"camera={cam_name}", cam_name, dict(BASE), N, seed)
-        rows.extend(cell)
-        _report(cell)
 
-    with open(os.path.join(OUT, "exp1_geometry.csv"), "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+    stem = "exp1_ablation" if ABLATION else "exp1_geometry"
+    fields = list(dict.fromkeys(k for r in rows for k in r))
+    with open(os.path.join(OUT, f"{stem}.csv"), "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=fields)
         w.writeheader(); w.writerows(rows)
-    with open(os.path.join(OUT, "exp1_config.json"), "w") as fh:
-        json.dump({"n_per_cell": N, "base": BASE, "sweeps": SWEEPS,
+    cfg_name = "exp1_ablation_config.json" if ABLATION else "exp1_config.json"
+    with open(os.path.join(OUT, cfg_name), "w") as fh:
+        json.dump({"n_per_cell": N, "base": BASE, "sweeps": SWEEPS if not ABLATION else None,
+                   "cells": [c[0] for c in cells],
                    "cameras": {k: v.__dict__ for k, v in CAMERAS.items()},
-                   "seconds": round(time.time() - t_start, 1)}, fh, indent=2)
-    print(f"wrote {len(rows)} rows to raw/exp1_geometry.csv in {time.time() - t_start:.0f}s")
+                   "workers": WORKERS, "seconds": round(time.time() - t_start, 1)}, fh, indent=2)
+    print(f"wrote {len(rows)} rows to raw/{stem}.csv in {time.time() - t_start:.0f}s")
 
 
 def _report(cell):
