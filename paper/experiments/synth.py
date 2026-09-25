@@ -31,6 +31,7 @@ BALL_MASS = 0.16
 AIR_DENSITY = 1.2
 DRAG_CD = 0.5
 DRAG_K = 0.5 * AIR_DENSITY * DRAG_CD * math.pi * BALL_RADIUS_M ** 2 / BALL_MASS   # 1/m
+SIDE_K = 0.5 * AIR_DENSITY * math.pi * BALL_RADIUS_M ** 2 / BALL_MASS             # 1/m, times Cs v^2
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,8 @@ class Delivery:
     turn_ms: float = 0.0       # lateral velocity added at contact (spin), m/s, +leg
     swing_ms2: float = 0.0     # lateral acceleration in the air before contact, +leg
     drag: bool = False
+    cd: float = DRAG_CD        # drag coefficient when drag is on
+    cs: float = 0.0            # swing side-force coefficient before contact, +leg (Mehta 2005)
 
 
 @dataclass(frozen=True)
@@ -120,8 +123,10 @@ def fly(d: Delivery, dt: float = 1e-3) -> Truth:
         a = np.array([0.0, 0.0, -GRAVITY])
         if not bounced:
             a[1] += d.swing_ms2
+            if d.cs:
+                a[1] += SIDE_K * d.cs * float(v @ v)
         if d.drag:
-            a -= DRAG_K * np.linalg.norm(v) * v
+            a -= (DRAG_K if d.cd == DRAG_CD else DRAG_K * d.cd / DRAG_CD) * np.linalg.norm(v) * v
         v_new = v + a * dt
         p_new = p + v * dt + 0.5 * a * dt * dt
         if not bounced and p_new[2] <= BALL_RADIUS_M and v_new[2] < 0:
