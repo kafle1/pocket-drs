@@ -5,7 +5,7 @@ World B = exp1's randomised deliveries and unmodelled physics (drag with Cd draw
 tracker noise (1 px, 10 % radius, 5 % dropout), 2 px taps, plus every measurement effect
 of exp4 drawn from its PDF: rolling-shutter readout, lens distortion, frame-time jitter,
 frame-rate metadata, pitch and wicket dimensions, bails. Frames carry their own
-timestamps here; the shipped 17 ms request grid is measured as a separate configuration.
+timestamps here; the app's sampler, fixed and as submitted, is a separate configuration.
 
 Per delivery the error of each measurand is kept with three 1-sigma terms:
   sigma_fit  the pipeline's own covariance (centre scatter only)
@@ -19,7 +19,9 @@ as in exp1.
 
 Sweeps on the first 200 deliveries, everything else as drawn: rolling-shutter readout
 {0, 5, 10, 16, 30} ms in both directions, uncorrected and corrected; and the frame sampler
-(timestamps or the shipped 17 ms grid) against frame-rate metadata (true or 59.80/60).
+(timestamps; the fixed app, nearest frame to each 60 Hz request by its own timestamp; or the
+submitted 17 ms grid labelled with the requested time) against frame-rate metadata (true or
+59.80/60).
 sigma_cal and sigma_mod are carried over from the main run for the same delivery.
 
     python exp6_coverage.py            # 600 deliveries, 200 in each sweep configuration
@@ -45,7 +47,8 @@ SEED = 606
 TAP_PX = 2.0
 RS_SWEEP = [0.0, 0.005, 0.010, 0.016, 0.030]
 SAMPLERS = [("timestamps", "exact", 1.0), ("timestamps, 59.80 metadata", "exact", RATE_TEST5),
-            ("shipped 17 ms grid", "shipped", 1.0), ("shipped 17 ms grid, 59.80 metadata", "shipped", RATE_TEST5)]
+            ("fixed sampler", "fixed", 1.0), ("fixed sampler, 59.80 metadata", "fixed", RATE_TEST5),
+            ("submitted 17 ms grid", "submitted", 1.0), ("submitted 17 ms grid, 59.80 metadata", "submitted", RATE_TEST5)]
 
 
 def draw(i):

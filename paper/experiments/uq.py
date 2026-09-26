@@ -2,7 +2,7 @@
 
 World B is the synthetic world of exp1 plus the measurement effects the estimator does not
 model, each one switchable: rolling-shutter readout, radial lens distortion, frame-time
-jitter, the shipped frame sampler, a container frame rate that disagrees with the frame
+jitter, the app's frame sampler (as submitted, or fixed), a container frame rate that disagrees with the frame
 timestamps, pitch and wicket dimensions off their Law values, bails tapped as the stump
 top, and flight physics the two-parabola model leaves out. The estimator is the shipped
 one, unchanged: solve_camera_pose on the taps, then reconstruct on the detections.
@@ -29,6 +29,7 @@ from app.pipeline import reconstruction as recon                                
 from app.pipeline.calibration import (solve_camera_pose, CalibrationError, STUMP_HEIGHT_M,  # noqa: E402
                                       STUMP_OUTER_HALF_M, PITCH_LENGTH_M, PITCH_WIDTH_M)
 from app.pipeline.decision import decide, WICKET_TOP_M                                   # noqa: E402
+from app.pipeline.video import pick_frames                                               # noqa: E402
 
 cv2.setNumThreads(1)
 OUT = os.path.join(HERE, "raw")
@@ -48,8 +49,8 @@ class Effects:
     dropout: float = 0.0         # probability a frame's detection is lost
     fps: float = 60.0            # true camera frame rate
     rate_ratio: float = 1.0      # frame rate the decoder reports / true rate
-    sampler: str = "exact"       # exact: every frame at its timestamp; shipped: process_job's ms grid
-    sample_fps: float = 0.0      # shipped only: the sample_fps the app sends (it hard-codes 60); 0 = match fps
+    sampler: str = "exact"       # exact: every frame at its timestamp; fixed / submitted: the app's sampler now / at submission
+    sample_fps: float = 0.0      # fixed, submitted: the sample_fps the app sends (it hard-codes 60); 0 = match fps
     jitter_s: float = 0.0        # 1-sigma capture-instant noise per frame
     rs_s: float = 0.0            # rolling-shutter readout across the portrait width; sign = direction
     rs_correct_s: float = 0.0    # readout the estimator assumes and removes, same sign convention
@@ -101,10 +102,12 @@ def solve(pose_true, xy: np.ndarray, **kw):
 def frame_times(t_end: float, eff: Effects, rng, v0: float | None = None) -> tuple[np.ndarray, np.ndarray]:
     """(label_s, actual_s) of every sampled frame between release (t=0) and t_end.
 
-    Frames are exposed at j/fps on the video clock, with the release at a random video time.
-    exact: the estimator is told j/(reported rate). shipped: process_job asks for frames at
-    start + k*round(1000/fps) ms and VideoReader maps each to round(ms/1000*reported rate),
-    so the label is the requested ms, not the frame's own time."""
+    Frames are exposed at j/fps on the video clock, with the release at a random video time,
+    and stamped j/(reported rate) in the container. exact: every frame, labelled with its stamp.
+    fixed: process_job asks for a frame every 1000/sample_fps ms and pick_frames returns the
+    nearest frame by its stamp, labelled with it. submitted: the code at submission asked every
+    round(1000/sample_fps) ms, mapped each to frame round(ms/1000*reported rate) and labelled
+    it with the requested ms, not the frame's own time."""
     T = 1.0 / eff.fps
     if v0 is None:
         v0 = rng.uniform(0.2, 0.4)                 # video time of the release
@@ -112,7 +115,16 @@ def frame_times(t_end: float, eff: Effects, rng, v0: float | None = None) -> tup
     if eff.sampler == "exact":
         idx = np.arange(j0, j1 + 1)
         label = idx * T / eff.rate_ratio
-    elif eff.sampler == "shipped":
+    elif eff.sampler == "fixed":
+        rate = eff.fps * eff.rate_ratio
+        step = 1000.0 / (eff.sample_fps or eff.fps)
+        start = math.floor(v0 * 1000) - 20
+        reqs = [start + k * step for k in range(int((t_end + 0.06) * 1000 / step) + 2)]
+        ja, jb = max(0, int(start / 1000.0 * rate) - 2), int(math.ceil(reqs[-1] / 1000.0 * rate)) + 3
+        picks, _ = pick_frames(((j * 1000.0 / rate, j * 1000.0 / rate, j) for j in range(ja, jb)), reqs, rate)
+        idx = np.array([j for _, j in picks])
+        label = np.array([m for m, _ in picks]) / 1000.0
+    elif eff.sampler == "submitted":
         step = max(1, round(1000 / (eff.sample_fps or eff.fps)))
         start = int(math.floor(v0 * 1000)) - 20
         ks = np.arange(0, int((t_end + 0.06) * 1000 / step) + 2)

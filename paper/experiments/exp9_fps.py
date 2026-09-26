@@ -1,13 +1,15 @@
-"""Experiment 9: frame rate, and what the shipped frame sampler does at each rate.
+"""Experiment 9: frame rate, and what the app's frame sampler does at each rate.
 
 150 deliveries from exp1's physics world (drag, swing, friction, turn, restitution 0.4-0.7),
 1 px centres, 10 % radius, 5 % dropout, 2 px taps, 0.5 ms frame-time jitter, reference
 camera. Each delivery is replayed at 30, 60, 120 and 240 fps with the same taps and the
-same release time in the video, under three samplers:
+same release time in the video, under four samplers:
   timestamps       every frame, labelled with its own time
-  shipped @60      process_job asks for a frame every round(1000/60) = 17 ms and labels it
-                   with the requested time; this is what the app sends whatever the video rate
-  shipped @fps     the same loop with sample_fps set to the video's own rate
+  fixed @60        process_job asks for a frame every 1000/60 ms and gets the nearest frame,
+                   labelled with its own timestamp; the app sends 60 whatever the video rate
+  fixed @fps       the same loop with sample_fps set to the video's own rate
+  submitted @60    the code at submission: a request every round(1000/60) = 17 ms, each
+                   labelled with the requested time
 Reported: stump-plane error, 1-sigma coverage of the pipeline's own sigma, agreement and
 umpire's-call rate at the shipped k = 1.
 
@@ -30,7 +32,8 @@ from synth import random_delivery
 SEED = 909
 N = 150
 FPS = (30.0, 60.0, 120.0, 240.0)
-SAMPLERS = (("timestamps", "exact", 0.0), ("shipped @60", "shipped", 60.0), ("shipped @fps", "shipped", None))
+SAMPLERS = (("timestamps", "exact", 0.0), ("fixed @60", "fixed", 60.0), ("fixed @fps", "fixed", None),
+            ("submitted @60", "submitted", 60.0))
 EFF = Effects(tap_px=2.0, noise_px=1.0, radius_noise=0.10, dropout=0.05, jitter_s=5e-4)
 
 

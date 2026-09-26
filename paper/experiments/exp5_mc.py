@@ -4,9 +4,9 @@ Every input of the exp4 budget is drawn from its PDF at once (taps, ball centres
 times, frame phase, frame-rate metadata, rolling shutter, lens distortion, pitch and wicket
 dimensions, bails, restitution, drag, swing, seam, friction),
 and each trial runs the app's calibration solve and the bounce-anchored fit. The output is
-the crossing error (estimate - truth). Frames carry their own timestamps: the shipped 17 ms
-request grid is a bug with its own exp4 row, not an uncertainty, so it is left out here and
-from u_c. The linear (JCGM 100) result is y = the mean error at nominal inputs over the frame
+the crossing error (estimate - truth). Frames carry their own timestamps, as the fixed app
+now labels them: the submitted 17 ms request grid was a bug with its own exp4 row, not an
+uncertainty, so it is left out here and from u_c. The linear (JCGM 100) result is y = the mean error at nominal inputs over the frame
 phase and u_c = the RSS of the other exp4 rows; its 95 %
 interval is y +- 1.96 u_c. Validation follows JCGM 101 section 8: d_low and d_high must
 both be at most delta, the numerical tolerance of u_c written to two significant digits.
@@ -100,7 +100,7 @@ def y_gum(d, n_phase=8):
     return np.nanmean([err(d, E(fps=FPS), v0) for v0 in phases(n_phase)], axis=0)
 
 
-SAMPLER_ROW = "shipped frame sampler"
+SAMPLER_ROW = "submitted frame sampler"
 
 
 def _f(x):

@@ -156,8 +156,8 @@ def row_job(args):
         out["c"] = out["ui"] / out["ux"]
         out["bias"] = np.nanmean(e, axis=0)
         return out
-    if row == "shipped frame sampler":
-        dlt = np.array([err(d, replace(eff0, sampler="shipped", sample_fps=60.0), v0) - base[v0] for v0 in ph])
+    if row == "submitted frame sampler":
+        dlt = np.array([err(d, replace(eff0, sampler="submitted", sample_fps=60.0), v0) - base[v0] for v0 in ph])
         out.update(ux=float("nan"), unit="", ui=np.sqrt(np.nanmean(dlt ** 2, axis=0)), c=np.full(4, np.nan),
                    bias=np.nanmean(dlt, axis=0), n_eval=len(dlt))
         return out
@@ -213,13 +213,13 @@ def row_job(args):
     return out
 
 
-ROWS = (["calibration taps", "ball centre", "frame-time jitter", "frame phase", "shipped frame sampler",
+ROWS = (["calibration taps", "ball centre", "frame-time jitter", "frame phase", "submitted frame sampler",
          "bounce split"] + [r[0] for r in DIST_ROWS])
 TYPE = {"calibration taps": "B: 2 px per coordinate (real clips: 2.05-10.55 px reprojection)",
         "ball centre": "B: 1 px per coordinate (assumed)",
         "frame-time jitter": "B: 0.5 ms per frame (assumed; PTS jitter measures the muxer only)",
         "frame phase": "B: release instant U[0, T] against the frame clock",
-        "shipped frame sampler": "B: effect of the 17 ms request grid, RMS over phases",
+        "submitted frame sampler": "B: effect of the submitted 17 ms request grid (fixed since), RMS over phases",
         "bounce split": "A: split index from 20 noisy draws x effect of k+-1",
         **{r[0]: r[6] for r in DIST_ROWS}}
 

@@ -292,20 +292,20 @@ if have("exp1_ablation.csv"):
 BUDGET_PDF = {
     "calibration taps": ("B", "N(0, 2 px)"), "ball centre": ("B", "N(0, 1 px)"),
     "frame-time jitter": ("B", "N(0, 0.5 ms)"), "frame phase": ("B", "U[0, T]"),
-    "shipped frame sampler": ("bug", "17 ms grid"), "bounce split": ("A", "20 draws"),
+    "submitted frame sampler": ("bug", "17 ms grid"), "bounce split": ("A", "20 draws"),
     "frame rate 59.80 vs 60 Hz": ("B", "U[0.99673, 1]"), "rolling shutter, uncorrected": ("B", "U[-30, 30] ms"),
     "lens distortion": ("B", "U[-1, 1] \\%"), "pitch length L": ("B", "U[-5, 5] cm"), "pitch width W": ("B", "U[-10, 10] cm"),
     "stump height H": ("B", "U[-1, 1] cm"), "wicket half-width w": ("B", "U[-2.5, 2.5] mm"),
     "bails tapped as top": ("B", "U[0, 1.27] cm"), "restitution e": ("B", "U[0.40, 0.70]"), "drag Cd": ("B", "U[0.35, 0.55]"),
     "swing Cs": ("B", "U[-0.3, 0.3]"), "seam deviation": ("B", "U[-2, 2] deg"), "friction at contact": ("B", "U[0.05, 0.20]"),
 }
-SAMPLER_ROW = "shipped frame sampler"
+SAMPLER_ROW = "submitted frame sampler"
 
 if have("exp4_budget_rep.csv", "exp4_budget.json"):
     rep4 = rows("exp4_budget_rep.csv")
     b4 = js("exp4_budget.json")
     dist4 = b4["distribution"]
-    # u_c with and without the shipped-sampler bug (a correctable offset, not an uncertainty)
+    # u_c with and without the submitted-sampler bug (fixed since; an offset, not an uncertainty)
     for q in ("y", "z"):
         us = [r[f"u_{q}_mm"] for r in rep4 if r[f"u_{q}_mm"] is not None]
         us_ns = [r[f"u_{q}_mm"] for r in rep4 if r[f"u_{q}_mm"] is not None and r["row"] != SAMPLER_ROW]
@@ -349,7 +349,7 @@ if have("exp4_budget_rep.csv", "exp4_budget.json"):
           f"Combined $u_c$ & & {macros['BudRepUcNoSamplerY']} & {macros['BudRepUcNoSamplerZ']} & "
           f"{f1(dist4['y']['u_c_nosampler_median_mm'])} & {f1(dist4['z']['u_c_nosampler_median_mm'])} \\\\",
           f"Pipeline's own $\\sigma$ & & {f1(b4['pipeline_sigma_mm']['y'])} & {f1(b4['pipeline_sigma_mm']['z'])} & & \\\\",
-          f"Shipped 17 ms sampler (bug) & offset & {f1(samp['u_y_mm'])} & {f1(samp['u_z_mm'])} & "
+          f"Submitted 17 ms sampler (fixed) & offset & {f1(samp['u_y_mm'])} & {f1(samp['u_z_mm'])} & "
           f"{f1(dist4['y']['per_row'].get(SAMPLER_ROW, {}).get('median'))} & {f1(dist4['z']['per_row'].get(SAMPLER_ROW, {}).get('median'))} \\\\",
           r"\bottomrule", r"\end{tabular}"]
     write_table("budget.tex", L)
@@ -488,8 +488,10 @@ if have("exp6_model_error.json", "exp6_worldb.csv"):
     write_table("coverage_sweeps.tex", L)
     for key, tag in (("rs|0.0|False", "RsZero"), ("rs|0.03|False", "RsThirty"), ("rs|0.03|True", "RsThirtyCorr"),
                      ("rs|-0.03|False", "RsMinusThirty"), ("sampler|timestamps", "SampTs"),
-                     ("sampler|timestamps, 59.80 metadata", "SampTsMeta"), ("sampler|shipped 17 ms grid", "SampShipped"),
-                     ("sampler|shipped 17 ms grid, 59.80 metadata", "SampShippedMeta")):
+                     ("sampler|timestamps, 59.80 metadata", "SampTsMeta"), ("sampler|fixed sampler", "SampFixed"),
+                     ("sampler|fixed sampler, 59.80 metadata", "SampFixedMeta"),
+                     ("sampler|submitted 17 ms grid", "SampSubmitted"),
+                     ("sampler|submitted 17 ms grid, 59.80 metadata", "SampSubmittedMeta")):
         ent = sw.get(key, {})
         for q in ("y", "z"):
             if q in ent:
