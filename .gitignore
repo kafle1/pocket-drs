@@ -10,17 +10,6 @@ logs/**
 .env
 .env.*
 
-# Firebase Service Account (server-side secret)
-firebase-service-account.json
-
-# Firebase platform configuration files (contain API keys)
-google-services.json
-**/google-services.json
-GoogleService-Info.plist
-**/GoogleService-Info.plist
-firebase_options.dart
-**/firebase_options.dart
-
 # IDE
 .vscode/
 .idea/
@@ -41,16 +30,6 @@ firebase_options.dart
 **/.venv/
 **/venv/
 
-# Calibration data (machine-specific)
-**/calibration_data/
-*.npy
-intrinsic_calib_*.json
-
-# Training data and models
-**/datasets/
-**/models/*.pt
-**/models/*.onnx
-
 # Runtime job outputs
 data/jobs/
 **/output/
@@ -63,7 +42,7 @@ dump/validation/
 *.mp4
 *.avi
 *.mov
-!test_sample.mp4
+!docs/media/*.mp4
 
 # Generated documentation
 site/
@@ -81,3 +60,6 @@ paper/*.out
 paper/*.synctex.gz
 paper/experiments/clips/
 paper/experiments/__pycache__/
+
+# downloaded third-party clips used for real-video checks
+bench/
