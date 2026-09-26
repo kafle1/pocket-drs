@@ -29,7 +29,8 @@ from __future__ import annotations
 import json
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import partial
 from pathlib import Path
 from typing import Callable
 
@@ -41,7 +42,7 @@ from .calibration import CalibrationError, solve_camera_pose
 from .decision import decide
 from .overlay import build_overlay
 from .reconstruction import BALL_RADIUS_M, bounce_sigma, position_sigma, predict_stump_plane, reconstruct, sample_path
-from .tracking import ColourMotionDetector, YoloDetector, build_pitch_roi_mask
+from .tracking import ColourMotionDetector, YoloDetector, build_pitch_roi_mask, drop_impossible
 from .trajectory import find_ball_trajectory
 from .video import VideoDecodeError, VideoReader
 
@@ -52,6 +53,9 @@ YOLO_WEIGHTS = Path(__file__).resolve().parents[2] / "models" / "cricket_ball.pt
 CALIB_REJECT_PX, CALIB_REJECT_FRAC = 25.0, 0.03
 # above this pixel residual the 3-D model does not explain the track and no verdict is given
 MAX_FIT_RMS_PX = 12.0
+# a track point this far off the fitted flight is an outlier by a 3-sigma rule, even at the
+# largest residual the app accepts
+FLIGHT_OUTLIER_PX = 3.0 * MAX_FIT_RMS_PX
 UNCERTAINTY_K = 1.0
 
 ProgressFn = Callable[[int, str], None]
@@ -107,22 +111,62 @@ def _span(fit) -> float:
     return math.hypot(max(xs) - min(xs), max(ys) - min(ys))
 
 
-def _track(frames, times_ms, detector, diag):
-    dets = [(t, detector.detect(f)[:8]) for t, f in zip(times_ms, frames)]
-    return dets, find_ball_trajectory(dets, image_diagonal_px=diag, min_inliers=6)
+def _flight_fit(pose, points):
+    """3-D flight through the track points and each point's pixel offset from it, or None."""
+    if len(points) < 6:
+        return None
+    t0 = points[0].t_ms
+    ts = np.array([(p.t_ms - t0) / 1000.0 for p in points])
+    rec = reconstruct(pose, [(t, p.x_px, p.y_px, p.radius_px, max(0.05, p.confidence)) for t, p in zip(ts, points)])
+    if rec is None:
+        return None
+    u, v, _ = pose.project(rec.trajectory.position(ts))
+    return rec, np.hypot(u - np.array([p.x_px for p in points]), v - np.array([p.y_px for p in points]))
 
 
-def _select_track(frames, times_ms, *, kind: str, ball_color: str, roi_mask, diag: float, warnings: list[str]):
+def _fits_flight(pose, fit):
+    """The track less the points far off the 3-D flight through it, or None when no ball in
+    flight explains it. Only the part before a bat or pad is judged, since the flight changes there."""
+    cut = _impact_index(fit.points)
+    live = fit.points if cut is None or cut + 1 < 6 else fit.points[:cut + 1]
+    rest = fit.points[len(live):]
+    got = _flight_fit(pose, live)
+    if got is not None and (got[1] > FLIGHT_OUTLIER_PX).any():
+        n = len(live)
+        live = [p for p, off in zip(live, got[1]) if off <= FLIGHT_OUTLIER_PX]
+        _log.info("flight gate: dropped %d of %d track points off the 3-D flight", n - len(live), n)
+        got = _flight_fit(pose, live)
+    if got is None or got[0].rms_px > MAX_FIT_RMS_PX:
+        _log.info("flight gate: no ball flight explains a %d-point track (%s)", len(fit.points),
+                  "no fit" if got is None else f"{got[0].rms_px:.1f} px residual")
+        return None
+    return replace(fit, points=live + rest, inliers=len(live) + len(rest))
+
+
+def _track(frames, times_ms, detector, diag, pose, fps):
+    dets, n_raw, n_kept = [], 0, 0
+    for t, f in zip(times_ms, frames):
+        raw = detector.detect(f)
+        kept = drop_impossible(raw, pose, fps)
+        n_raw, n_kept = n_raw + len(raw), n_kept + len(kept)
+        dets.append((t, kept[:8]))
+    if n_kept < n_raw:
+        _log.info("%s: dropped %d of %d detections no ball could make", type(detector).__name__, n_raw - n_kept, n_raw)
+    return dets, find_ball_trajectory(dets, image_diagonal_px=diag, min_inliers=6, accept=partial(_fits_flight, pose))
+
+
+def _select_track(frames, times_ms, *, kind: str, ball_color: str, roi_mask, diag: float, pose, fps: float,
+                  warnings: list[str]):
     """Returns (per-frame detections to walk past the arc, the chosen track).
 
     The learned detector is trusted when it produces a solid arc. A colour track wins only when
     it is both markedly longer and tight in an absolute sense, a fuller ball path rather than a
     bowler's run-up that merely out-spans a small, far ball. The learned detections are handed
     back whichever track won, because they are what the interception walk needs."""
-    yolo = _track(frames, times_ms, YoloDetector(str(YOLO_WEIGHTS)), diag) if kind != "colour" else None
+    yolo = _track(frames, times_ms, YoloDetector(str(YOLO_WEIGHTS)), diag, pose, fps) if kind != "colour" else None
     if kind == "yolo":
         return yolo
-    colours = [_track(frames, times_ms, ColourMotionDetector(c, roi_mask), diag)
+    colours = [_track(frames, times_ms, ColourMotionDetector(c, roi_mask), diag, pose, fps)
                for c in dict.fromkeys([ball_color, "red", "pink"])]
     best_colour = max((c for c in colours if c[1] is not None), key=lambda c: _span(c[1]), default=None)
     dets = yolo[0] if yolo is not None else (best_colour[0] if best_colour else [])
@@ -271,7 +315,7 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
     dets_per_frame, fit = _select_track(frames, times_ms, kind=req.tracking.detector,
                                         ball_color=req.tracking.ball_color,
                                         roi_mask=build_pitch_roi_mask(frames[0].shape, corners),
-                                        diag=diag, warnings=warnings)
+                                        diag=diag, pose=pose, fps=meta.fps, warnings=warnings)
     report(55, "tracking")
     if fit is None:
         warnings.append("no consistent ball trajectory found; check ball colour, lighting and framing")
@@ -297,6 +341,21 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
     dets = [((p["t_ms"] - t0_ms) / 1000.0, p["u"], p["v"], p["radius_px"], max(0.05, p["confidence"]))
             for p in image_points]
     rec = reconstruct(pose, dets)
+    n_walk = len(dets) - len(live)
+    if (rec is None or rec.rms_px > MAX_FIT_RMS_PX) and n_walk > 0:
+        # the walk past the arc takes the most confident nearby detection, which may not be the
+        # ball, so keep only the walk points the arc's own flight explains and fit again
+        arc = reconstruct(pose, dets[:len(live)])
+        if arc is not None:
+            u, v, _ = pose.project(arc.trajectory.position(np.array([d[0] for d in dets])))
+            off = np.hypot(u - np.array([d[1] for d in dets]), v - np.array([d[2] for d in dets]))
+            keep = [i for i in range(len(live), len(dets)) if off[i] <= FLIGHT_OUTLIER_PX]
+            if len(keep) < n_walk:
+                warnings.append(f"dropped {n_walk - len(keep)} of {n_walk} points past the tracked arc "
+                                "that its flight does not explain")
+                image_points[len(live):] = [image_points[i] for i in keep]
+                dets = dets[:len(live)] + [dets[i] for i in keep]
+                rec = reconstruct(pose, dets)
     if rec is None or rec.rms_px > MAX_FIT_RMS_PX:
         why = "did not converge" if rec is None else f"{rec.rms_px:.1f} px residual"
         warnings.append(f"3-D reconstruction discarded ({why}); the track or the calibration is unreliable")

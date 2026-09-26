@@ -26,6 +26,54 @@ _STREAK_MIN_CIRCULARITY = 0.12
 YOLO_CONF = 0.2
 YOLO_IMGSZ = 1280
 
+# Limits for dropping detections no ball in play could make. Each comes from the Laws of
+# Cricket, a record, or the app's own flight-fit bounds; none was fitted to footage.
+BALL_RADIUS_M = (0.0326, 0.0365)   # Laws 4.1, 4.6: circumference 20.5 cm (under 13) to 22.9 cm (men)
+MAX_BALL_SPEED_MS = 45.0           # 162 km/h, above the fastest recorded delivery, 161.3 km/h
+CREASE_DEPTH_M = 1.22              # Law 7.4: return creases run 2.44 m behind the popping crease, 1.22 m behind the stumps
+FLIGHT_HALF_WIDTH_M = 3.0          # return crease at 1.32 m (Law 7.4) plus an arm; the fit's release bound
+FLIGHT_CEILING_M = 4.0             # above any release; the fit's release bound
+# a segmenter may see only the lit half of the ball (0.71 of the radius) and a box can be loose,
+# so the size may be off by up to 2x, plus the 2 px floor the YOLO radius is clamped to
+BOX_SIZE_SLACK, BOX_PAD_PX = 2.0, 2.0
+# exposure is at most one frame period; past 240 fps assume 1/240 s, in case the rate is misreported
+EXPOSURE_FPS_CAP = 240.0
+
+
+def drop_impossible(dets: list[dict], pose, fps: float) -> list[dict]:
+    """The detections a ball in play could make. The pixel ray must cross the flight volume
+    (from the back of one return crease to the back of the other, up to the fit's width and
+    height bounds), and the size must fit a regulation ball somewhere along that stretch,
+    motion blur included. pose is the tapped CameraPose, fps the clip's capture rate."""
+    lo = np.array([-CREASE_DEPTH_M, -FLIGHT_HALF_WIDTH_M, 0.0])
+    hi = np.array([pose.pitch_length_m + CREASE_DEPTH_M, FLIGHT_HALF_WIDTH_M, FLIGHT_CEILING_M])
+    c = pose.centre_world
+    f_lo, f_hi = min(pose.fx, pose.fy), max(pose.fx, pose.fy)
+    travel = MAX_BALL_SPEED_MS / min(fps, EXPOSURE_FPS_CAP) if fps > 0 else math.inf
+    out = []
+    for d in dets:
+        u, v, r = float(d["x"]), float(d["y"]), float(d["radius_px"])
+        if not (math.isfinite(u) and math.isfinite(v) and math.isfinite(r)):
+            continue
+        ray = pose.ray_world(u, v)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            a, b = (lo - c) / ray, (hi - c) / ray
+        s_in, s_out = float(np.nanmax(np.minimum(a, b))), float(np.nanmin(np.maximum(a, b)))
+        if not s_out > max(s_in, 0.0):
+            continue                                   # the ray never enters the flight volume
+        xn, yn = (u - pose.cx) / pose.fx, (v - pose.cy) / pose.fy
+        q = math.sqrt(1.0 + xn * xn + yn * yn)         # ray length per unit camera depth
+        # a sphere at range s images with semi-axes f q R / s and f q^2 R / s; blur over travel
+        # metres grows the box radius by at most f q travel sqrt(2 + (|xn| + |yn|)^2) / (4 s)
+        r_min = f_lo * q * BALL_RADIUS_M[0] / (BOX_SIZE_SLACK * s_out) - BOX_PAD_PX
+        r_max = math.inf
+        if s_in > 0:                                   # else the camera stands inside the volume
+            blur = travel * math.sqrt(2.0 + (abs(xn) + abs(yn)) ** 2) / 4.0
+            r_max = f_hi * q * (BOX_SIZE_SLACK * q * BALL_RADIUS_M[1] + blur) / s_in + BOX_PAD_PX
+        if r_min <= r <= r_max:
+            out.append(d)
+    return out
+
 
 def build_pitch_roi_mask(frame_shape: tuple[int, ...], corners_px: list[tuple[float, float]],
                          *, lateral_margin_frac: float = 0.05, vertical_envelope_px: float = 350.0) -> np.ndarray:

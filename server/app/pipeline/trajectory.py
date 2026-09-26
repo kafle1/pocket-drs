@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 
@@ -443,6 +444,8 @@ def find_ball_trajectory(
     min_inliers: int = 6,
     search_radius_px: float | None = None,
     max_seed_pairs: int = 1500,
+    accept: Callable[[TrajectoryFit], TrajectoryFit | None] | None = None,
+    max_arcs: int = 3,
 ) -> TrajectoryFit | None:
     """Find the dominant ball trajectory across frames.
 
@@ -459,10 +462,15 @@ def find_ball_trajectory(
         Tolerance for an in-frame detection to count as an inlier.  Defaults
         to ~3 % of the image diagonal which works for typical 1080p phone
         footage at umpire-POV framing.
+    accept:
+        Checks a candidate track against the physics the image model cannot
+        see and returns it (possibly trimmed), or None when no ball could fly it.
+    max_arcs:
+        How many candidate tracks to try before giving up. The detections of a
+        track that accept rejects are removed before the next search.
     """
     frames = _frames_in_order(detections_by_frame)
-    n_frames = len(frames)
-    if n_frames < 4:
+    if len(frames) < 4:
         return None
 
     if search_radius_px is None:
@@ -472,6 +480,33 @@ def find_ball_trajectory(
     # association, these are the dominant false positive in handheld footage
     # and the RANSAC will happily fit a "trajectory" through a static cluster.
     frames = _suppress_static_clutter(frames, image_diagonal_px=image_diagonal_px)
+
+    # a false arc, say a big round object seen in many frames, can outscore the ball, and
+    # returning None on it would lose the ball too, so drop its detections and search again
+    for _ in range(max_arcs):
+        fit = _best_track(frames, image_diagonal_px=image_diagonal_px, search_radius_px=search_radius_px,
+                          min_inliers=min_inliers, max_seed_pairs=max_seed_pairs)
+        if fit is None or accept is None:
+            return fit
+        kept = accept(fit)
+        if kept is not None:
+            return kept
+        drop = {(p.t_ms, p.x_px, p.y_px) for p in fit.points}
+        frames = [(t, [d for d in dets if (float(t), float(d["x"]), float(d["y"])) not in drop])
+                  for t, dets in frames]
+    return None
+
+
+def _best_track(
+    frames: list[tuple[int, list[dict]]],
+    *,
+    image_diagonal_px: float,
+    search_radius_px: float,
+    min_inliers: int,
+    max_seed_pairs: int,
+) -> TrajectoryFit | None:
+    """The best track in these frames, or None when there is none or it spans too little
+    of the image to be a ball."""
     total_candidates = sum(len(d) for _, d in frames)
     if total_candidates < min_inliers:
         return None
