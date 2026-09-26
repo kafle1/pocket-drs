@@ -4,10 +4,9 @@ import 'package:video_player/video_player.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
-import '../theme/app_typography.dart';
+import '../theme/app_theme.dart';
 import '../utils/native_video_resources.dart';
 import '../utils/video_controller_factory.dart';
-import 'drs_button.dart';
 
 /// Pick the delivery sub-clip from a recorded or uploaded video.
 ///
@@ -36,6 +35,7 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
   VideoPlayerController? _controller;
   bool _ready = false;
   bool _selecting = false;
+  bool _failed = false;
 
   // Range slider state, units are video milliseconds.
   RangeValues? _range;
@@ -48,31 +48,31 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
   }
 
   Future<void> _init() async {
+    final controller = createVideoPlayerController(widget.videoPath);
     try {
-      final controller = createVideoPlayerController(widget.videoPath);
       await runWithNativeVideoResources(() async {
         await coolDownNativeVideoResources(
           delay: const Duration(milliseconds: 350),
         );
         await controller.initialize();
       });
-      _controller = controller;
-      controller.addListener(_onUpdate);
-      final dur = controller.value.duration.inMilliseconds.toDouble();
-      _range = RangeValues(0.0, dur);
-      if (mounted) setState(() => _ready = true);
     } catch (_) {
-      final controller = _controller;
       try {
-        await controller?.dispose();
+        await controller.dispose();
       } catch (_) {}
-      _controller = null;
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Failed to load video')));
-      }
+      if (mounted) setState(() => _failed = true);
+      return;
     }
+    // left while it was loading, so dispose() never saw this controller
+    if (!mounted) {
+      await controller.dispose();
+      return;
+    }
+    _controller = controller;
+    controller.addListener(_onUpdate);
+    final dur = controller.value.duration.inMilliseconds.toDouble();
+    _range = RangeValues(0.0, dur);
+    setState(() => _ready = true);
   }
 
   void _onUpdate() {
@@ -107,7 +107,7 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
     if (controller == null || range == null) return;
     if (range.end - range.start < 200) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pick a segment of at least 0.2s')),
+        const SnackBar(content: Text('Pick at least 0.2 s of the clip')),
       );
       return;
     }
@@ -132,25 +132,46 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_ready) return const Center(child: CircularProgressIndicator());
-
+    if (_failed) {
+      return ColoredBox(
+        color: AppColors.video,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            child: Text(
+              "This video can't be played. Go back and pick another one.",
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyLarge?.copyWith(color: AppColors.onVideo),
+            ),
+          ),
+        ),
+      );
+    }
     final controller = _controller;
     final range = _range;
-    if (controller == null || range == null) {
-      return const Center(child: CircularProgressIndicator());
+    if (!_ready || controller == null || range == null) {
+      return const ColoredBox(
+        color: AppColors.video,
+        child: Center(
+          child: CircularProgressIndicator(color: AppColors.onVideo),
+        ),
+      );
     }
 
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final dur = controller.value.duration;
     final maxMs = dur.inMilliseconds <= 0 ? 1.0 : dur.inMilliseconds.toDouble();
-    final segMs = (range.end - range.start).toInt();
+    // in whole tenths, so the length always equals end minus start as shown
+    final segTenths = range.end ~/ 100 - range.start ~/ 100;
 
     return Column(
       children: [
         Expanded(
-          child: Container(
-            color: AppColors.inkBlack,
+          child: ColoredBox(
+            color: AppColors.video,
             child: Center(
               child: AspectRatio(
                 aspectRatio: controller.value.aspectRatio,
@@ -161,8 +182,11 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
         ),
         Container(
           decoration: BoxDecoration(
-            color: scheme.surface,
-            border: Border(top: BorderSide(color: scheme.outline, width: 1)),
+            color: scheme.surfaceContainerLow,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(AppRadius.xl),
+              topRight: Radius.circular(AppRadius.xl),
+            ),
           ),
           child: SafeArea(
             top: false,
@@ -181,20 +205,29 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
                     children: [
                       Text(
                         _fmt(Duration(milliseconds: range.start.toInt())),
-                        style: AppTypography.mono(theme.textTheme.labelMedium),
+                        style: AppTheme.tabular(theme.textTheme.bodyMedium),
                       ),
-                      Text(
-                        'SEGMENT  ${(segMs / 1000).toStringAsFixed(1)}s',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: AppColors.signalRed,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1.4,
+                      Chip(
+                        label: Text(
+                          '${(segTenths / 10).toStringAsFixed(1)} s',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: scheme.primary,
+                          ),
+                        ),
+                        backgroundColor: scheme.primaryContainer,
+                        side: BorderSide.none,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.xl),
+                        ),
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.sm,
                         ),
                       ),
                       Text(
                         _fmt(Duration(milliseconds: range.end.toInt())),
-                        style: AppTypography.mono(
-                          theme.textTheme.labelMedium,
+                        style: AppTheme.tabular(
+                          theme.textTheme.bodyMedium,
                         )?.copyWith(color: scheme.onSurfaceVariant),
                       ),
                     ],
@@ -220,17 +253,26 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   Text(
-                    'Drag the handles to bracket the delivery. Only this segment is analysed.',
+                    'Drag the handles to the start and end of the delivery. Only this part is checked.',
                     textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall?.copyWith(
+                    style: theme.textTheme.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: AppSpacing.lg),
-                  DrsButton(
-                    label: 'USE SEGMENT',
-                    icon: Icons.check_circle_outline,
-                    onPressed: _selecting ? null : _confirm,
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _selecting ? null : _confirm,
+                      icon: _selecting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.check),
+                      label: const Text('Use this part'),
+                    ),
                   ),
                 ],
               ),

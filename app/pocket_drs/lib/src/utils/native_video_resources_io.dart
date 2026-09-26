@@ -17,6 +17,8 @@ Future<T> runWithNativeVideoResources<T>(Future<T> Function() operation) {
   return completer.future;
 }
 
-Future<void> coolDownNativeVideoResources({Duration delay = const Duration(milliseconds: 450)}) {
+Future<void> coolDownNativeVideoResources({
+  Duration delay = const Duration(milliseconds: 450),
+}) {
   return Future<void>.delayed(delay);
 }

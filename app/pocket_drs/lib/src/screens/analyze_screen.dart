@@ -1,34 +1,33 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../analysis/frame_decoder.dart';
-import '../analysis/pitch_calibration.dart';
 import '../api/analysis_result.dart';
 import '../api/pocket_drs_api.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
-import '../theme/app_typography.dart';
+import '../theme/app_theme.dart';
 import '../utils/app_logger.dart';
 import '../utils/app_settings.dart';
-import '../widgets/drs_button.dart';
 import '../widgets/image_marker.dart';
 import '../widgets/trajectory_video_view.dart';
 import '../widgets/video_frame_selector.dart';
 import '../widgets/video_trim_selector.dart';
 import 'settings_screen.dart';
 
-/// Single end-to-end flow: pick one video → choose a frame → tap pitch corners
-/// and both sets of stumps → enter the real pitch size → the server tracks the
-/// ball on that same video and returns a 3D trajectory we render. No saved
-/// pitches, no second upload, no trimming, no ball photo.
+const _native = MethodChannel('pocket_drs/native');
+// keep in step with the server's own upload limit
+const _maxUploadBytes = 200 << 20;
+
+/// Single end-to-end flow: pick one video → trim it → choose a frame → tap
+/// both sets of stumps → the server tracks the ball on that same video and
+/// returns a 3D trajectory we render.
 class AnalyzeScreen extends StatefulWidget {
   const AnalyzeScreen({super.key});
 
@@ -36,16 +35,7 @@ class AnalyzeScreen extends StatefulWidget {
   State<AnalyzeScreen> createState() => _AnalyzeScreenState();
 }
 
-enum _Step {
-  upload,
-  trim,
-  frame,
-  pitch,
-  stumpsStriker,
-  stumpsBowler,
-  processing,
-  results,
-}
+enum _Step { upload, trim, frame, stumps, processing, results }
 
 class _AnalyzeScreenState extends State<AnalyzeScreen> {
   final _picker = ImagePicker();
@@ -54,24 +44,9 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
 
   // Calibration inputs (one video drives everything).
   XFile? _video;
-  String? _framePath;
   Uint8List? _frameBytes;
-  ui.Size? _frameSize;
-  // Normalized [0..1], ordered striker-left, striker-right, bowler-right, bowler-left.
-  List<Offset>? _corners;
-  // Normalized stump cluster quads: top-left, top-right, bottom-right, bottom-left.
-  List<Offset>? _strikerStumps;
-  List<Offset>? _bowlerStumps;
-  // Regulation pitch dimensions, both PINNED in the request. Monocular taps
-  // cannot recover absolute scale on their own (the FOV×length×height
-  // trade-off is degenerate), so letting the server geometry-fit the length
-  // produced a wrong scale, e.g. test3 fit 16 m for a true 20.12 m net,
-  // flipping a clear miss into a spurious umpire's call. Pinning the ICC
-  // length (22 yd = 20.12 m) makes the app reproduce the validated offline
-  // analysis exactly. Width barely affects the reconstruction but sizes the
-  // in-line LBW corridor correctly.
-  static const double _pitchWidthM = 3.05;
-  static const double _pitchLengthM = 20.12;
+  // Normalised striker TL, TR, BR, BL then bowler TL, TR, BR, BL.
+  List<Offset>? _stumps;
 
   // Trimmed segment (whole clip by default). Backend honours these as
   // ``segment.{start_ms, end_ms}`` so it only decodes what the user
@@ -93,8 +68,12 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   String? _progressError;
   AnalysisResult? _analysis;
   String? _jobId;
-  String? _decision;
-  String? _decisionReason;
+  // the result's times are on the cut's clock, so the result plays the cut
+  String? _cutPath;
+  // bumped on each analysis and on cancel, so a stale job can't land a result
+  int _run = 0;
+  // closed on cancel, so a dropped analysis stops uploading
+  PocketDrsApi? _api;
 
   void _log(String m) => AppLogger.instance.log(m);
 
@@ -103,17 +82,26 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     try {
       final video = await _picker.pickVideo(source: source);
       if (video == null || !mounted) return;
+      // no native trim on web, so a too-big file has to be caught before the
+      // user spends time marking stumps on it
+      if (kIsWeb && await video.length() > _maxUploadBytes) {
+        _showError(
+          'This video is over 200 MB. Trim it on your phone first, then '
+          'pick it again.',
+        );
+        return;
+      }
       setState(() {
         _video = video;
         _videoFromCamera = source == ImageSource.camera;
-        _framePath = null;
         _frameBytes = null;
+        _stumps = null;
         _segmentStartMs = 0;
         _segmentEndMs = 600000;
         _step = _Step.trim;
       });
     } catch (_) {
-      _showError('Failed to load video');
+      _showError("Couldn't open this video. Try another clip.");
     }
   }
 
@@ -127,9 +115,9 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   }
 
   // ---------------------------------------------------------------- step 2: frame
-  Future<void> _onFrameSelected(Duration timestamp) async {
+  Future<bool> _onFrameSelected(Duration timestamp) async {
     final video = _video;
-    if (video == null) return;
+    if (video == null) return false;
     try {
       final bytes = await decodeFrameJpeg(
         videoPath: video.path,
@@ -137,321 +125,164 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         quality: 95,
       );
       if (bytes == null) {
-        _showError('Failed to extract frame');
-        return;
+        _showError("Couldn't read a frame from this clip. Try another one.");
+        return false;
       }
-      // dart:io File is a stub on Flutter web, keep the frame in memory
-      // there, and only persist to a temp file on native platforms where
-      // downstream code may still want a path (image_picker debug, etc.).
-      String? framePath;
-      if (!kIsWeb) {
-        final tempDir = await getTemporaryDirectory();
-        framePath = '${tempDir.path}/cal_${timestamp.inMilliseconds}.jpg';
-        await File(framePath).writeAsBytes(bytes);
-      }
-      final size = await _decodeImageSizeFromBytes(bytes);
-      if (!mounted) return;
+      // the user went back while the frame was being read
+      if (!mounted || _video != video || _step != _Step.frame) return true;
       setState(() {
-        _framePath = framePath;
-        _frameBytes = Uint8List.fromList(bytes);
-        _frameSize = size;
-        _step = _Step.pitch;
+        _frameBytes = bytes;
+        _step = _Step.stumps;
       });
+      return true;
     } catch (e, st) {
       _log('[FRAME] extraction failed: $e\n$st');
-      _showError('Frame extraction failed');
-    }
-  }
-
-  Future<ui.Size> _decodeImageSizeFromBytes(List<int> bytes) async {
-    final codec = await ui.instantiateImageCodec(Uint8List.fromList(bytes));
-    final frame = await codec.getNextFrame();
-    final size = ui.Size(
-      frame.image.width.toDouble(),
-      frame.image.height.toDouble(),
-    );
-    frame.image.dispose();
-    return size;
-  }
-
-  // ---------------------------------------------------------------- step 3: pitch
-  void _onPitchComplete(List<Offset> markers) {
-    setState(() {
-      _corners = markers;
-      _step = _Step.stumpsStriker;
-    });
-  }
-
-  // ------------------------------------------------------------ step 4/5: stumps
-  // Four taps per end define the bounding rectangle of the 3-stump cluster:
-  // top-left, top-right, bottom-right, bottom-left. World coords place those
-  // at (X, ±OUTER_STUMP_HALF, {h, 0}) so the eight stump corner points (4 per
-  // side) become an over-constrained PnP input, each side alone fully
-  // determines the camera pose, the joint fit averages out tap noise.
-  bool _validateStumpQuad(List<Offset> q, String endName) {
-    if (q.length != 4) {
-      _showError('Tap all 4 corners of the $endName stump cluster');
+      _showError("Couldn't read a frame from this clip. Try another one.");
       return false;
     }
-    final tl = q[0], tr = q[1], br = q[2], bl = q[3];
-    final topY = (tl.dy + tr.dy) / 2.0;
-    final bottomY = (br.dy + bl.dy) / 2.0;
-    if (topY >= bottomY) {
-      _showError(
-        'For the $endName stumps: tap top-left, top-right, bottom-right, bottom-left in that order',
-      );
-      return false;
-    }
-    final leftX = (tl.dx + bl.dx) / 2.0;
-    final rightX = (tr.dx + br.dx) / 2.0;
-    if (leftX >= rightX) {
-      _showError(
-        'For the $endName stumps: tap top-left, top-right, bottom-right, bottom-left in that order',
-      );
-      return false;
-    }
-    return true;
-  }
-
-  void _onStrikerStumpsComplete(List<Offset> markers) {
-    if (!_validateStumpQuad(markers, 'striker (far)')) return;
-    setState(() {
-      _strikerStumps = markers;
-      _step = _Step.stumpsBowler;
-    });
-  }
-
-  void _onBowlerStumpsComplete(List<Offset> markers) {
-    if (!_validateStumpQuad(markers, 'bowler (near)')) return;
-    setState(() => _bowlerStumps = markers);
-    // Pitch length is derived server-side from the stump height, so there is
-    // nothing more to enter, go straight to analysis.
-    _analyse();
-  }
-
-  List<List<Offset>> _stumpGuides() {
-    final c = _corners;
-    if (c == null || c.length != 4) return const [];
-    return <List<Offset>>[
-      <Offset>[c[0], c[1], c[2], c[3], c[0]], // pitch outline
-      <Offset>[c[0], c[1]], // striker line
-      <Offset>[c[3], c[2]], // bowler line
-    ];
   }
 
   // ------------------------------------------------------------ analyse
-  PitchCalibration _buildCalibration() {
-    final size = _frameSize!;
-    Offset px(Offset n) => Offset(n.dx * size.width, n.dy * size.height);
-    final corners = _corners!;
-    final stumps = <Offset>[..._strikerStumps!, ..._bowlerStumps!];
-    return PitchCalibration(
-      imagePoints: corners.map(px).toList(growable: false),
-      stumpPoints: stumps.map(px).toList(growable: false),
-      imageSizePx: size,
-      imagePointsNorm: List<Offset>.unmodifiable(corners),
-      stumpPointsNorm: List<Offset>.unmodifiable(stumps),
-    );
-  }
-
   Future<void> _analyse() async {
     final video = _video;
-    if (video == null || _corners == null || _frameSize == null) return;
+    final stumps = _stumps;
+    if (video == null || stumps == null) return;
+    final run = ++_run;
+    bool stale() => !mounted || run != _run;
 
-    final calibration = _buildCalibration();
-    final platformName = Theme.of(context).platform.name;
     setState(() {
+      _dropCut();
       _step = _Step.processing;
       _progressPct = 0;
       _progressStage = 'queued';
       _progressError = null;
     });
 
+    final api = _api = PocketDrsApi(baseUrl: kServerUrl);
+    String? cutPath;
     try {
-      final serverUrl = await AppSettings.getServerUrl();
-      _log('[ANALYZE] server=$serverUrl');
-      final api = PocketDrsApi(
-        baseUrl: serverUrl,
-        getAuthToken: () async {
-          final user = FirebaseAuth.instance.currentUser;
-          if (user == null) return null;
-          try {
-            return await user.getIdToken();
-          } catch (_) {
-            return null;
-          }
-        },
-      );
-
-      final cornersNorm = calibration.imagePointsNorm!
-          .map((p) => <String, Object?>{'x': p.dx, 'y': p.dy})
-          .toList(growable: false);
-      // Each stump set is 4 taps forming the bounding rectangle of the
-      // cluster: [top-left, top-right, bottom-right, bottom-left]. The
-      // bottom pair sits at z=0 (ground), the top pair at z=stump_height.
-      final sk = _strikerStumps!;
-      final bw = _bowlerStumps!;
-      Map<String, Object?> pt(Offset o) => {'x': o.dx, 'y': o.dy};
-      final requestJson = <String, Object?>{
-        'client': <String, Object?>{
-          'platform': platformName,
-          'app_version': 'dev',
-        },
-        'segment': <String, Object?>{
-          'start_ms': _segmentStartMs,
-          'end_ms': _segmentEndMs,
-        },
-        'calibration': <String, Object?>{
-          'mode': 'taps',
-          'pitch_corners_norm': cornersNorm,
-          'stump_quads_norm': <Map<String, Object?>>[
-            pt(sk[0]),
-            pt(sk[1]),
-            pt(sk[2]),
-            pt(sk[3]),
-            pt(bw[0]),
-            pt(bw[1]),
-            pt(bw[2]),
-            pt(bw[3]),
-          ],
-          // Width AND length are pinned: the server cannot reliably recover
-          // absolute scale from taps alone, so the regulation length is sent
-          // to disambiguate it (see _pitchLengthM). A measured field for
-          // non-regulation nets can override this later.
-          'pitch_dimensions_m': <String, Object?>{
-            'width': _pitchWidthM,
-            'length': _pitchLengthM,
-          },
-        },
-        'tracking': <String, Object?>{'sample_fps': 60, 'max_frames': 180},
-        'batsman_handedness': _batsmanHandedness,
-      };
-
-      final bytes = await video.readAsBytes();
+      _log('[ANALYZE] server=$kServerUrl');
+      var startMs = _segmentStartMs;
+      var endMs = _segmentEndMs;
+      final Uint8List bytes;
+      if (kIsWeb) {
+        bytes = await video.readAsBytes();
+      } else {
+        // upload only the marked segment, not the whole recording
+        cutPath =
+            '${Directory.systemTemp.path}/pocket_drs_cut_'
+            '${DateTime.now().microsecondsSinceEpoch}.mp4';
+        // the cut starts at a keyframe, so the chosen part sits at span[0] inside it
+        final List<int>? span;
+        try {
+          span = await _native.invokeListMethod<int>('trim', {
+            'input': video.path,
+            'output': cutPath,
+            'startMs': startMs,
+            'endMs': endMs,
+          });
+        } catch (e) {
+          final msg = e is PlatformException ? (e.message ?? e.code) : '$e';
+          throw StateError('Could not cut the clip: $msg');
+        }
+        startMs = span![0];
+        endMs = span[1];
+        bytes = await File(cutPath).readAsBytes();
+      }
       final jobId = await api.createJob(
         videoBytes: bytes,
         videoFilename: video.name,
-        requestJson: requestJson,
+        requestJson: jobRequest(
+          stumps: stumps,
+          handedness: _batsmanHandedness,
+          startMs: startMs,
+          endMs: endMs,
+          maxFrames: 240,
+          pitchLengthM: await AppSettings.getPitchLength(),
+        ),
       );
       _log('[ANALYZE] job=$jobId');
 
-      final analysis = await _pollUntilDone(api, jobId);
-      if (!analysis.worldTrajectory.hasTrajectory) {
-        throw StateError(
-          'No ball track recovered. The ball may not be clearly visible, or '
-          'the pitch corners/stumps need re-marking with the real pitch size.',
-        );
-      }
-      final decision = switch (analysis.lbw?.decision) {
-        LbwDecisionKey.out => 'out',
-        LbwDecisionKey.notOut => 'not_out',
-        LbwDecisionKey.umpiresCall => 'umpires_call',
-        _ => null,
-      };
-      // Storage cleanup, only fires when the user has opted in AND the
-      // clip came from in-app recording. A user-picked file from the
-      // camera roll is theirs to keep; we never touch it.
-      if (!kIsWeb &&
-          _videoFromCamera &&
-          await AppSettings.getAutoDeleteSource()) {
-        try {
-          await File(video.path).delete();
-          _log('[ANALYZE] deleted recorded source ${video.path}');
-        } catch (e) {
-          _log('[ANALYZE] auto-delete failed: $e');
-        }
-      }
-
-      if (!mounted) return;
+      final analysis = await api.waitForResult(
+        jobId,
+        cancelled: stale,
+        onStatus: (status) => setState(() {
+          _progressPct = status.pct;
+          _progressStage = status.stage ?? status.status;
+          _progressError = status.errorMessage;
+        }),
+      );
+      if (stale()) return;
       setState(() {
         _analysis = analysis;
         _jobId = jobId;
-        _decision = decision;
-        _decisionReason = analysis.lbw?.reason;
+        _cutPath = cutPath;
         _step = _Step.results;
       });
     } catch (e) {
       _log('[ANALYZE] error: $e');
-      if (!mounted) return;
+      if (stale()) return;
       // Most failures are calibration (re-mark stumps), drop back to the stump
       // step so the user can adjust and retry without restarting.
-      setState(() => _step = _Step.stumpsBowler);
-      _showError(e is ApiException ? e.message : 'Analysis failed: $e');
+      setState(() => _step = _Step.stumps);
+      _showError(switch (e) {
+        ApiException e => e.message,
+        StateError e => e.message,
+        _ => 'Analysis failed. Try again.',
+      });
+    } finally {
+      api.close();
+      if (_api == api) _api = null;
+      if (cutPath != null && cutPath != _cutPath) {
+        File(cutPath).delete().ignore();
+      }
     }
   }
 
-  Future<AnalysisResult> _pollUntilDone(PocketDrsApi api, String jobId) async {
-    const maxPolls = 240;
-    const maxTransient = 8;
-    var transient = 0;
-    for (var poll = 0; poll < maxPolls; poll++) {
-      if (!mounted) throw StateError('Cancelled');
-      final JobStatus status;
-      try {
-        status = await api.getJobStatus(jobId);
-      } catch (e) {
-        if (e is StateError) rethrow;
-        if (++transient >= maxTransient) {
-          throw StateError('Lost connection to server while analysing');
-        }
-        await Future.delayed(const Duration(seconds: 1));
-        continue;
-      }
-      // Healthy poll, clear the accumulated blip count so failures must be
-      // CONSECUTIVE (not merely cumulative over the multi-minute window) to
-      // abort an otherwise-progressing job.
-      transient = 0;
-      if (mounted) {
-        setState(() {
-          _progressPct = status.pct;
-          _progressStage = status.stage ?? status.status;
-          _progressError = status.errorMessage;
-        });
-      }
-      if (status.status == 'succeeded') {
-        // A single network blip at the finish line must not discard a fully
-        // completed analysis, retry the result fetch under the same transient
-        // tolerance the status polls use.
-        while (true) {
-          if (!mounted) throw StateError('Cancelled');
-          try {
-            return await api.getJobResult(jobId);
-          } catch (e) {
-            if (e is StateError) rethrow;
-            if (++transient >= maxTransient) rethrow;
-            await Future.delayed(const Duration(seconds: 1));
-          }
-        }
-      }
-      if (status.status == 'failed') {
-        throw StateError(status.errorMessage ?? 'Server analysis failed');
-      }
-      final ms = poll < 10 ? 500 : (poll < 30 ? 800 : 1200);
-      await Future.delayed(Duration(milliseconds: ms));
+  void _dropCut() {
+    final cut = _cutPath;
+    _cutPath = null;
+    if (cut != null) File(cut).delete().ignore();
+  }
+
+  // checking again from the stumps step cuts the source again, so a recorded one goes only once the user leaves
+  Future<void> _deleteRecordedSource() async {
+    final video = _video;
+    if (kIsWeb || video == null || !_videoFromCamera || _analysis == null) {
+      return;
     }
-    throw StateError('Analysis timed out');
+    if (!await AppSettings.getAutoDeleteSource()) return;
+    try {
+      await File(video.path).delete();
+    } catch (e) {
+      _log('[ANALYZE] auto-delete failed: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _api?.close();
+    _deleteRecordedSource();
+    _dropCut();
+    super.dispose();
   }
 
   void _restart() {
+    _deleteRecordedSource();
     setState(() {
+      _dropCut();
       _step = _Step.upload;
       _video = null;
       _videoFromCamera = false;
       _segmentStartMs = 0;
       _segmentEndMs = 600000;
-      _framePath = null;
       _frameBytes = null;
-      _frameSize = null;
-      _corners = null;
-      _strikerStumps = null;
-      _bowlerStumps = null;
+      _stumps = null;
       _progressPct = null;
       _progressStage = null;
       _progressError = null;
       _analysis = null;
       _jobId = null;
-      _decision = null;
-      _decisionReason = null;
     });
   }
 
@@ -463,19 +294,16 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
           _video = null;
         case _Step.frame:
           _step = _Step.trim;
-        case _Step.pitch:
+        case _Step.stumps:
           _step = _Step.frame;
-          _framePath = null;
           _frameBytes = null;
-        case _Step.stumpsStriker:
-          _step = _Step.pitch;
-          _corners = null;
-        case _Step.stumpsBowler:
-          _step = _Step.stumpsStriker;
-          _strikerStumps = null;
-        case _Step.upload:
         case _Step.processing:
+          _run++;
+          _api?.close();
+          _step = _Step.stumps;
         case _Step.results:
+          _step = _Step.stumps;
+        case _Step.upload:
           break;
       }
     });
@@ -483,63 +311,33 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
 
   void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 10),
+        showCloseIcon: true,
+      ),
+    );
   }
 
   // -------------------------------------------------------------------- build
-  static const _labels = [
-    'UPLOAD',
-    'TRIM',
-    'FRAME',
-    'PITCH',
-    'STRIKER',
-    'BOWLER',
-  ];
+  static const _totalSteps = 4;
 
-  String? get _hint => switch (_step) {
-    _Step.pitch => 'Tap the 4 pitch corners, clockwise from the striker end.',
-    _Step.stumpsStriker || _Step.stumpsBowler =>
-      'Tap the stump base first, then the top. Pinch to zoom.',
-    _ => null,
+  String get _title => switch (_step) {
+    _Step.upload => 'Choose a video',
+    _Step.trim => 'Trim to the delivery',
+    _Step.frame => 'Pick a clear frame',
+    _Step.stumps => 'Mark the stumps',
+    _Step.processing => 'Analysing',
+    _Step.results => 'Result',
   };
-
-  /// Which side of the frame the currently-selected stump cluster sits on,
-  /// derived from the already-tapped pitch corners. Returns null for steps
-  /// where there is no "active cluster" (pitch / upload / etc), in which
-  /// case the header falls back to its default left-aligned layout.
-  ///
-  /// The header (title + hint) is then aligned to that same side so it
-  /// never floats over the empty half of the screen while the user is
-  /// looking at, and tapping into, the loaded half.
-  bool? get _activeClusterIsRight {
-    final c = _corners;
-    if (c == null || c.length != 4) return null;
-    final double clusterX = switch (_step) {
-      _Step.stumpsStriker => (c[0].dx + c[1].dx) / 2.0,
-      _Step.stumpsBowler => (c[2].dx + c[3].dx) / 2.0,
-      _ => double.nan,
-    };
-    if (clusterX.isNaN) return null;
-    return clusterX >= 0.5;
-  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
+    final scheme = Theme.of(context).colorScheme;
     final isResults = _step == _Step.results;
     final isProcessing = _step == _Step.processing;
-    final hint = _hint;
-    final showHeader = !isResults && !isProcessing;
-    final clusterRight = _activeClusterIsRight;
-    final alignRight = clusterRight == true;
-    final textAlign = alignRight ? TextAlign.right : TextAlign.left;
-    final colAlign = alignRight
-        ? CrossAxisAlignment.end
-        : CrossAxisAlignment.start;
-    final titlePadding = alignRight
-        ? const EdgeInsets.only(right: AppSpacing.md)
-        : const EdgeInsets.only(left: AppSpacing.md);
+    final showProgress = !isResults && !isProcessing;
 
     return PopScope(
       // Route the Android hardware back button through the same one-stage
@@ -552,89 +350,44 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         _back();
       },
       child: Scaffold(
-      backgroundColor: isResults ? AppColors.inkBlack : scheme.surface,
-      appBar: showHeader
-          ? PreferredSize(
-              // Title + step bar + 2-line hint comfortably fit in ~140 px;
-              // give a little headroom so 2-line ellipsis doesn't clip the
-              // bottom of the second line on dense locales/font scales.
-              preferredSize: Size.fromHeight(
-                (hint != null ? 140 : 96) + MediaQuery.of(context).padding.top,
-              ),
-              child: SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.sm,
-                    AppSpacing.xs,
-                    AppSpacing.lg,
-                    AppSpacing.md,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: colAlign,
-                    children: [
-                      Row(
-                        children: [
-                          if (_step != _Step.upload)
-                            IconButton(
-                              onPressed: _back,
-                              icon: const Icon(Icons.arrow_back, size: 20),
-                            )
-                          else
-                            const SizedBox(width: AppSpacing.sm),
-                          Text(
-                            'STEP ${(_step.index + 1).toString().padLeft(2, '0')} / '
-                            '${_labels.length.toString().padLeft(2, '0')}',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const Spacer(),
-                          IconButton(
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => const SettingsScreen(),
-                              ),
-                            ),
-                            icon: const Icon(Icons.settings_outlined, size: 20),
-                          ),
-                        ],
+        backgroundColor: isResults ? AppColors.video : scheme.surface,
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: (_step != _Step.upload || Navigator.canPop(context))
+              ? IconButton(
+                  tooltip: 'Back',
+                  onPressed: _step == _Step.upload
+                      ? () => Navigator.pop(context)
+                      : _back,
+                  icon: const Icon(Icons.arrow_back),
+                )
+              : null,
+          title: Text(_title),
+          // on phones settings sit on the home screen; on web this is the home screen
+          actions: kIsWeb && _step == _Step.upload
+              ? [
+                  IconButton(
+                    tooltip: 'Settings',
+                    icon: const Icon(Icons.settings_outlined),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SettingsScreen(),
                       ),
-                      Padding(
-                        padding: titlePadding,
-                        child: Text(
-                          _labels[_step.index].toLowerCase().replaceFirstMapped(
-                            RegExp(r'^.'),
-                            (m) => m.group(0)!.toUpperCase(),
-                          ),
-                          style: theme.textTheme.headlineSmall,
-                          textAlign: textAlign,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      _StepBar(current: _step.index, total: _labels.length),
-                      if (hint != null) ...[
-                        const SizedBox(height: AppSpacing.md),
-                        Padding(
-                          padding: titlePadding,
-                          child: Text(
-                            hint,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: textAlign,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+                    ),
                   ),
-                ),
-              ),
-            )
-          : null,
-      body: _body(),
+                ]
+              : null,
+          bottom: showProgress
+              ? PreferredSize(
+                  preferredSize: const Size.fromHeight(4),
+                  child: _StepProgress(value: (_step.index + 1) / _totalSteps),
+                )
+              : null,
+        ),
+        body: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          child: KeyedSubtree(key: ValueKey(_step), child: _body()),
+        ),
       ),
     );
   }
@@ -663,68 +416,14 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
                 videoPath: v.path,
                 onFrameSelected: _onFrameSelected,
               );
-      case _Step.pitch:
-        if (_frameBytes == null && _framePath == null) return const SizedBox();
-        return ImageMarker(
-          key: const ValueKey('pitch'),
-          imagePath: _framePath,
-          imageBytes: _frameBytes,
-          maxMarkers: 4,
-          title: 'Mark Pitch Corners',
-          subtitle: 'Tap clockwise from the striker end',
-          markerLabels: const [
-            'Striker Left',
-            'Striker Right',
-            'Bowler Right',
-            'Bowler Left',
-          ],
-          initialMarkers: _corners,
-          showHeader: false,
-          onComplete: _onPitchComplete,
-        );
-      case _Step.stumpsStriker:
-        if (_frameBytes == null && _framePath == null) return const SizedBox();
-        return ImageMarker(
-          key: const ValueKey('striker'),
-          imagePath: _framePath,
-          imageBytes: _frameBytes,
-          maxMarkers: 4,
-          title: 'Mark Striker Stumps',
-          subtitle:
-              'Tap the 4 corners of the stump cluster: top-left, top-right, bottom-right, bottom-left',
-          markerLabels: const [
-            'Top Left',
-            'Top Right',
-            'Bottom Right',
-            'Bottom Left',
-          ],
-          initialMarkers: _strikerStumps,
-          guides: _stumpGuides(),
-          highlightGuideIndex: 1,
-          showHeader: false,
-          onComplete: _onStrikerStumpsComplete,
-        );
-      case _Step.stumpsBowler:
-        if (_frameBytes == null && _framePath == null) return const SizedBox();
-        return ImageMarker(
-          key: const ValueKey('bowler'),
-          imagePath: _framePath,
-          imageBytes: _frameBytes,
-          maxMarkers: 4,
-          title: 'Mark Bowler Stumps',
-          subtitle:
-              'Tap the 4 corners of the stump cluster: top-left, top-right, bottom-right, bottom-left',
-          markerLabels: const [
-            'Top Left',
-            'Top Right',
-            'Bottom Right',
-            'Bottom Left',
-          ],
-          initialMarkers: _bowlerStumps,
-          guides: _stumpGuides(),
-          highlightGuideIndex: 2,
-          showHeader: false,
-          onComplete: _onBowlerStumpsComplete,
+      case _Step.stumps:
+        return StumpMarker(
+          frame: _frameBytes!,
+          initialMarkers: _stumps,
+          onComplete: (m) {
+            setState(() => _stumps = m);
+            _analyse();
+          },
         );
       case _Step.processing:
         return _ProcessingView(
@@ -733,40 +432,33 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
           error: _progressError,
         );
       case _Step.results:
-        return _ResultsView(
-          videoPath: _video!.path,
+        return ResultsView(
+          videoPath: _cutPath ?? _video!.path,
           result: _analysis!,
-          decision: _decision,
-          reason: _decisionReason,
-          jobId: _jobId,
-          onRestart: _restart,
+          jobId: _jobId!,
+          action: FilledButton.icon(
+            icon: const Icon(Icons.refresh),
+            label: const Text('Check another ball'),
+            onPressed: _restart,
+          ),
         );
     }
   }
 }
 
-class _StepBar extends StatelessWidget {
-  const _StepBar({required this.current, required this.total});
-  final int current;
-  final int total;
+/// Thin bar under the AppBar showing progress through the 4 upload/trim/
+/// frame/stumps steps. Glides to the new value instead of jumping.
+class _StepProgress extends StatelessWidget {
+  const _StepProgress({required this.value});
+  final double value;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 4,
-      child: Row(
-        children: List.generate(total, (i) {
-          return Expanded(
-            child: Container(
-              margin: EdgeInsets.only(right: i == total - 1 ? 0 : 2),
-              color: i <= current
-                  ? AppColors.signalRed
-                  : scheme.surfaceContainerHigh,
-            ),
-          );
-        }),
-      ),
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: value),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      builder: (context, v, _) => LinearProgressIndicator(value: v),
     );
   }
 }
@@ -787,7 +479,7 @@ class _UploadStep extends StatelessWidget {
     final scheme = theme.colorScheme;
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
         child: ConstrainedBox(
           constraints: BoxConstraints(minHeight: constraints.maxHeight),
           child: IntrinsicHeight(
@@ -795,49 +487,55 @@ class _UploadStep extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Spacer(),
-                Text(
-                  '01.',
-                  style: AppTypography.mono(
-                    theme.textTheme.displayMedium,
-                  )?.copyWith(color: AppColors.signalRed),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Text('Delivery video.', style: theme.textTheme.headlineMedium),
+                Text('Pick a delivery', style: theme.textTheme.headlineSmall),
                 const SizedBox(height: AppSpacing.md),
                 Text(
-                  'Record or choose one clip of the delivery. You calibrate on a '
-                  'frame from it, then the same clip is analysed.',
-                  style: theme.textTheme.bodyLarge?.copyWith(
+                  'Record or choose one clip of the delivery. You trim it to the ball, '
+                  'then mark the stumps on one frame.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),
                 ),
                 const Spacer(),
                 Text(
-                  'BATSMAN',
-                  style: AppTypography.mono(theme.textTheme.labelMedium)
-                      ?.copyWith(color: scheme.onSurfaceVariant),
+                  'Batter',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'right', label: Text('Right-handed')),
-                    ButtonSegment(value: 'left', label: Text('Left-handed')),
-                  ],
-                  selected: {handedness},
-                  onSelectionChanged: (s) => onHandednessChanged(s.first),
+                SizedBox(
+                  width: double.infinity,
+                  child: SegmentedButton<String>(
+                    expandedInsets: EdgeInsets.zero,
+                    segments: const [
+                      ButtonSegment(
+                        value: 'right',
+                        label: Text('Right-handed'),
+                      ),
+                      ButtonSegment(value: 'left', label: Text('Left-handed')),
+                    ],
+                    selected: {handedness},
+                    onSelectionChanged: (s) => onHandednessChanged(s.first),
+                  ),
                 ),
                 const SizedBox(height: AppSpacing.xl),
-                DrsButton(
-                  label: 'RECORD VIDEO',
-                  icon: Icons.videocam_outlined,
-                  onPressed: () => onPick(ImageSource.camera),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.videocam_outlined),
+                    label: const Text('Record video'),
+                    onPressed: () => onPick(ImageSource.camera),
+                  ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                DrsButton(
-                  label: 'CHOOSE FILE',
-                  icon: Icons.folder_open,
-                  style: DrsButtonStyle.secondary,
-                  onPressed: () => onPick(ImageSource.gallery),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.video_library_outlined),
+                    label: const Text('Choose from phone'),
+                    onPressed: () => onPick(ImageSource.gallery),
+                  ),
                 ),
                 const SizedBox(height: AppSpacing.xl),
               ],
@@ -863,14 +561,14 @@ class _ProcessingView extends StatelessWidget {
   // tokens like "decode" / "tracking"; the user wants to see what is
   // actually happening at that moment instead of guessing.
   static const Map<String, String> _stageHelp = {
-    'queued': 'Waiting for a worker',
+    'queued': 'Waiting in line',
     'starting': 'Loading the video',
     'decode': 'Reading frames from your clip',
-    'calibration': 'Calibrating the pitch with your taps',
+    'calibration': 'Reading your stump marks',
     'tracking': 'Finding the ball in every frame',
-    'reconstruction': 'Reconstructing the 3D trajectory',
-    'lbw': 'Running the LBW decision',
-    'finalize': 'Wrapping up the report',
+    'reconstruction': "Working out the ball's path",
+    'lbw': 'Making the LBW call',
+    'finalize': 'Finishing up',
     'succeeded': 'Done',
     'failed': 'Failed',
   };
@@ -881,6 +579,9 @@ class _ProcessingView extends StatelessWidget {
     final scheme = theme.colorScheme;
     final p = (pct ?? 0).clamp(0, 100);
     final stageKey = (stage ?? 'working').toLowerCase();
+    final stageName = stageKey.isEmpty
+        ? stageKey
+        : stageKey[0].toUpperCase() + stageKey.substring(1);
     final help = _stageHelp[stageKey] ?? 'Processing your delivery';
     final hasError = error != null;
     return Center(
@@ -891,24 +592,18 @@ class _ProcessingView extends StatelessWidget {
           children: [
             Text(
               '$p%',
-              style: AppTypography.mono(
-                theme.textTheme.displayLarge,
-              )?.copyWith(color: hasError ? scheme.error : AppColors.signalRed),
+              style: AppTheme.tabular(
+                theme.textTheme.displayMedium,
+              )?.copyWith(color: hasError ? scheme.error : scheme.primary),
             ),
             const SizedBox(height: AppSpacing.md),
-            Text(
-              stageKey.toUpperCase(),
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-                letterSpacing: 1.4,
-              ),
-            ),
+            Text(stageName, style: theme.textTheme.titleMedium),
             const SizedBox(height: AppSpacing.xs),
             Text(
               help,
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurface,
+                color: scheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
@@ -918,16 +613,17 @@ class _ProcessingView extends StatelessWidget {
             // "still working but no measurable progress yet".
             SizedBox(
               width: 240,
-              child: pct == null
-                  ? LinearProgressIndicator(
-                      color: AppColors.signalRed,
-                      backgroundColor: scheme.surfaceContainerHigh,
-                    )
-                  : LinearProgressIndicator(
-                      value: p / 100.0,
-                      color: hasError ? scheme.error : AppColors.signalRed,
-                      backgroundColor: scheme.surfaceContainerHigh,
-                    ),
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: pct == null ? 0 : p / 100.0),
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+                builder: (context, v, _) => LinearProgressIndicator(
+                  value: pct == null ? null : v,
+                  color: hasError ? scheme.error : scheme.primary,
+                  backgroundColor: scheme.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+              ),
             ),
             if (hasError) ...[
               const SizedBox(height: AppSpacing.lg),
@@ -946,100 +642,184 @@ class _ProcessingView extends StatelessWidget {
   }
 }
 
-class _ResultsView extends StatelessWidget {
-  const _ResultsView({
+class ResultsView extends StatelessWidget {
+  const ResultsView({
+    super.key,
     required this.videoPath,
     required this.result,
-    required this.decision,
-    required this.reason,
     required this.jobId,
-    required this.onRestart,
+    required this.action,
   });
   final String videoPath;
   final AnalysisResult result;
-  final String? decision;
-  final String? reason;
-  final String? jobId;
-  final VoidCallback onRestart;
+  final String jobId;
+  final Widget action;
 
   Future<void> _open3D(BuildContext context) async {
-    final id = jobId;
-    if (id == null) return;
     try {
-      final base = await AppSettings.getServerUrl();
-      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
-      final baseUri = Uri.parse(base.endsWith('/') ? base : '$base/');
-      final page = baseUri.resolve('v1/jobs/$id/three-d');
-      final uri = token == null || token.isEmpty
-          ? page
-          : page.replace(queryParameters: <String, String>{'token': token});
+      final baseUri = Uri.parse(
+        kServerUrl.endsWith('/') ? kServerUrl : '$kServerUrl/',
+      );
+      final uri = baseUri.resolve('v1/jobs/$jobId/three-d');
       final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!opened) {
-        throw StateError('No browser available for $uri');
-      }
-    } catch (e) {
+      if (!opened) throw StateError('no browser');
+    } catch (_) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Could not open 3D view: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open the 3D view. Is a web browser installed?'),
+          ),
+        );
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final lbw = result.lbw;
+    final size = MediaQuery.sizeOf(context);
+    final wide = size.width > size.height;
+    final video = Expanded(
+      child: ColoredBox(
+        color: AppColors.video,
+        child: SafeArea(
+          bottom: false,
+          child: TrajectoryVideoView(videoPath: videoPath, result: result),
+        ),
+      ),
+    );
+    final panel = _ResultPanel(
+      wide: wide,
+      decision: lbw?.decision,
+      // the server's warnings explain a missing call or a missing number
+      reason: [if (lbw != null) lbw.reason, ...result.warnings]
+          .where((l) => l.isNotEmpty)
+          .map((l) => l[0].toUpperCase() + l.substring(1))
+          .join('\n'),
+      // the 3D page needs the fitted path, which only comes with a call
+      onOpen3D: lbw == null ? null : () => _open3D(context),
+      action: action,
+    );
+    // on a tripod the phone is often sideways, where a panel under the video would leave it no room
+    return wide
+        ? Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [video, SizedBox(width: 360, child: panel)],
+          )
+        : Column(
+            children: [
+              video,
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: size.height * 0.55),
+                child: panel,
+              ),
+            ],
+          );
+  }
+}
+
+/// Verdict banner, reason and actions under the video. Fades in once so the
+/// result doesn't just pop into place.
+class _ResultPanel extends StatelessWidget {
+  const _ResultPanel({
+    required this.wide,
+    required this.decision,
+    required this.reason,
+    required this.onOpen3D,
+    required this.action,
+  });
+
+  final bool wide;
+  final LbwDecisionKey? decision;
+  final String reason;
+  final VoidCallback? onOpen3D;
+  final Widget action;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SafeArea(
-      child: Column(
-        children: [
-          Expanded(
-            child: TrajectoryVideoView(
-              videoPath: videoPath,
-              result: result,
-              decision: decision,
-            ),
-          ),
-          Container(
-            width: double.infinity,
-            color: AppColors.inkBlack,
+    final scheme = theme.colorScheme;
+    final verdictText = switch (decision) {
+      LbwDecisionKey.out => 'Out',
+      LbwDecisionKey.notOut => 'Not out',
+      LbwDecisionKey.umpiresCall => "Umpire's call",
+      null => 'No call',
+    };
+    final verdictColor = switch (decision) {
+      LbwDecisionKey.out => AppColors.out(Brightness.light),
+      LbwDecisionKey.notOut => AppColors.notOut(Brightness.light),
+      LbwDecisionKey.umpiresCall => AppColors.umpiresCall(Brightness.light),
+      null => scheme.surfaceContainerHighest,
+    };
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+      builder: (context, t, child) => Opacity(opacity: t, child: child),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerLow,
+          borderRadius: wide
+              ? const BorderRadius.horizontal(
+                  left: Radius.circular(AppRadius.xl),
+                )
+              : const BorderRadius.vertical(
+                  top: Radius.circular(AppRadius.xl),
+                ),
+        ),
+        child: SafeArea(
+          top: wide,
+          left: false,
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.xl,
-              AppSpacing.md,
+              AppSpacing.lg,
               AppSpacing.xl,
               AppSpacing.lg,
             ),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (reason != null && reason!.isNotEmpty) ...[
-                  Text(
-                    reason!,
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: AppSpacing.md,
+                    horizontal: AppSpacing.lg,
+                  ),
+                  decoration: BoxDecoration(
+                    color: verdictColor,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: Text(
+                    verdictText,
                     textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: AppColors.bone,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: decision == null ? scheme.onSurface : Colors.white,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.md),
-                ],
-                if (jobId != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                    child: DrsButton(
-                      label: 'VIEW 3D HAWK-EYE',
-                      icon: Icons.view_in_ar,
-                      style: DrsButtonStyle.secondary,
-                      onPressed: () => _open3D(context),
-                    ),
-                  ),
-                DrsButton(
-                  label: 'NEW ANALYSIS',
-                  icon: Icons.refresh,
-                  onPressed: onRestart,
                 ),
+                const SizedBox(height: AppSpacing.md),
+                if (reason.isNotEmpty) ...[
+                  Text(reason, style: theme.textTheme.bodyLarge),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+                if (onOpen3D != null) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.view_in_ar_outlined),
+                      label: const Text('View in 3D'),
+                      onPressed: onOpen3D,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
+                SizedBox(width: double.infinity, child: action),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

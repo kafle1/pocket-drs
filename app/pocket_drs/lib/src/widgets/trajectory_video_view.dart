@@ -4,26 +4,22 @@ import 'package:video_player/video_player.dart';
 import '../analysis/ball_track_models.dart';
 import '../api/analysis_result.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_theme.dart';
 import '../utils/app_settings.dart';
 import '../utils/video_controller_factory.dart';
 
-/// Broadcast-style result view: the source clip with the Hawk-Eye overlay drawn
-/// over it, red ball path through the bounce, the blue on-stumps corridor on
-/// the ground, gold stumps, and Speed / Spin / Swing metric cards. Modelled on
-/// the FullTrack-AI presentation: the live scene is dimmed so the telemetry
-/// reads cleanly, and the tracked flight continues, as one clean solid red
-/// line, into the predicted path to the stumps.
+/// The clip with the tracked ball path and its predicted path to the stumps
+/// drawn over it, plus speed, spin and swing tiles.
 class TrajectoryVideoView extends StatefulWidget {
   const TrajectoryVideoView({
     super.key,
     required this.videoPath,
     required this.result,
-    this.decision,
   });
 
   final String videoPath;
   final AnalysisResult result;
-  final String? decision; // 'out' | 'not_out' | 'umpires_call'
 
   @override
   State<TrajectoryVideoView> createState() => _TrajectoryVideoViewState();
@@ -112,13 +108,18 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
   Widget build(BuildContext context) {
     if (_error != null) {
       return Center(
-        child: Text(_error!, style: const TextStyle(color: AppColors.bone)),
+        child: Text(
+          _error!,
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: AppColors.onVideo),
+        ),
       );
     }
     final c = _controller;
     if (c == null || !c.value.isInitialized) {
       return const Center(
-        child: CircularProgressIndicator(color: AppColors.signalRed),
+        child: CircularProgressIndicator(color: AppColors.onVideo),
       );
     }
 
@@ -144,9 +145,8 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
                 child: VideoPlayer(c),
               ),
             ),
-            // Keep the scene bright like the broadcast render, only a faint
-            // scrim so the overlay lines stay legible.
-            const ColoredBox(color: Color(0x14000000)),
+            // a faint scrim so the overlay lines stay legible on a bright scene
+            ColoredBox(color: AppColors.video.withValues(alpha: 0x14 / 0xFF)),
             if (overlay != null && imgW > 0 && imgH > 0)
               CustomPaint(
                 painter: _OverlayPainter(
@@ -161,18 +161,21 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
               Positioned(
                 top: 14,
                 left: 12,
-                child: _MetricStack(
-                  metrics: metrics,
-                  decision: widget.decision,
-                  speedUnit: _speedUnit,
+                right: 12,
+                // a tall narrow clip leaves less room than three cards need
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.topLeft,
+                  child: _MetricStack(metrics: metrics, speedUnit: _speedUnit),
                 ),
               ),
             Positioned(
               right: 8,
               bottom: 8,
-              child: _ReplayButton(
-                playing: c.value.isPlaying,
-                onTap: () {
+              child: IconButton.filledTonal(
+                tooltip: c.value.isPlaying ? 'Pause' : 'Replay',
+                icon: Icon(c.value.isPlaying ? Icons.pause : Icons.replay),
+                onPressed: () {
                   if (c.value.isPlaying) {
                     c.pause();
                   } else {
@@ -210,10 +213,14 @@ class _OverlayPainter extends CustomPainter {
   final int nowMs;
 
   static const _blue = Color(0xFF3FA7FF); // calibrated pitch + corridor lines
-  static const _yellow = Color(0xFFFFCF40); // stumps (pitch markings, not ball path)
+  static const _yellow = Color(
+    0xFFFFCF40,
+  ); // stumps (pitch markings, not ball path)
 
   @override
   void paint(Canvas canvas, Size size) {
+    // the projected pitch runs off the frame when the phone stands close to the stumps
+    canvas.clipRect(Offset.zero & size);
     final sx = size.width / imageWidth;
     final sy = size.height / imageHeight;
     Offset map(Offset p) => Offset(p.dx * sx, p.dy * sy);
@@ -226,7 +233,12 @@ class _OverlayPainter extends CustomPainter {
 
     // ---- calibrated ground geometry (drawn under the ball path) ----
     // Full pitch outline, blue (proves the pitch calibration).
-    _drawPolygon(canvas, [for (final p in overlay.pitchRect) map(p)], _blue, 2.2);
+    _drawPolygon(
+      canvas,
+      [for (final p in overlay.pitchRect) map(p)],
+      _blue,
+      2.2,
+    );
     // On-stumps corridor between the two wickets, translucent blue channel.
     final corridor = [for (final p in overlay.corridor) map(p)];
     if (corridor.length >= 4) {
@@ -247,12 +259,20 @@ class _OverlayPainter extends CustomPainter {
     );
     // Both wickets, yellow (3 stumps + bail).
     if (overlay.bowlerStumps != null) {
-      _drawWicket(canvas, map(overlay.bowlerStumps!.base),
-          map(overlay.bowlerStumps!.top), prominent: false);
+      _drawWicket(
+        canvas,
+        map(overlay.bowlerStumps!.base),
+        map(overlay.bowlerStumps!.top),
+        prominent: false,
+      );
     }
     if (overlay.strikerStumps != null) {
-      _drawWicket(canvas, map(overlay.strikerStumps!.base),
-          map(overlay.strikerStumps!.top), prominent: true);
+      _drawWicket(
+        canvas,
+        map(overlay.strikerStumps!.base),
+        map(overlay.strikerStumps!.top),
+        prominent: true,
+      );
     }
 
     // ---- ball path ----
@@ -263,50 +283,65 @@ class _OverlayPainter extends CustomPainter {
     // the ball. Only the server's PREDICTED continuation is kept, anchored to
     // the last detection so it flows straight out of the ball, no jump, no
     // kink. One clean solid red curve, the broadcast look.
-    final raw = List<BallTrackPoint>.of(track)
-      ..sort((a, b) => a.t.compareTo(b.t));
+    final raw = [
+      for (final p in track) OverlayPoint(tMs: p.t, px: p.p, predicted: false),
+    ]..sort((a, b) => a.tMs.compareTo(b.tMs));
+    // the ball often hides as it pitches, so route the line through the bounce
+    final bounce = overlay.bounce;
+    if (bounce != null &&
+        raw.length >= 2 &&
+        bounce.tMs > raw.first.tMs &&
+        bounce.tMs < raw.last.tMs) {
+      raw.insert(raw.indexWhere((p) => p.tMs > bounce.tMs), bounce);
+    }
     if (raw.length >= 2) {
       _drawPolyline(
         canvas,
-        [for (final p in raw) map(p.p)],
-        AppColors.signalRed,
+        [for (final p in raw) map(p.px)],
+        AppColors.track,
         pathW,
       );
     } else {
       // Fallback when the raw track is unavailable: the fit-projected flight.
       _drawPolyline(
         canvas,
-        [for (final p in overlay.path) if (!p.predicted) map(p.px)],
-        AppColors.signalRed,
+        [
+          for (final p in overlay.path)
+            if (!p.predicted) map(p.px),
+        ],
+        AppColors.track,
         pathW,
       );
     }
 
-    final predicted = [for (final p in overlay.path) if (p.predicted) p];
+    final predicted = [
+      for (final p in overlay.path)
+        if (p.predicted) p,
+    ];
     var shift = Offset.zero;
     if (predicted.isNotEmpty && raw.isNotEmpty) {
       // Anchor: translate the predicted polyline by the residual between the
       // last detection and the first predicted pixel, == _anchored_prediction_px.
-      shift = raw.last.p - predicted.first.px;
+      shift = raw.last.px - predicted.first.px;
       _drawPolyline(
         canvas,
         <Offset>[
-          map(raw.last.p),
+          map(raw.last.px),
           for (final p in predicted) map(p.px + shift),
         ],
-        AppColors.signalRed,
+        AppColors.track,
         pathW,
       );
     }
 
-    if (overlay.bounce != null) {
-      _drawBouncePin(canvas, map(overlay.bounce!.px));
+    if (bounce != null) {
+      _drawBouncePin(canvas, map(bounce.px));
     }
 
     // Moving ball rides the raw flight, then the anchored prediction, so the
     // cursor follows the whole visible curve to the stumps.
     final cursorPath = <OverlayPoint>[
-      for (final p in raw) OverlayPoint(tMs: p.t, px: p.p, predicted: false),
+      ...raw,
       if (raw.isNotEmpty)
         for (final p in predicted)
           OverlayPoint(tMs: p.tMs, px: p.px + shift, predicted: true),
@@ -319,23 +354,19 @@ class _OverlayPainter extends CustomPainter {
     if (ball != null) {
       // Crisp white ball with a red ring, matches the validation render's
       // moving ball, no soft halo.
-      canvas.drawCircle(ball, 8.5, Paint()..color = AppColors.bone);
+      canvas.drawCircle(ball, 8.5, Paint()..color = AppColors.onVideo);
       canvas.drawCircle(
         ball,
         8.5,
         Paint()
           ..style = PaintingStyle.stroke
-          ..color = AppColors.signalRed
+          ..color = AppColors.track
           ..strokeWidth = 2.5,
       );
     }
   }
 
-  Offset? _ballAt(
-    List<OverlayPoint> path,
-    Offset Function(Offset) map,
-    int t,
-  ) {
+  Offset? _ballAt(List<OverlayPoint> path, Offset Function(Offset) map, int t) {
     final samples = List<OverlayPoint>.of(path)
       ..sort((a, b) => a.tMs.compareTo(b.tMs));
     if (samples.length < 2) return null;
@@ -379,7 +410,11 @@ class _OverlayPainter extends CustomPainter {
       );
     }
     // bail across the tops
-    canvas.drawLine(top.translate(-half, 0), top.translate(half, 0), stumpPaint);
+    canvas.drawLine(
+      top.translate(-half, 0),
+      top.translate(half, 0),
+      stumpPaint,
+    );
   }
 
   void _drawPolygon(
@@ -436,7 +471,7 @@ class _OverlayPainter extends CustomPainter {
   /// Bounce point, a flat solid red dot, no glow halo (matches the clean
   /// broadcast reference; the soft halo read as a "glow" at the bounce).
   void _drawBouncePin(Canvas canvas, Offset c) {
-    canvas.drawCircle(c, 4.0, Paint()..color = AppColors.signalRed);
+    canvas.drawCircle(c, 4.0, Paint()..color = AppColors.track);
   }
 
   @override
@@ -447,13 +482,8 @@ class _OverlayPainter extends CustomPainter {
 }
 
 class _MetricStack extends StatelessWidget {
-  const _MetricStack({
-    required this.metrics,
-    required this.decision,
-    required this.speedUnit,
-  });
+  const _MetricStack({required this.metrics, required this.speedUnit});
   final DeliveryMetrics metrics;
-  final String? decision;
   final SpeedUnit speedUnit;
 
   @override
@@ -461,38 +491,29 @@ class _MetricStack extends StatelessWidget {
     final speedValue = speedUnit == SpeedUnit.mph
         ? metrics.speedMph
         : metrics.speedKmh;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _MetricCard(
-              icon: Icons.speed_rounded,
-              label: 'Speed',
-              value: speedValue.toStringAsFixed(0),
-              unit: speedUnit.label,
-            ),
-            const SizedBox(width: 6),
-            _MetricCard(
-              icon: Icons.timeline_rounded,
-              label: 'Swing',
-              value: metrics.swingSf.toStringAsFixed(1),
-              unit: '',
-            ),
-            const SizedBox(width: 6),
-            _MetricCard(
-              icon: Icons.rotate_right_rounded,
-              label: 'Spin',
-              value: metrics.spinDeg.toStringAsFixed(0),
-              unit: 'deg',
-            ),
-          ],
+        _MetricCard(
+          icon: Icons.speed_rounded,
+          label: 'Speed',
+          value: speedValue?.toStringAsFixed(0) ?? '–',
+          unit: speedUnit.label,
         ),
-        if (decision != null) ...[
-          const SizedBox(height: 8),
-          _DecisionChip(decision: decision!),
-        ],
+        const SizedBox(width: 6),
+        _MetricCard(
+          icon: Icons.timeline_rounded,
+          label: 'Swing',
+          value: metrics.swingCm?.toStringAsFixed(1) ?? '–',
+          unit: 'cm',
+        ),
+        const SizedBox(width: 6),
+        _MetricCard(
+          icon: Icons.rotate_right_rounded,
+          label: 'Spin',
+          value: metrics.spinDeg?.toStringAsFixed(0) ?? '–',
+          unit: 'deg',
+        ),
       ],
     );
   }
@@ -512,31 +533,24 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final dim = AppColors.onVideo.withValues(alpha: 0.7);
     return Container(
-      width: 86,
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xCC101012),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0x22FFFFFF)),
+        color: AppColors.video.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                label.toUpperCase(),
-                style: const TextStyle(
-                  color: AppColors.ash,
-                  fontSize: 8.5,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.1,
-                ),
-              ),
-              Icon(icon, size: 12, color: AppColors.ash),
+              Text(label, style: text.labelSmall?.copyWith(color: dim)),
+              const SizedBox(width: 4),
+              Icon(icon, size: 12, color: dim),
             ],
           ),
           const SizedBox(height: 2),
@@ -546,85 +560,15 @@ class _MetricCard extends StatelessWidget {
             children: [
               Text(
                 value,
-                style: const TextStyle(
-                  color: AppColors.bone,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  height: 1.0,
-                ),
+                style: AppTheme.tabular(
+                  text.titleMedium,
+                )?.copyWith(color: AppColors.onVideo),
               ),
               const SizedBox(width: 3),
-              Text(
-                unit,
-                style: const TextStyle(
-                  color: AppColors.bone,
-                  fontSize: 9.5,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+              Text(unit, style: text.labelSmall?.copyWith(color: dim)),
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _DecisionChip extends StatelessWidget {
-  const _DecisionChip({required this.decision});
-  final String decision;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, color) = switch (decision) {
-      'out' => ('OUT', AppColors.signalRed),
-      'not_out' => ('NOT OUT', AppColors.pitchGreen),
-      'umpires_call' => ("UMPIRE'S CALL", AppColors.caution),
-      _ => (decision.toUpperCase(), AppColors.bone),
-    };
-    return Container(
-      width: 96,
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xCC101012),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color, width: 1.2),
-      ),
-      child: Text(
-        label,
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 1.2,
-        ),
-      ),
-    );
-  }
-}
-
-class _ReplayButton extends StatelessWidget {
-  const _ReplayButton({required this.playing, required this.onTap});
-  final bool playing;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xCC0A0A0B),
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Icon(
-            playing ? Icons.pause : Icons.replay,
-            color: AppColors.bone,
-            size: 22,
-          ),
-        ),
       ),
     );
   }

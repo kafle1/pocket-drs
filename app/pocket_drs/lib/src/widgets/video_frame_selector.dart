@@ -4,10 +4,9 @@ import 'package:video_player/video_player.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
-import '../theme/app_typography.dart';
+import '../theme/app_theme.dart';
 import '../utils/native_video_resources.dart';
 import '../utils/video_controller_factory.dart';
-import 'drs_button.dart';
 
 class VideoFrameSelector extends StatefulWidget {
   const VideoFrameSelector({
@@ -17,7 +16,8 @@ class VideoFrameSelector extends StatefulWidget {
   });
 
   final String videoPath;
-  final void Function(Duration timestamp) onFrameSelected;
+  // returns whether the frame was used; false leaves this widget's player usable again
+  final Future<bool> Function(Duration timestamp) onFrameSelected;
 
   @override
   State<VideoFrameSelector> createState() => _VideoFrameSelectorState();
@@ -27,6 +27,7 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
   VideoPlayerController? _controller;
   bool _ready = false;
   bool _selecting = false;
+  bool _failed = false;
 
   Timer? _seekDebounce;
   bool _scrubbing = false;
@@ -39,29 +40,29 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
   }
 
   Future<void> _init() async {
+    final controller = createVideoPlayerController(widget.videoPath);
     try {
-      final controller = createVideoPlayerController(widget.videoPath);
       await runWithNativeVideoResources(() async {
         await coolDownNativeVideoResources(
           delay: const Duration(milliseconds: 350),
         );
         await controller.initialize();
       });
-      _controller = controller;
-      controller.addListener(_onUpdate);
-      if (mounted) setState(() => _ready = true);
     } catch (_) {
-      final controller = _controller;
       try {
-        await controller?.dispose();
+        await controller.dispose();
       } catch (_) {}
-      _controller = null;
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Failed to load video')));
-      }
+      if (mounted) setState(() => _failed = true);
+      return;
     }
+    // left while it was loading, so dispose() never saw this controller
+    if (!mounted) {
+      await controller.dispose();
+      return;
+    }
+    _controller = controller;
+    controller.addListener(_onUpdate);
+    setState(() => _ready = true);
   }
 
   void _onUpdate() {
@@ -110,6 +111,7 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
     if (controller == null) return;
 
     setState(() => _selecting = true);
+    final position = controller.value.position;
     try {
       await controller.pause();
       controller.removeListener(_onUpdate);
@@ -118,7 +120,12 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
       await coolDownNativeVideoResources(
         delay: const Duration(milliseconds: 550),
       );
-      widget.onFrameSelected(controller.value.position);
+      final used = await widget.onFrameSelected(position);
+      // extraction failed, so give the player back instead of a dead spinner
+      if (!used && mounted) {
+        await _init();
+        _controller?.seekTo(position);
+      }
     } finally {
       if (mounted) setState(() => _selecting = false);
     }
@@ -133,11 +140,31 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_ready) return const Center(child: CircularProgressIndicator());
-
+    if (_failed) {
+      return ColoredBox(
+        color: AppColors.video,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            child: Text(
+              "This video can't be played. Go back and pick another one.",
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyLarge?.copyWith(color: AppColors.onVideo),
+            ),
+          ),
+        ),
+      );
+    }
     final controller = _controller;
-    if (controller == null) {
-      return const Center(child: CircularProgressIndicator());
+    if (!_ready || controller == null) {
+      return const ColoredBox(
+        color: AppColors.video,
+        child: Center(
+          child: CircularProgressIndicator(color: AppColors.onVideo),
+        ),
+      );
     }
 
     final theme = Theme.of(context);
@@ -158,8 +185,8 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
     return Column(
       children: [
         Expanded(
-          child: Container(
-            color: AppColors.inkBlack,
+          child: ColoredBox(
+            color: AppColors.video,
             child: Center(
               child: AspectRatio(
                 aspectRatio: controller.value.aspectRatio,
@@ -170,8 +197,11 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
         ),
         Container(
           decoration: BoxDecoration(
-            color: scheme.surface,
-            border: Border(top: BorderSide(color: scheme.outline, width: 1)),
+            color: scheme.surfaceContainerLow,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(AppRadius.xl),
+              topRight: Radius.circular(AppRadius.xl),
+            ),
           ),
           child: SafeArea(
             top: false,
@@ -183,12 +213,13 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                 AppSpacing.lg,
               ),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(
                     children: [
                       Text(
                         _fmt(shownPos),
-                        style: AppTypography.mono(theme.textTheme.labelMedium),
+                        style: AppTheme.tabular(theme.textTheme.bodyMedium),
                       ),
                       Expanded(
                         child: Slider(
@@ -219,48 +250,65 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                       ),
                       Text(
                         _fmt(dur),
-                        style: AppTypography.mono(
-                          theme.textTheme.labelMedium,
+                        style: AppTheme.tabular(
+                          theme.textTheme.bodyMedium,
                         )?.copyWith(color: scheme.onSurfaceVariant),
                       ),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    physics: const ClampingScrollPhysics(),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _MiniButton(
-                          icon: Icons.skip_previous,
-                          label: '-0.1s',
-                          onTap: _stepBack,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton.filledTonal(
+                        tooltip: 'Back 0.1 s',
+                        icon: const Icon(Icons.keyboard_arrow_left),
+                        onPressed: _stepBack,
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      IconButton.filled(
+                        tooltip: playing ? 'Pause' : 'Play',
+                        iconSize: 32,
+                        style: IconButton.styleFrom(
+                          minimumSize: const Size(56, 56),
                         ),
-                        const SizedBox(width: AppSpacing.md),
-                        _MiniButton(
-                          icon: playing ? Icons.pause : Icons.play_arrow,
-                          large: true,
-                          onTap: _selecting
-                              ? null
-                              : () => playing
-                                    ? controller.pause()
-                                    : controller.play(),
+                        onPressed: _selecting
+                            ? null
+                            : () => playing
+                                  ? controller.pause()
+                                  : controller.play(),
+                        icon: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 250),
+                          switchInCurve: Curves.easeInOut,
+                          switchOutCurve: Curves.easeInOut,
+                          child: Icon(
+                            playing ? Icons.pause : Icons.play_arrow,
+                            key: ValueKey(playing),
+                          ),
                         ),
-                        const SizedBox(width: AppSpacing.md),
-                        _MiniButton(
-                          icon: Icons.skip_next,
-                          label: '+0.1s',
-                          onTap: _stepForward,
-                        ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      IconButton.filledTonal(
+                        tooltip: 'Forward 0.1 s',
+                        icon: const Icon(Icons.keyboard_arrow_right),
+                        onPressed: _stepForward,
+                      ),
+                    ],
                   ),
                   const SizedBox(height: AppSpacing.lg),
-                  DrsButton(
-                    label: 'USE THIS FRAME',
-                    icon: Icons.check_circle_outline,
-                    onPressed: _selecting ? null : _select,
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _selecting ? null : _select,
+                      icon: _selecting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.check),
+                      label: const Text('Use this frame'),
+                    ),
                   ),
                 ],
               ),
@@ -268,69 +316,6 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _MiniButton extends StatelessWidget {
-  const _MiniButton({
-    required this.icon,
-    this.onTap,
-    this.label,
-    this.large = false,
-  });
-  final IconData icon;
-  final VoidCallback? onTap;
-  final String? label;
-  final bool large;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final size = large ? 48.0 : 40.0;
-    final disabled = onTap == null;
-    return Material(
-      color: large && !disabled ? scheme.onSurface : Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        side: BorderSide(color: scheme.outline, width: 1),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        child: SizedBox(
-          width: label != null ? null : size,
-          height: size,
-          child: Padding(
-            padding: label != null
-                ? const EdgeInsets.symmetric(horizontal: 12)
-                : EdgeInsets.zero,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  icon,
-                  size: large ? 22 : 18,
-                  color: large && !disabled ? scheme.surface : scheme.onSurface,
-                ),
-                if (label != null) ...[
-                  const SizedBox(width: AppSpacing.xs + 2),
-                  Text(
-                    label!.toUpperCase(),
-                    style: TextStyle(
-                      color: disabled
-                          ? scheme.onSurfaceVariant
-                          : scheme.onSurface,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

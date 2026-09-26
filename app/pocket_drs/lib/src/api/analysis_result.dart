@@ -18,7 +18,6 @@ class AnalysisResult {
     required this.metrics,
     required this.imageWidth,
     required this.imageHeight,
-    required this.calibrationQuality,
     required this.warnings,
   });
 
@@ -27,7 +26,7 @@ class AnalysisResult {
   final AnalysisEvents? events;
   final LbwResult? lbw;
 
-  /// Pixel-space Hawk-Eye path projected by the server for the video overlay.
+  /// Pixel-space ball path projected by the server for the video overlay.
   final TrajectoryOverlay? overlay;
 
   /// Broadcast delivery metrics (speed / spin / swing).
@@ -37,7 +36,6 @@ class AnalysisResult {
   /// [overlay] and [track]. The overlay scales against these.
   final int imageWidth;
   final int imageHeight;
-  final CalibrationQuality calibrationQuality;
   final List<String> warnings;
 
   static AnalysisResult fromServerJson(Map<String, Object?> json) {
@@ -72,22 +70,15 @@ class AnalysisResult {
       lbw = LbwResult.fromJson(lbwJson.cast<String, Object?>());
     }
 
-    final calJson = json['calibration'];
-    CalibrationQuality calQuality = CalibrationQuality.unknown();
-    if (calJson is Map) {
-      final qual = (calJson.cast<String, Object?>())['quality'];
-      if (qual is Map) {
-        calQuality = CalibrationQuality.fromJson(qual.cast<String, Object?>());
-      }
-    }
-
     final warnings = <String>[];
     final diag = json['diagnostics'];
     if (diag is Map) {
       final w = diag['warnings'];
       if (w is List) {
         for (final v in w) {
-          if (v is String && v.isNotEmpty) warnings.add(v);
+          if (v is String && v.isNotEmpty) {
+            warnings.add(v[0].toUpperCase() + v.substring(1));
+          }
         }
       }
     }
@@ -101,39 +92,39 @@ class AnalysisResult {
       metrics: DeliveryMetrics.fromJson(json['metrics']),
       imageWidth: width,
       imageHeight: height,
-      calibrationQuality: calQuality,
       warnings: List.unmodifiable(warnings),
     );
   }
 }
 
-/// Release-speed metric shown as a card over the video.
+/// Speed, swing and spin shown as cards over the video.
 class DeliveryMetrics {
   const DeliveryMetrics({
     required this.speedKmh,
     required this.speedMph,
-    required this.swingSf,
+    required this.swingCm,
     required this.spinDeg,
   });
 
-  final double speedKmh;
-  final double speedMph;
-  final double swingSf;
-  final double spinDeg;
+  // null when not measured: speed too uncertain to show, swing and spin with no bounce seen
+  final double? speedKmh;
+  final double? speedMph;
+  final double? swingCm;
+  final double? spinDeg;
 
   static DeliveryMetrics? fromJson(Object? json) {
     if (json is! Map) return null;
     final m = json.cast<String, Object?>();
     return DeliveryMetrics(
-      speedKmh: _readDouble(m, 'speed_kmh') ?? 0,
-      speedMph: _readDouble(m, 'speed_mph') ?? 0,
-      swingSf: _readDouble(m, 'swing_sf') ?? 0,
-      spinDeg: _readDouble(m, 'spin_deg') ?? 0,
+      speedKmh: _readDouble(m, 'speed_kmh'),
+      speedMph: _readDouble(m, 'speed_mph'),
+      swingCm: _readDouble(m, 'swing_cm'),
+      spinDeg: _readDouble(m, 'spin_deg'),
     );
   }
 }
 
-/// Pixel-space Hawk-Eye overlay, projected server-side onto the analysed frame.
+/// Pixel-space ball path overlay, projected server-side onto the analysed frame.
 /// All offsets are in the frame's pixel coordinates (see [AnalysisResult.imageWidth]).
 class TrajectoryOverlay {
   const TrajectoryOverlay({
@@ -354,13 +345,11 @@ class ProjectileFitInfo {
     required this.vx,
     required this.vy,
     required this.vz,
-    required this.bounceTMs,
     required this.rmsM,
   });
 
   final double x0, y0, z0;
   final double vx, vy, vz;
-  final double? bounceTMs;
   final double rmsM;
 
   static ProjectileFitInfo fromJson(Map<String, Object?> m) {
@@ -371,7 +360,6 @@ class ProjectileFitInfo {
       vx: _readDouble(m, 'vx') ?? 0,
       vy: _readDouble(m, 'vy') ?? 0,
       vz: _readDouble(m, 'vz') ?? 0,
-      bounceTMs: _readDouble(m, 'bounce_t_ms'),
       rmsM: _readDouble(m, 'rms_m') ?? 0,
     );
   }
@@ -437,39 +425,6 @@ class EventPointM {
     final y = _readDouble(m, 'y_m');
     if (t == null || x == null || y == null) return null;
     return EventPointM(tMs: t, xM: x, yM: y, zM: _readDouble(m, 'z_m'));
-  }
-}
-
-class CalibrationQuality {
-  const CalibrationQuality({
-    required this.score,
-    required this.reprojErrorPx,
-    required this.notes,
-  });
-
-  factory CalibrationQuality.unknown() => const CalibrationQuality(
-    score: null,
-    reprojErrorPx: null,
-    notes: <String>[],
-  );
-
-  final double? score;
-  final double? reprojErrorPx;
-  final List<String> notes;
-
-  static CalibrationQuality fromJson(Map<String, Object?> json) {
-    final notes = <String>[];
-    final n = json['notes'];
-    if (n is List) {
-      for (final v in n) {
-        if (v is String) notes.add(v);
-      }
-    }
-    return CalibrationQuality(
-      score: _readDouble(json, 'score'),
-      reprojErrorPx: _readDouble(json, 'reproj_error_px'),
-      notes: List.unmodifiable(notes),
-    );
   }
 }
 

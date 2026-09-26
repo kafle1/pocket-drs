@@ -20,7 +20,9 @@ Future<Uint8List?> decodeFrameJpeg({
 
   return runWithNativeVideoResources(() async {
     // Give Android enough time to recycle decoder-backed buffers before frame extraction.
-    await coolDownNativeVideoResources(delay: const Duration(milliseconds: 500));
+    await coolDownNativeVideoResources(
+      delay: const Duration(milliseconds: 500),
+    );
     return VideoThumbnail.thumbnailData(
       video: videoPath,
       imageFormat: ImageFormat.JPEG,

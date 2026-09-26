@@ -9,8 +9,13 @@ class AppLogger {
 
   static final AppLogger instance = AppLogger._();
 
-  static const String _logDirOverride = String.fromEnvironment('POCKET_DRS_LOG_DIR');
-  static const bool _echoInfoToConsole = bool.fromEnvironment('POCKET_DRS_VERBOSE_CONSOLE', defaultValue: false);
+  static const String _logDirOverride = String.fromEnvironment(
+    'POCKET_DRS_LOG_DIR',
+  );
+  static const bool _echoInfoToConsole = bool.fromEnvironment(
+    'POCKET_DRS_VERBOSE_CONSOLE',
+    defaultValue: false,
+  );
 
   // Rotation policy: cap each file, keep last N for postmortem.
   static const int _maxBytesPerFile = 5 * 1024 * 1024; // 5 MB
@@ -78,7 +83,9 @@ class AppLogger {
       _bytesWritten = await _file!.length();
       _ready = true;
     } catch (e) {
-      debugPrint('[AppLogger] Failed to open log file: $e. File logging disabled.');
+      debugPrint(
+        '[AppLogger] Failed to open log file: $e. File logging disabled.',
+      );
       _file = null;
       _sink = null;
       _ready = false;
@@ -90,20 +97,34 @@ class AppLogger {
 
     // Banner gives every log file enough context to be triaged in isolation.
     final mode = kDebugMode ? 'debug' : (kProfileMode ? 'profile' : 'release');
-    final platform = '${Platform.operatingSystem} ${Platform.operatingSystemVersion}';
+    final platform =
+        '${Platform.operatingSystem} ${Platform.operatingSystemVersion}';
     final version = (appVersion != null && buildNumber != null)
         ? '$appVersion+$buildNumber'
         : (appVersion ?? 'unknown');
     log('=== session start ===', level: 'INFO', tag: 'boot');
-    log('app=$version mode=$mode dart=${Platform.version}', level: 'INFO', tag: 'boot');
-    log('platform=$platform locale=${Platform.localeName}', level: 'INFO', tag: 'boot');
+    log(
+      'app=$version mode=$mode dart=${Platform.version}',
+      level: 'INFO',
+      tag: 'boot',
+    );
+    log(
+      'platform=$platform locale=${Platform.localeName}',
+      level: 'INFO',
+      tag: 'boot',
+    );
     log('log_file=${_file!.path}', level: 'INFO', tag: 'boot');
   }
 
   String? get currentLogFilePath => _file?.path;
   String? get currentLogDir => _dir?.path;
 
-  void log(String message, {String level = 'INFO', String tag = 'app', bool toConsole = false}) {
+  void log(
+    String message, {
+    String level = 'INFO',
+    String tag = 'app',
+    bool toConsole = false,
+  }) {
     final ts = DateTime.now().toIso8601String();
     final line = '[$ts] [$level] [$tag] $message';
 
@@ -122,10 +143,19 @@ class AppLogger {
     }
   }
 
-  void error(String message, [Object? error, StackTrace? stackTrace, String tag = 'app']) {
+  void error(
+    String message, [
+    Object? error,
+    StackTrace? stackTrace,
+    String tag = 'app',
+  ]) {
     log(message, level: 'ERROR', tag: tag, toConsole: true);
-    if (error != null) log('Error: $error', level: 'ERROR', tag: tag, toConsole: true);
-    if (stackTrace != null) log('Stack: $stackTrace', level: 'ERROR', tag: tag, toConsole: true);
+    if (error != null) {
+      log('Error: $error', level: 'ERROR', tag: tag, toConsole: true);
+    }
+    if (stackTrace != null) {
+      log('Stack: $stackTrace', level: 'ERROR', tag: tag, toConsole: true);
+    }
 
     // Best-effort flush for crash scenarios.
     try {
@@ -165,7 +195,12 @@ class AppLogger {
     try {
       final entries = await dir
           .list(followLinks: false)
-          .where((e) => e is File && e.path.contains('/app_') && e.path.endsWith('.log'))
+          .where(
+            (e) =>
+                e is File &&
+                e.path.contains('/app_') &&
+                e.path.endsWith('.log'),
+          )
           .cast<File>()
           .toList();
       if (entries.length <= _maxRetained) return;

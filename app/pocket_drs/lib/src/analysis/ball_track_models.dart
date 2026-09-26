@@ -1,7 +1,11 @@
 import 'dart:ui';
 
 class BallTrackPoint {
-  const BallTrackPoint({required this.t, required this.p, required this.confidence});
+  const BallTrackPoint({
+    required this.t,
+    required this.p,
+    required this.confidence,
+  });
 
   /// Timestamp (ms from start of the *video*, not the segment).
   final int t;
@@ -14,10 +18,18 @@ class BallTrackPoint {
 }
 
 class BallTrackResult {
-  const BallTrackResult({required this.points, required this.width, required this.height});
+  const BallTrackResult({
+    required this.points,
+    required this.width,
+    required this.height,
+  });
 
   factory BallTrackResult.empty({required int width, required int height}) =>
-      BallTrackResult(points: const <BallTrackPoint>[], width: width, height: height);
+      BallTrackResult(
+        points: const <BallTrackPoint>[],
+        width: width,
+        height: height,
+      );
 
   final List<BallTrackPoint> points;
   final int width;

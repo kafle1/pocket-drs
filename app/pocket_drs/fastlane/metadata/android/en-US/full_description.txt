@@ -1,0 +1,30 @@
+Pocket DRS turns one phone into a ball-tracking camera for cricket practice.
+
+Put the phone on a tripod behind the bowler's stumps, mark both sets of stumps once, and press Ball (or a volume key) after each delivery. For every ball you get:
+
+• where it pitched
+• where it hit the pad
+• where it would have gone on to the stumps, drawn over your video and in 3D
+• the speed, when the clip shows enough of the ball to measure it
+• an LBW verdict: out, not out, or umpire's call, with the reason
+
+How sure it is
+Every number comes with how far off it could be. When the clip can't support a call, the verdict is umpire's call. When the tracked ball doesn't make sense, or the path is too unsure to call, you get no verdict and a short note on what to fix, never a guess.
+
+What you need
+• A tripod or anything that holds the phone still, a couple of metres behind the bowler's stumps
+• Both sets of stumps in the frame
+• A red or pink ball
+• The main camera lens, not the ultra-wide
+• An internet connection. The video is analysed on a server and a result takes a few seconds.
+
+Short net? Set the real pitch length in Settings.
+
+Also works on clips you already have: Analyse a video, trim to the delivery, mark the stumps, send.
+
+Privacy
+No accounts, no ads, no analytics. The server deletes your video as soon as it has analysed it, and the results after a day.
+
+It is a coaching tool, not an umpire. It can't tell bat from pad, so a ball that hit the bat first isn't out whatever the verdict says.
+
+Pocket DRS is open source under the AGPL-3.0.
