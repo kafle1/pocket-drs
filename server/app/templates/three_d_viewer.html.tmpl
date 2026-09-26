@@ -79,8 +79,8 @@
 
 <script type="importmap">
 { "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    "three": "/static/three/build/three.module.min.js",
+    "three/addons/": "/static/three/examples/jsm/"
 } }
 </script>
 
@@ -102,7 +102,15 @@ const TARGET_X = 0;                          // striker wicket, the judged end
 let W = window.innerWidth, H = window.innerHeight;
 
 // ---------------------------------------------------------------- renderer
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+} catch (e) {
+  // a browser with WebGL off or blocklisted would otherwise show a blank page that looks like a broken link
+  document.body.innerHTML = '<p style="margin:40vh 24px 0;text-align:center;font-size:16px">This phone\'s browser ' +
+    "can't draw the 3D view. The verdict in the app is not affected.</p>";
+  throw e;
+}
 renderer.setSize(W, H, false);
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -309,8 +317,8 @@ setP("p-decision", dec, dec === "OUT" ? RED : dec === "NOT OUT" ? GRN : YEL);
 // null means not measured, which is not the same as zero
 const fmt = (v, digits) => v == null ? "–" : v.toFixed(digits);
 document.getElementById("m-speed").textContent = fmt(PAYLOAD.speed_kmh, 0);
-document.getElementById("m-swing").textContent = fmt(PAYLOAD.swing_cm, 0);
-document.getElementById("m-spin").textContent = fmt(PAYLOAD.spin_deg, 1);
+document.getElementById("m-swing").textContent = fmt(PAYLOAD.swing_cm, 1);
+document.getElementById("m-spin").textContent = fmt(PAYLOAD.spin_deg, 0);
 for (const id of ["panels", "metrics", "brand"]) document.getElementById(id).classList.add("show");
 
 // ---------------------------------------------------------------- framing

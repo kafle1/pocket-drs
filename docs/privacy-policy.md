@@ -24,8 +24,8 @@ default server is a computer at the developer's home, reached through Tailscale 
 passes the encrypted connection through without being able to read it, but like any relay it
 sees your network address.
 
-The 3D view opens in your web browser and loads its drawing code from unpkg.com, so that site
-also sees your network address when you open it. Nothing about the ball is sent there.
+The 3D view opens in your web browser and loads everything, drawing code included, from the same
+server. No other site is contacted.
 
 ## What stays on your phone
 

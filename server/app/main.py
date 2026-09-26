@@ -17,6 +17,8 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .jobs import JobPaths, JobStore, default_job_store
@@ -48,6 +50,8 @@ async def _lifespan(app: FastAPI):
 
 
 app = FastAPI(title="PocketDRS Server", version="1.0", lifespan=_lifespan)
+# the 3D page's three.js, served from here so no outside site sees who opens it
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 
 # one log line per request, under an id the client also gets back in X-Request-Id
@@ -113,6 +117,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# the 3D page pulls about 730 KB of three.js, often over mobile data
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 _store: JobStore = default_job_store()
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="job-worker")
@@ -261,7 +267,7 @@ def get_job_result(job_id: str) -> JobResultResponse:
 
 @app.get("/v1/jobs/{job_id}/three-d", response_class=Response)
 def get_job_three_d(job_id: str):
-    """Render the Three.js 3D ball path viewer as a self-contained HTML page."""
+    """Render the Three.js 3D ball path viewer; its three.js comes from /static."""
     # this page opens in the phone's browser, so errors get a sentence, not JSON
     if not _store.exists(job_id):
         return PlainTextResponse("This ball is no longer on the server. Results are kept for a day. "

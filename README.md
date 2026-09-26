@@ -130,3 +130,5 @@ Copyright (c) 2025-2026 Niraj Kafle.
 AGPL-3.0, see `LICENSE`. If you ship or host a changed copy, even only as a server, you must
 publish all of its source under AGPL-3.0 too. For a commercial licence without those terms,
 write to contact.me.kafle@gmail.com.
+
+`server/app/static/three` is three.js, copied in unchanged under its own MIT licence.

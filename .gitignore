@@ -20,6 +20,7 @@ logs/**
 **/.flutter-plugins-dependencies
 **/.packages
 **/build/
+!server/app/static/three/build/
 
 # Python
 **/__pycache__/

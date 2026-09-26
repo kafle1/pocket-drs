@@ -3,7 +3,7 @@
 The HTML template lives at ``app/templates/three_d_viewer.html.tmpl``; the
 ``__PAYLOAD__`` placeholder is replaced with a JSON blob the page loads
 inline. The /v1/jobs/{job_id}/three-d endpoint serves this so the app can
-open the result in any browser as a standalone, self-contained scene.
+open the result in any browser; three.js itself comes from /static on the same server.
 """
 from __future__ import annotations
 
