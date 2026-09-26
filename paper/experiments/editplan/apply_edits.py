@@ -72,6 +72,9 @@ rep("A full toss, a clip cut before the pitch, or a camera position from which\n
     "A full toss, or a contact cut off or hidden, falls back to the flagged\nsingle-parabola fit.")
 rep("The system is a\ncoaching instrument that says how sure it is, not a substitute for a multi-camera rig.",
     "It is a coaching\ninstrument that says how sure it is, not a substitute for a multi-camera rig.")
+# table II shows no fall up to 12 px, so "until it is large" claims a knee the data don't have
+rep("Calibration tap error has little effect until it is large\n",
+    "Calibration tap error has little effect across the range tested\n")
 open(f"{d}/main.tex", "w").write(src)
 with open(f"{d}/refs.bib", "a") as fh:
     fh.write("\n" + snip("bib.bib"))
