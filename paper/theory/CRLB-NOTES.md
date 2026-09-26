@@ -35,17 +35,17 @@ Section 11 lists the commands that reproduce them.
   - With $N^+ \le 5$ the linear bound is not attainable, and bounded or prior-driven estimators beat it
     through bias.
   - The app's calibration step is about twice as noisy as its own CRB. At 8 m length that lowers efficiency
-    to 0.71 to 0.90. A 7-parameter reprojection refine restores it.
-- **Stated uncertainty.** The reported sigma falls below the classical CRB in 28 to 48% of deliveries.
+    to 0.85 to 0.94 once the 7-parameter reprojection refine on the tapped pose is applied.
+- **Stated uncertainty.** The reported sigma falls below the classical CRB in 27 to 48% of deliveries.
   - That happens only because the reported sigma includes the priors.
-  - Against the prior-aware bound it falls below in 6 to 14% of deliveries, by at most 19%. The sampling
+  - Against the prior-aware bound it falls below in 7 to 15% of deliveries, by at most 19%. The sampling
     noise of $s^2$ explains that.
   - At lengths of 2 to 2.5 m the reported sigma is the prior width, not a measurement.
-- **Coverage.** The paper reports 50.5% lateral and 60.6% vertical one-sigma coverage. That comes from
-  physics the model leaves out, not from linearisation.
-  - With drag, swing and friction off, coverage is 70.8% and 74.8%. The robust loss predicts 73.6%.
-  - With them on, the re-run gives 52.5% and 62.1%.
-  - Using the exact bound in place of the reported sigma would give only 50.6% and 57.1%.
+- **Coverage.** The submitted paper reports 50.5% lateral and 60.6% vertical one-sigma coverage (51.6% and
+  61.4% after the reruns). That comes from physics the model leaves out, not from linearisation.
+  - With drag, swing and friction off, coverage is 74.2% and 74.4%. The robust loss predicts 73.6%.
+  - With them on, the re-run gives 51.5% and 63.8%.
+  - Using the exact bound in place of the reported sigma would give only 46.0% and 56.1%.
 
 ## 1. Model
 
@@ -565,18 +565,18 @@ Definitions:
 | s145_L4 | 23 / 4 | 4.5 / 17.2 | 1.87 / 6.46 | 3.37 / 13.25 | 1.79 [1.57, 2.07] | 1.68 [1.47, 1.94] | 0.94 / 2.42 | -1.02 / +3.59 | 1.87 / 6.38 | 0.79 / 0.84 | 10.62 / 15.80 |
 | s145_L6 | 20 / 8 | 1.7 / 4.6 | 1.60 / 4.22 | 1.71 / 4.66 | 1.03 [0.90, 1.19] | 0.99 [0.86, 1.14] | 1.40 / 3.73 | -0.32 / +0.89 | 1.73 / 4.56 | 0.74 / 0.74 | 1.46 / 1.47 |
 | s145_L8 | 17 / 11 | 2.0 / 3.3 | 1.90 / 3.17 | 1.92 / 3.23 | 1.05 [0.92, 1.21] | 1.04 [0.91, 1.21] | 1.76 / 2.93 | -0.32 / +0.57 | 2.09 / 3.48 | 0.73 / 0.74 | 1.21 / 1.22 |
-| s90_L2.5_cal | 40 / 3 | 12.6 / 52.7 | 1.89 / 6.20 | 3.71 / 14.53 | 11.62 [10.16, 13.41] | 13.18 [11.53, 15.22] | 1.22 / 1.96 | -0.49 / +1.91 | 54.64 / 80.99 | 0.85 / 1.00 | 93.43 / 372 |
-| s90_L4_cal | 36 / 8 | 2.0 / 7.1 | 1.69 / 5.81 | 1.97 / 6.80 | 1.07 [0.93, 1.23] | 1.08 [0.94, 1.24] | 1.31 / 4.18 | -0.27 / +1.21 | 1.80 / 6.10 | 0.82 / 0.81 | 2.33 / 2.64 |
-| s90_L6_cal | 32 / 12 | 1.6 / 4.8 | 1.54 / 4.56 | 1.72 / 4.75 | 0.90 [0.78, 1.03] | 1.01 [0.88, 1.17] | 1.62 / 4.42 | -0.13 / +0.38 | 1.68 / 4.97 | 0.69 / 0.73 | 1.01 / 1.16 |
-| s90_L8_cal | 27 / 18 | 1.2 / 2.8 | 1.13 / 2.73 | 1.41 / 3.00 | 0.71 [0.62, 0.82] | 0.86 [0.75, 0.99] | 1.41 / 2.98 | -0.09 / +0.03 | 1.26 / 3.04 | 0.62 / 0.67 | 0.71 / 0.87 |
-| s120_L2.5_cal | 30 / 3 | 6.4 / 28.6 | 1.47 / 5.13 | 2.73 / 11.11 | 5.57 [4.87, 6.43] | 6.63 [5.80, 7.66] | 0.94 / 1.05 | -0.46 / +2.10 | 1.48 / 5.06 | 0.81 / 0.99 | 38.00 / 149 |
-| s120_L4_cal | 27 / 6 | 2.4 / 8.6 | 1.70 / 5.88 | 2.43 / 9.13 | 0.97 [0.85, 1.12] | 0.89 [0.77, 1.02] | 1.17 / 3.88 | -0.59 / +2.06 | 1.79 / 6.16 | 0.80 / 0.80 | 3.36 / 3.83 |
-| s120_L6_cal | 24 / 9 | 2.0 / 5.6 | 1.84 / 5.05 | 2.18 / 6.01 | 0.88 [0.77, 1.02] | 0.87 [0.76, 1.01] | 1.74 / 4.59 | -0.25 / +0.78 | 2.00 / 5.48 | 0.71 / 0.74 | 1.35 / 1.46 |
-| s120_L8_cal | 20 / 14 | 1.5 / 2.8 | 1.46 / 2.73 | 1.74 / 2.95 | 0.76 [0.67, 0.88] | 0.90 [0.79, 1.04] | 1.69 / 2.83 | -0.05 / +0.22 | 1.63 / 3.05 | 0.66 / 0.72 | 0.82 / 0.98 |
-| s145_L2.5_cal | 25 / 2 | 46.7 / 217 | 1.78 / 4.63 | 2.89 / 11.15 | 261 [228, 301] | 380 [332, 439] | 3.54 / 1.74 | -0.34 / +2.06 | 160 / 4.62 | 0.73 / 0.97 | 173 / 6491 |
-| s145_L4_cal | 23 / 4 | 4.5 / 17.2 | 1.87 / 6.46 | 3.58 / 13.34 | 1.59 [1.39, 1.84] | 1.66 [1.45, 1.92] | 1.04 / 2.38 | -0.93 / +3.39 | 1.90 / 6.45 | 0.80 / 0.85 | 10.54 / 17.24 |
-| s145_L6_cal | 20 / 8 | 1.8 / 4.6 | 1.60 / 4.22 | 1.69 / 4.44 | 1.09 [0.95, 1.26] | 1.09 [0.96, 1.26] | 1.40 / 3.53 | -0.41 / +1.10 | 1.72 / 4.53 | 0.73 / 0.77 | 1.47 / 1.59 |
-| s145_L8_cal | 17 / 11 | 2.0 / 3.3 | 1.90 / 3.17 | 2.26 / 3.63 | 0.79 [0.69, 0.91] | 0.84 [0.73, 0.97] | 2.07 / 3.26 | -0.32 / +0.41 | 2.13 / 3.54 | 0.69 / 0.71 | 0.92 / 1.03 |
+| s90_L2.5_cal | 40 / 3 | 12.6 / 52.7 | 1.89 / 6.20 | 3.65 / 14.52 | 11.98 [10.48, 13.84] | 13.20 [11.54, 15.24] | 1.20 / 1.97 | -0.49 / +1.93 | 55.74 / 80.63 | 0.85 / 1.00 | 95.14 / 367 |
+| s90_L4_cal | 36 / 8 | 2.0 / 7.1 | 1.69 / 5.81 | 1.96 / 6.76 | 1.08 [0.95, 1.25] | 1.09 [0.95, 1.26] | 1.30 / 4.17 | -0.26 / +1.20 | 1.79 / 6.09 | 0.82 / 0.81 | 2.38 / 2.65 |
+| s90_L6_cal | 32 / 12 | 1.6 / 4.8 | 1.54 / 4.56 | 1.65 / 4.75 | 0.97 [0.85, 1.12] | 1.01 [0.88, 1.17] | 1.55 / 4.42 | -0.11 / +0.34 | 1.68 / 4.96 | 0.72 / 0.72 | 1.11 / 1.16 |
+| s90_L8_cal | 27 / 18 | 1.2 / 2.8 | 1.13 / 2.73 | 1.22 / 2.98 | 0.94 [0.82, 1.08] | 0.87 [0.76, 1.01] | 1.22 / 2.96 | -0.01 / -0.06 | 1.26 / 3.04 | 0.69 / 0.67 | 0.95 / 0.89 |
+| s120_L2.5_cal | 30 / 3 | 6.4 / 28.6 | 1.47 / 5.13 | 2.71 / 11.09 | 5.63 [4.93, 6.50] | 6.65 [5.82, 7.68] | 0.93 / 1.05 | -0.47 / +2.12 | 1.48 / 5.06 | 0.81 / 0.99 | 38.03 / 146 |
+| s120_L4_cal | 27 / 6 | 2.4 / 8.6 | 1.70 / 5.88 | 2.43 / 9.18 | 0.97 [0.85, 1.12] | 0.88 [0.77, 1.01] | 1.15 / 3.89 | -0.58 / +2.08 | 1.79 / 6.18 | 0.80 / 0.79 | 3.48 / 3.80 |
+| s120_L6_cal | 24 / 9 | 2.0 / 5.6 | 1.84 / 5.05 | 2.14 / 6.01 | 0.91 [0.79, 1.05] | 0.87 [0.76, 1.01] | 1.69 / 4.59 | -0.25 / +0.74 | 2.00 / 5.49 | 0.73 / 0.75 | 1.43 / 1.46 |
+| s120_L8_cal | 20 / 14 | 1.5 / 2.8 | 1.46 / 2.73 | 1.56 / 2.91 | 0.94 [0.83, 1.09] | 0.93 [0.81, 1.07] | 1.51 / 2.79 | -0.05 / +0.19 | 1.63 / 3.06 | 0.72 / 0.72 | 1.02 / 1.01 |
+| s145_L2.5_cal | 25 / 2 | 46.7 / 217 | 1.78 / 4.63 | 2.83 / 11.14 | 272 [238, 314] | 381 [333, 440] | 1.46 / 1.15 | -0.50 / +2.15 | 1.79 / 4.62 | 0.73 / 0.98 | 922 / 7957 |
+| s145_L4_cal | 23 / 4 | 4.5 / 17.2 | 1.87 / 6.46 | 3.57 / 13.33 | 1.61 [1.41, 1.86] | 1.67 [1.46, 1.92] | 1.02 / 2.39 | -0.91 / +3.39 | 1.90 / 6.45 | 0.79 / 0.85 | 11.00 / 17.23 |
+| s145_L6_cal | 20 / 8 | 1.8 / 4.6 | 1.60 / 4.22 | 1.65 / 4.45 | 1.15 [1.00, 1.32] | 1.09 [0.96, 1.26] | 1.35 / 3.53 | -0.37 / +1.03 | 1.72 / 4.54 | 0.75 / 0.76 | 1.60 / 1.60 |
+| s145_L8_cal | 17 / 11 | 2.0 / 3.3 | 1.90 / 3.17 | 2.11 / 3.60 | 0.90 [0.79, 1.04] | 0.85 [0.75, 0.98] | 1.91 / 3.24 | -0.18 / +0.31 | 2.13 / 3.55 | 0.73 / 0.71 | 1.09 / 1.05 |
 | s120_L2.5_f0 | 30 / 2 | 57.9 / 270 | 2.00 / 4.78 | 3.18 / 11.37 | 332 [290, 384] | 563 [492, 650] | 1.80 / 1.36 | +0.04 / +0.11 | 2.15 / 4.99 | 0.76 / 1.00 | 1036 / 39105 |
 | s120_L4_f0 | 27 / 5 | 3.2 / 12.1 | 1.79 / 6.24 | 2.95 / 11.26 | 1.18 [1.03, 1.37] | 1.16 [1.01, 1.33] | 1.09 / 3.03 | -0.05 / -0.01 | 1.87 / 6.51 | 0.91 / 0.98 | 8.73 / 16.02 |
 | s120_L6_f0 | 24 / 9 | 1.4 / 3.9 | 1.30 / 3.68 | 1.31 / 3.71 | 1.09 [0.95, 1.26] | 1.10 [0.96, 1.27] | 1.18 / 3.27 | +0.04 / -0.12 | 1.43 / 4.02 | 0.78 / 0.76 | 1.35 / 1.42 |
@@ -606,8 +606,10 @@ Definitions:
      times the CRB, with eigenvalues 0.79 to 1.15.
    - Pushed through the crossing map, the app's pose puts 0.86 / 0.78 cm into the crossing at `s90_L8`. The
      CRB-optimal pose puts in 0.38 / 0.56, and the refine 0.39 / 0.56.
-   - Check: $\sqrt{1.15^2+0.86^2} = 1.44$ cm against 1.41 cm observed for ML in `s90_L8_cal`.
-   - That loss is what brings the long-length `_cal` rows to 0.71 to 0.90.
+   - `s90_L8_cal` now uses the refined pose, not the app's raw pose, so the check should use the refine's
+     0.39 cm, not the app's 0.86 cm: $\sqrt{1.15^2+0.39^2} = 1.21$ cm against 1.22 cm observed for ML in
+     `s90_L8_cal`.
+   - That loss is what brings the long-length `_cal` rows to 0.85 to 0.94.
 3. **Robust loss.** It costs 2% of variance at 1 px, 7% at 2 px and 12% at 3 px (section 3). That is small
    next to 1 and 2.
 4. **Priors.** They buy a lot where the pixels are weak: the solver's eff_mse is 2 to 39,000 at 2.5 and 4 m.
@@ -627,44 +629,44 @@ Definitions:
 Part B used 400 random deliveries, 60 fps, 1 px, 5% dropout and 2 px taps, run with the physics off and then
 on. The bounds are plug-in values at the fitted $\theta$ and pose. "bound_2s" is twostep at the fit.
 
-| | physics off (n = 400) | physics on (n = 398) |
+| | physics off (n = 399) | physics on (n = 398) |
 |---|---|---|
-| coverage at 1, 2, 3 sigma, lateral | 70.8 / 94.2 / 98.5% | 52.5 / 82.2 / 93.5% |
-| coverage at 1, 2, 3 sigma, vertical | 74.8 / 96.2 / 99.2% | 62.1 / 89.2 / 96.0% |
-| coverage using bound_2s as sigma | 73.3 / 76.5% | 50.6 / 57.1% |
-| median error, cm | 1.38 / 2.34 | 2.24 / 3.41 |
-| median reported sigma | 2.33 / 4.64 | 2.37 / 4.97 |
-| median px / px_pri / bound_2s | 2.36 / 4.80, 2.05 / 4.17, 2.42 / 4.81 | 2.14 / 4.25, 1.88 / 3.97, 2.22 / 4.27 |
-| reported / px, median | 1.030 / 1.022 | 1.136 / 1.118 |
-| reported / px_pri, median | 1.108 / 1.103 | 1.244 / 1.241 |
-| reported below px | 45.3 / 47.5% | 27.8 / 30.1% |
-| reported below px_pri | 13.0 / 14.0% | 6.3 / 6.3% |
-| median error / reported | 0.654 / 0.578 | 0.926 / 0.760 |
-| error over 3 x bound_2s | 1.9 / 0.8% | 12.3 / 6.7% |
-| mean error, cm | +0.09 / +0.42 | +0.51 / -1.80 |
+| coverage at 1, 2, 3 sigma, lateral | 74.2 / 95.5 / 99.2% | 51.5 / 84.9 / 95.0% |
+| coverage at 1, 2, 3 sigma, vertical | 74.4 / 97.0 / 99.5% | 63.8 / 88.7 / 96.7% |
+| coverage using bound_2s as sigma | 76.4 / 77.1% | 46.0 / 56.1% |
+| median error, cm | 1.22 / 2.26 | 2.26 / 3.51 |
+| median reported sigma | 2.34 / 4.63 | 2.40 / 4.96 |
+| median px / px_pri / bound_2s | 2.40 / 4.82, 2.06 / 4.17, 2.43 / 4.84 | 2.13 / 4.25, 1.91 / 3.99, 2.23 / 4.27 |
+| reported / px, median | 1.028 / 1.020 | 1.137 / 1.120 |
+| reported / px_pri, median | 1.106 / 1.100 | 1.245 / 1.238 |
+| reported below px | 45.0 / 47.5% | 26.8 / 29.1% |
+| reported below px_pri | 13.5 / 14.5% | 6.8 / 6.5% |
+| median error / reported | 0.563 / 0.589 | 0.985 / 0.766 |
+| error over 3 x bound_2s | 0.3 / 0.6% | 10.6 / 5.7% |
+| mean error, cm | +0.10 / +0.47 | +0.53 / -1.76 |
 | fits with an extra bounce | 0.7% | 1.5% |
 
-The physics-on run reproduces the paper's 50.5 / 60.6%.
+The physics-on run lands close to the paper's 50.5 / 60.6% as submitted and 51.6 / 61.4% after the reruns.
 
 1. **Does the linearised covariance fall below the bound?**
-   - Against the classical CRB it does, in 28 to 48% of deliveries. That is expected: it is a posterior
+   - Against the classical CRB it does, in 27 to 48% of deliveries. That is expected: it is a posterior
      spread and includes the prior rows (section 3, item 5).
-   - Against px_pri it does in 6 to 14% of deliveries, by at most 19% (worst ratio 0.81, p5 0.94 to 0.975).
+   - Against px_pri it does in 7 to 15% of deliveries, by at most 19% (worst ratio 0.81, p5 0.94 to 0.975).
    - $s^2$ has about 50 degrees of freedom, so $s/\sigma$ has sd about 0.1. Times the soft_l1 factor 1.117,
      that predicts about 15% of deliveries below 1, which is what the table shows.
    - It is not a systematic underestimate. The one hard exception is the $\tau^* < 0$ clamp, which reports a
      vertical sigma of 0.
 2. **Why coverage is about 50 / 60%.**
-   - Physics off, the reported sigma over-covers slightly (70.8 / 74.8% against 73.6% predicted), and the
+   - Physics off, the reported sigma over-covers slightly (74.2 / 74.4% against 73.6% predicted), and the
      median error is at or below an efficient unbiased estimator's.
-   - Physics on, errors grow by 1.6 / 1.5 times while the reported sigma barely moves. Model residuals
+   - Physics on, errors grow by 1.8 / 1.6 times while the reported sigma barely moves. Model residuals
      inflate $s^2$ only a little.
-   - Using the exact bound as sigma would not help (50.6 / 57.1%).
+   - Using the exact bound as sigma would not help (46.0 / 56.1%).
    - 50.5% coverage means a true sd of about 1.47 times the reported one, and 60.6% about 1.17 times. The
-     median-ratio estimate is 1.37 and 1.13.
+     median-ratio estimate is 1.46 and 1.14.
    - The gap is bias from drag, swing and the friction step, which the model omits.
-   - The heavy tails are the same story: 12.3% of lateral errors exceed 3 times the bound with physics on,
-     against 1.9% off.
+   - The heavy tails are the same story: 10.6% of lateral errors exceed 3 times the bound with physics on,
+     against 0.3% off.
 3. **How the paper's sweeps compare with the bound.**
    - The paper's fps sweep is flat (2.8, then 2.4, then 2.1 cm lateral from 30 to 240 fps; exponent about
      0.14) while the bound drops by 3.6 times. The error is therefore set by a physics floor of about 2 cm
@@ -990,7 +992,7 @@ PY=/Users/nirajkafle/Desktop/niraj/dev-projects/pocket-drs/server/.venv/bin/pyth
 $PY paper/theory/crlb.py                       # bounds, identifiability tables -> out/crlb_*.{json,csv,txt}
 $PY paper/theory/checks.py                     # conditioning, in-plane, gravity, depth, null direction -> out/checks_log.txt (seconds)
 $PY paper/theory/calib_check.py                # calibration efficiency -> out/calib_check.txt (seed 20260926)
-$PY paper/theory/efficiency.py --workers 10    # Parts A and B -> out/efficiency_*.{json,csv,txt} (about 20 min)
+$PY paper/theory/efficiency.py --workers 4     # Parts A and B -> out/efficiency_*.{json,csv,txt} (240 s: 12000 part-A draws, 797 part-B deliveries)
 python3 paper/theory/check_refs.py             # Crossref lookups -> out/crossref.json (network)
 ```
 
