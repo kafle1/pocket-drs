@@ -23,11 +23,12 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from synth import Camera, fly, grid, truth_verdict, CREASE_X   # noqa: E402
+from synth import Camera, fly, grid, truth_verdict   # noqa: E402
 from render import render                                       # noqa: E402
 from app.pipeline.process_job import run_pipeline              # noqa: E402
 
-OUT = os.path.join(HERE, "raw")
+# point it elsewhere to rerun on newer code without touching the paper's results
+OUT = os.environ.get("POCKET_DRS_OUT", os.path.join(HERE, "raw"))
 os.makedirs(OUT, exist_ok=True)
 CLIPS = Path(os.environ.get("POCKET_DRS_CLIPS", os.path.join(HERE, "clips")))
 CLIPS.mkdir(parents=True, exist_ok=True)
@@ -52,11 +53,10 @@ def main():
         clip = CLIPS / f"{CAM_NAME}_{i:03d}.mp4"
         cal = render(truth, cam, clip, fps=FPS)
         n_frames = cal.pop("n_frames")
-        for key in ("pitch_corners_px", "stump_quads_px"):
-            cal[key] = [{"x": p["x"] + rng.normal(0, TAP_PX), "y": p["y"] + rng.normal(0, TAP_PX)} for p in cal[key]]
+        cal["stump_quads_px"] = [{"x": p["x"] + rng.normal(0, TAP_PX), "y": p["y"] + rng.normal(0, TAP_PX)}
+                                 for p in cal["stump_quads_px"]]
         req = {"segment": {"start_ms": 0, "end_ms": int(1000 * (n_frames - 1) / FPS)},
-               "video": {"rotation_deg": 0},
-               "tracking": {"sample_fps": int(FPS), "max_frames": n_frames, "ball_color": "red", "detector": "auto"},
+               "tracking": {"sample_fps": int(FPS), "max_frames": n_frames, "ball_color": "red"},
                "calibration": cal, "batsman_handedness": "right"}
         art = Path(tempfile.mkdtemp(prefix="pdrs_exp2_"))
         row = dict(i=i, camera=CAM_NAME, speed_kmh=d.speed_kmh, length_m=d.length_m, line_m=d.line_m,
@@ -82,7 +82,8 @@ def main():
                          sigma_z_cm=None if pred.get("sigma_z_m") is None else round(pred["sigma_z_m"] * 100, 2),
                          contact_x_err_cm=None if ev.get("x_m") is None else round(abs(ev["x_m"] - truth.contact[0]) * 100, 2),
                          contact_y_err_cm=None if ev.get("y_m") is None else round(abs(ev["y_m"] - truth.contact[1]) * 100, 2),
-                         speed_err_kmh=None if not out.get("metrics") else round(abs(out["metrics"]["speed_kmh"] - truth.release_speed_kmh), 1),
+                         speed_err_kmh=None if (out.get("metrics") or {}).get("speed_kmh") is None
+                         else round(abs(out["metrics"]["speed_kmh"] - truth.release_speed_kmh), 1),
                          warnings=" | ".join(out["diagnostics"]["warnings"])[:200]))
         r = rows[-1]
         print(f"[{i + 1:3d}/{len(deliveries)}] {d.speed_kmh:.0f} km/h L={d.length_m} y={d.line_m:+.2f}  "

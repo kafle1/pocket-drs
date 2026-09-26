@@ -48,7 +48,7 @@ def fig_geometry():
     """Side view of the model: two parabolas, the contact point on the ground and the camera."""
     fig, ax = plt.subplots(figsize=(3.4, 1.9))
     g, R = 9.81, 0.036
-    xb, tb = 6.0, 0.0
+    xb = 6.0
     v_pre = np.array([-30.0, -4.5]); v_post = np.array([-27.0, 2.5])
     t = np.linspace(-0.42, 0.0, 60)
     ax.plot(xb + v_pre[0] * t, R + v_pre[1] * t - 0.5 * g * t ** 2, color=BLUE, lw=1.4)

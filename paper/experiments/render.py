@@ -4,7 +4,6 @@ the geometry end to end, not the detector's robustness to clutter, which the rea
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import cv2
@@ -74,16 +73,12 @@ def render(truth: Truth, cam: Camera, path: Path, *, fps: float, ball_bgr=(40, 4
 
     w, h = STUMP_OUTER_HALF_M, STUMP_HEIGHT_M
     side = [(-w, h), (w, h), (w, 0.0), (-w, 0.0)]
-    marks = [(0.0, dy, dz) for dy, dz in side] + [(PITCH_LENGTH_M, dy, dz) for dy, dz in side] + pitch
+    marks = [(0.0, dy, dz) for dy, dz in side] + [(PITCH_LENGTH_M, dy, dz) for dy, dz in side]
     projected = [pose.project_one(*m) for m in marks]
     if any(q is None for q in projected):
         raise ValueError("a calibration mark is behind the camera for this placement")
-    quads, corners = [q[:2] for q in projected[:8]], [q[:2] for q in projected[8:]]
     return {
-        "mode": "taps",
-        "h_fov_deg": cam.fov_deg,
         "pitch_dimensions_m": {"width": PITCH_WIDTH_M, "length": PITCH_LENGTH_M},
-        "pitch_corners_px": [{"x": u, "y": v} for u, v in corners],
-        "stump_quads_px": [{"x": u, "y": v} for u, v in quads],
+        "stump_quads_px": [{"x": q[0], "y": q[1]} for q in projected],
         "n_frames": len(times),
     }

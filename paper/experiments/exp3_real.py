@@ -14,13 +14,11 @@ from __future__ import annotations
 
 import csv
 import json
-import re
 import os
 import sys
 import tempfile
 from pathlib import Path
 
-import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = Path(HERE).resolve().parents[1]
@@ -46,13 +44,12 @@ def run(name, req, parity):
     pred = lbw.get("prediction") or {}
     ev = out.get("events") or {}
     model = (out.get("world_trajectory") or {}).get("model") or {}
-    discarded = next((w for w in out["diagnostics"]["warnings"] if w.startswith("3-D reconstruction discarded (")), None)
-    residual = re.search(r"\(([\d.]+) px residual\)", discarded) if discarded else None
+    residual = out["diagnostics"].get("fit_rms_px")
     return dict(clip=name, frames="all" if parity is None else ("even" if parity == 0 else "odd"),
                 reproj_px=round(out["calibration"]["quality"]["reproj_error_px"], 2),
                 n_track=len(out["track"]["image_points"]),
                 length_m=round(out["calibration"]["pose"]["pitch_length_m"], 1),
-                discard_px=None if residual is None else float(residual.group(1)),
+                discard_px=None if residual is None else round(residual, 1),
                 verdict=lbw.get("decision"), reason=lbw.get("reason"),
                 y_cm=None if pred.get("y_at_stumps_m") is None else round(pred["y_at_stumps_m"] * 100, 1),
                 z_cm=None if pred.get("z_at_stumps_m") is None else round(pred["z_at_stumps_m"] * 100, 1),

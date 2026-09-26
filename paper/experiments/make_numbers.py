@@ -6,7 +6,6 @@ Usage:  python make_numbers.py   (writes ../numbers.tex and ../tables/*.tex)
 import csv
 import json
 import os
-import statistics
 
 import numpy as np
 

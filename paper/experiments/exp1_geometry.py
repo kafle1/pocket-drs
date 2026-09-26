@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 import sys
 import time
@@ -27,11 +28,12 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from synth import (Camera, Delivery, calibration_taps, fly, observe, random_delivery,   # noqa: E402
+from synth import (Camera, calibration_taps, fly, observe, random_delivery,   # noqa: E402
                    truth_verdict, CREASE_X)
-from app.pipeline.reconstruction import (reconstruct, predict_stump_plane, bounce_sigma, position_sigma,  # noqa: E402
-                                         _linear_parabola, _fit_flight, _flight_as_trajectory,
+from app.pipeline.reconstruction import (GRAVITY, reconstruct, predict_stump_plane, bounce_sigma,  # noqa: E402
+                                         position_sigma, _fit_flight, flight_trajectory,
                                          _flight_covariance, Reconstruction)
+from app.pipeline.trajectory import find_ball                                           # noqa: E402
 from app.pipeline.decision import decide                                                # noqa: E402
 
 OUT = os.path.join(HERE, "raw")
@@ -59,6 +61,36 @@ CAMERAS = {
 }
 
 
+def _linear_parabola(pose, dets):
+    """Ribnick, Atev and Papanikolopoulos (2009): the six parameters of a single gravity
+    parabola are linear in the pixel measurements. Returns (x0, y0, z0, vx, vy, vz) at t=0."""
+    if len(dets) < 3:
+        return None
+    R, tr = pose.R, pose.t
+    rows, rhs = [], []
+    for t, u, v, _r, w in dets:
+        A = np.hstack([R, R * t])                       # camera coords = A theta + b
+        b = R @ np.array([0.0, 0.0, -0.5 * GRAVITY * t * t]) + tr
+        sw = math.sqrt(max(w, 0.05))
+        rows.append(sw * ((u - pose.cx) * A[2] - pose.fx * A[0]))
+        rhs.append(sw * (pose.fx * b[0] - (u - pose.cx) * b[2]))
+        rows.append(sw * ((v - pose.cy) * A[2] - pose.fy * A[1]))
+        rhs.append(sw * (pose.fy * b[1] - (v - pose.cy) * b[2]))
+    th, *_ = np.linalg.lstsq(np.asarray(rows), np.asarray(rhs), rcond=None)
+    return th if np.all(np.isfinite(th)) else None
+
+
+def anchored_estimate(pose, dets) -> Reconstruction | None:
+    """The shipped path: the tracker picks the flight from one candidate per frame, then reconstruct."""
+    track = find_ball(pose, [(round(t * 1000), [{"x": u, "y": v, "radius_px": r, "confidence": w}])
+                             for t, u, v, r, w in dets])
+    if track is None:
+        return None
+    t0 = track.points[0]["t_ms"]
+    return reconstruct(pose, [((p["t_ms"] - t0) / 1000.0, p["u"], p["v"], p["confidence"])
+                              for p in track.points], track.model)
+
+
 def parabola_estimate(pose, dets) -> Reconstruction | None:
     dets = sorted(dets)
     t0 = dets[0][0]
@@ -66,11 +98,11 @@ def parabola_estimate(pose, dets) -> Reconstruction | None:
     th0 = _linear_parabola(pose, dets)
     if th0 is None:
         return None
-    fit = _fit_flight(pose, dets, th0, f_scale=2.0, radius_weight=0.3)
+    fit = _fit_flight(pose, [(t, u, v, w) for t, u, v, _r, w in dets], th0, f_scale=2.0)
     if fit is None:
         return None
     theta, cov6, rms = fit
-    return Reconstruction(_flight_as_trajectory(theta), _flight_covariance(theta, cov6), rms, [])
+    return Reconstruction(flight_trajectory(theta), _flight_covariance(theta, cov6), rms, [])
 
 
 def evaluate(rec, truth):
@@ -114,7 +146,7 @@ def run_cell(name, cam_name, cfg, n, seed):
         except ValueError:
             continue
         if cfg["tap_px"] > 0:
-            pose, _, _ = calibration_taps(pose_true, noise_px=cfg["tap_px"], rng=rng)
+            pose = calibration_taps(pose_true, noise_px=cfg["tap_px"], rng=rng)
         else:
             pose = pose_true
         dets = observe(truth, pose_true, fps=cfg["fps"], noise_px=cfg["noise_px"],
@@ -126,7 +158,7 @@ def run_cell(name, cam_name, cfg, n, seed):
                     speed_kmh=round(d.speed_kmh, 1), length_m=round(d.length_m, 2), line_m=round(d.line_m, 3),
                     restitution_true=round(d.restitution, 3), n_dets=len(dets), truth=gt,
                     calib_reproj_px=round(pose.reproj_error_px, 2))
-        for est_name, rec in (("anchored", reconstruct(pose, dets)), ("parabola", parabola_estimate(pose, dets))):
+        for est_name, rec in (("anchored", anchored_estimate(pose, dets)), ("parabola", parabola_estimate(pose, dets))):
             r = evaluate(rec, truth)
             rows.append(dict(base, estimator=est_name, **{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}))
     return rows
