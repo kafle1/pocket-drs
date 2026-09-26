@@ -48,6 +48,30 @@ rep("The propagated uncertainty is slightly optimistic, is reported as such,\nan
     "The propagated uncertainty misses model error; with a cross-validated model term and a guard band set\nfrom the risk of a false out it is used as the Laws use umpire's call,")
 rep("As an instrument it is a measurement chain that\ninstalls nothing: artefacts the playing surface already carries, a covariance taken from pixels to a measurand\nthe camera never sees, and an acceptance band set by that covariance rather than a fixed tolerance.",
     "As an instrument it installs nothing: the playing\nsurface supplies the calibration, and the acceptance band comes from the stated uncertainty and a risk limit\nrather than a fixed tolerance.")
+# the app changed after submission: pose refine, false-detection tests, and a paragraph saying so
+rep("and keeping the lowest reprojection\nerror.",
+    "and keeping the lowest reprojection\nerror, then refining that pose by least squares on the pixel residuals.")
+rep("the clip's span is static clutter and is suppressed.",
+    "the clip's span is static clutter and is suppressed, as is any candidate too large or too small for a\nball anywhere in the flight volume.")
+rep("horizontal motion. The learned track is preferred.",
+    "horizontal motion. An arc the flight model cannot fit to 12~px rms is discarded and the next best tried.\nThe learned track is preferred.")
+rep("\\label{sec:setup}\n\n", "\\label{sec:setup}\n\n" + snip("changes.tex") + "\n")
+# cuts that pay for the changes paragraph
+rep(" This stage is not the contribution; it is the input\nthe reconstruction is given.", "")
+rep(", which at 40~m/s is a\ndeceleration comparable to $g$~\\cite{robinson2013projectile};", ";")
+rep("Twelve taps on the stumps and pitch corners are required. Detecting the stumps\nand creases automatically would remove the step and the tap error with it.",
+    "Twelve taps are required; detecting the stumps and creases would remove them\nand their error.")
+rep(" As an instrument it installs nothing: the playing\nsurface supplies the calibration, and the acceptance band comes from the stated uncertainty and a risk limit\nrather than a fixed tolerance.", "")
+rep("A single phone behind the batter can reconstruct a cricket delivery in metres if it uses the one event a\npitched delivery contains. The bounce fixes a point on a known plane at a known instant, and with that anchor\nthe monocular projectile problem, ill-conditioned along the depth of a ball flying at the camera, becomes two\nover-determined linear problems joined by a restitution coefficient.",
+    "A single phone behind the batter can reconstruct a cricket delivery in metres if it uses the bounce,\nwhich fixes a point on a known plane at a known instant.")
+rep("The next step is real deliveries with instrumented truth, most simply a\nsecond synchronised phone at right angles.",
+    "A second phone at right angles would supply it.")
+rep("The pipeline, generator, renderer,\nexperiment scripts, raw results and the generators for every number, table and figure are at\n\\url{https://github.com/kafle1/pocket-drs} under AGPL-3.0; \\texttt{verify\\_claims.py} regenerates the\nnumbers and fails if the manuscript is stale.",
+    "Code, raw results and the scripts that regenerate every number are at\n\\url{https://github.com/kafle1/pocket-drs} (AGPL-3.0).")
+rep("A full toss, a clip cut before the pitch, or a camera position from which\nthe batter hides the contact falls back to the flagged single-parabola estimator.",
+    "A full toss, or a contact cut off or hidden, falls back to the flagged\nsingle-parabola fit.")
+rep("The system is a\ncoaching instrument that says how sure it is, not a substitute for a multi-camera rig.",
+    "It is a coaching\ninstrument that says how sure it is, not a substitute for a multi-camera rig.")
 open(f"{d}/main.tex", "w").write(src)
 with open(f"{d}/refs.bib", "a") as fh:
     fh.write("\n" + snip("bib.bib"))
