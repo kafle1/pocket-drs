@@ -149,39 +149,23 @@ class JobStore:
             raise RuntimeError("Job result unavailable (empty result file)")
         return json.loads(raw)
 
-    def recover_interrupted_jobs(self) -> list[str]:
-        # the worker pool that owned these died with the last process, so they'd poll as running forever
+    def drop_interrupted_jobs(self) -> list[str]:
+        # the worker pool that owned these died with the last process, and a 404 makes the app send the clip again
         jobs_root = self._data_dir / "jobs"
         if not jobs_root.exists():
             return []
-        recovered: list[str] = []
+        dropped: list[str] = []
         for job_dir in sorted(jobs_root.iterdir()):
             if not job_dir.is_dir():
                 continue
-            paths = self.job_paths(job_dir.name)
             try:
-                status = self.read_status(paths).get("status")
+                status = self.read_status(self.job_paths(job_dir.name)).get("status")
             except Exception:  # noqa: BLE001 - missing/corrupt status.json -> skip
                 continue
-            if status not in (JobStatus.queued.value, JobStatus.running.value):
-                continue
-            try:
-                # the worker that would have deleted the clip is gone
-                paths.video_path.unlink(missing_ok=True)
-                self.write_status(
-                    paths,
-                    status=JobStatus.failed,
-                    progress=ProgressInfo(pct=100, stage="failed"),
-                    error=ApiError(
-                        code="INTERNAL_ERROR",
-                        message="The server restarted while checking this ball, so it was lost.",
-                        details=None,
-                    ),
-                )
-                recovered.append(job_dir.name)
-            except Exception:  # noqa: BLE001 - unwritable job dir -> skip
-                continue
-        return recovered
+            if status in (JobStatus.queued.value, JobStatus.running.value):
+                shutil.rmtree(job_dir, ignore_errors=True)
+                dropped.append(job_dir.name)
+        return dropped
 
 
 def default_job_store() -> JobStore:

@@ -41,9 +41,9 @@ _log = logging.getLogger("pocket_drs")
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     # jobs still queued or running belong to a previous process whose worker pool is gone
-    recovered = _store.recover_interrupted_jobs()
-    if recovered:
-        _log.warning("Marked %d interrupted job(s) as failed on startup: %s", len(recovered), ", ".join(recovered))
+    dropped = _store.drop_interrupted_jobs()
+    if dropped:
+        _log.warning("Dropped %d interrupted job(s) on startup: %s", len(dropped), ", ".join(dropped))
     yield
 
 
@@ -71,15 +71,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             dur_ms = (time.perf_counter() - start) * 1000.0
-            client = request.client.host if request.client else "-"
-            _log.info(
-                "%s %s -> %d %.1fms client=%s",
-                request.method,
-                request.url.path,
-                status_code,
-                dur_ms,
-                client,
-            )
+            # no client address: the log is never rotated, so it must not hold anything personal
+            _log.info("%s %s -> %d %.1fms", request.method, request.url.path, status_code, dur_ms)
             request_id_ctx.reset(token)
 
 
@@ -271,8 +264,8 @@ def get_job_three_d(job_id: str):
     """Render the Three.js 3D ball path viewer as a self-contained HTML page."""
     # this page opens in the phone's browser, so errors get a sentence, not JSON
     if not _store.exists(job_id):
-        return PlainTextResponse("This ball is no longer on the server. Results are kept for a day, and a "
-                                 "server restart clears them. Send the ball again to see it in 3D.", status_code=404)
+        return PlainTextResponse("This ball is no longer on the server. Results are kept for a day. "
+                                 "Send the ball again to see it in 3D.", status_code=404)
     paths = _store.job_paths(job_id)
     status_raw = _store.read_status(paths)
     if JobStatus(status_raw["status"]) != JobStatus.succeeded:

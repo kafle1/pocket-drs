@@ -49,7 +49,7 @@ FLUTTER_WEB_HOSTNAME ?= localhost
 
 .PHONY: help dev setup setup-app setup-server dev-app dev-server dev-app-only dev-server-only \
 	free-port dev-server-fresh phone-connect dev-app-phone pick-device \
-	apk space clean \
+	apk host clean \
 	logs logs-server logs-flutter logs-errors logs-job logs-pull-android logs-clean
 
 help:
@@ -67,7 +67,7 @@ help:
 		"  make logs-pull-android Pull Flutter logs from connected Android device" \
 		"  make logs-clean        Remove all files under logs/" \
 		"  make apk               Build the signed release apps, one small apk per phone chip" \
-		"  make space             Deploy server/ to the Hugging Face Space (huggingface-cli login first)" \
+		"  make host              Run the server and its Tailscale tunnel on this Mac at every login" \
 		"  make clean             Remove generated dev artifacts"
 
 # ----- Setup -----
@@ -231,12 +231,22 @@ apk: setup-app
 	@cd "$(APP_DIR)" && flutter build apk --release --split-per-abi \
 		--target-platform android-arm,android-arm64 --split-debug-info=build/symbols
 
-# the README is the Space's config card; deleting app/* first drops modules removed here
-space:
-	@huggingface-cli repo create kafle1/pocket-drs --repo-type space --space_sdk docker --exist-ok
-	@huggingface-cli upload kafle1/pocket-drs "$(SERVER_DIR)" . --repo-type space \
-		--include Dockerfile requirements.txt README.md "app/*" --exclude "*__pycache__*" "*.pyc" \
-		--delete "app/*" --commit-message "deploy server"
+# the public server runs from a copy outside Desktop, which macOS hides from login services
+HOST_DIR := $(HOME)/.pocket-drs
+AGENTS_DIR := $(HOME)/Library/LaunchAgents
+host:
+	@command -v tailscaled >/dev/null || { echo "Run brew install tailscale first"; exit 1; }
+	@mkdir -p "$(HOST_DIR)/data" "$(HOST_DIR)/tailscale" "$(AGENTS_DIR)"
+	@rsync -a --delete --exclude __pycache__ "$(SERVER_DIR)/app/" "$(HOST_DIR)/app/"
+	@test -x "$(HOST_DIR)/.venv/bin/python" || python3 -m venv "$(HOST_DIR)/.venv"
+	@"$(HOST_DIR)/.venv/bin/pip" install -q -r "$(SERVER_DIR)/requirements.txt"
+	@for job in pocketdrs pocketdrs.tailscale; do \
+		sed -e "s|HOST_DIR|$(HOST_DIR)|g" -e "s|TAILSCALED|$$(command -v tailscaled)|g" \
+			"$(SERVER_DIR)/$$job.plist" > "$(AGENTS_DIR)/io.github.kafle1.$$job.plist"; \
+		launchctl bootout gui/$$(id -u)/io.github.kafle1.$$job 2>/dev/null; \
+		for _ in $$(seq 150); do launchctl print gui/$$(id -u)/io.github.kafle1.$$job >/dev/null 2>&1 || break; sleep 0.2; done; \
+		launchctl bootstrap gui/$$(id -u) "$(AGENTS_DIR)/io.github.kafle1.$$job.plist" || { echo "$$job did not start, so run make host again"; exit 1; }; \
+	done
 
 # ----- Cleanup -----
 

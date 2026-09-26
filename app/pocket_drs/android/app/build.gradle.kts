@@ -39,7 +39,8 @@ android {
 
     defaultConfig {
         applicationId = "com.pocketdrs.pocket_drs"
-        minSdk = flutter.minSdkVersion
+        // the server's certificate chains to ISRG Root X1, which Android only trusts from 7.1.1
+        minSdk = 25
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

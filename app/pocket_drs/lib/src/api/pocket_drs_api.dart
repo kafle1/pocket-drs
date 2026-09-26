@@ -4,7 +4,9 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' show Offset;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 
 import 'analysis_result.dart';
 
@@ -12,13 +14,8 @@ import 'analysis_result.dart';
 // --dart-define=POCKET_DRS_SERVER_URL=https://your-server for local dev.
 const String kServerUrl = String.fromEnvironment(
   'POCKET_DRS_SERVER_URL',
-  defaultValue: 'https://kafle1-pocket-drs.hf.space',
+  defaultValue: 'https://pocket-drs.tailcaa5ff.ts.net',
 );
-
-// the free server sleeps when idle and takes about a minute to wake, so knock while the user sets up
-void wakeServer() => http
-    .get(Uri.parse(kServerUrl.endsWith('/') ? kServerUrl : '$kServerUrl/').resolve('healthz'))
-    .ignore();
 
 /// One analysis request. [stumps] is the 8 normalised stump taps: striker
 /// TL, TR, BR, BL then bowler TL, TR, BR, BL.
@@ -43,6 +40,13 @@ Map<String, Object?> jobRequest({
 };
 
 enum ApiErrorKind { network, timeout, server, badResponse }
+
+// the public server is a home Mac, so a dead connection often means it is off rather than the phone
+const _cantConnect =
+    "Can't reach the server. Check your internet, or try again later.";
+const _noReply = 'No reply in time. Check your internet, or try again later.';
+// the tunnel answers 502 when the Mac is online but the server on it isn't running
+const _serverOff = 'The server is off right now. Try again later.';
 
 class ApiException implements Exception {
   final ApiErrorKind kind;
@@ -69,8 +73,15 @@ String _extractDetail(String body) {
 }
 
 class PocketDrsApi {
+  // an offline home server never answers the handshake, so fail fast instead of waiting out the upload timeout
   PocketDrsApi({required this.baseUrl, http.Client? client})
-    : _client = client ?? http.Client();
+    : _client =
+          client ??
+          (kIsWeb
+              ? http.Client()
+              : IOClient(
+                  HttpClient()..connectionTimeout = const Duration(seconds: 10),
+                ));
 
   final String baseUrl;
   final http.Client _client;
@@ -107,34 +118,23 @@ class PocketDrsApi {
     late String body;
     try {
       res = await _client.send(req).timeout(Duration(seconds: uploadSeconds));
-      body = await res.stream
-          .bytesToString()
-          .timeout(const Duration(seconds: 30));
-    } on SocketException {
-      throw ApiException(
-        ApiErrorKind.network,
-        "Can't connect. Check your internet and try again.",
+      body = await res.stream.bytesToString().timeout(
+        const Duration(seconds: 30),
       );
+    } on IOException {
+      throw ApiException(ApiErrorKind.network, _cantConnect);
     } on http.ClientException {
-      throw ApiException(
-        ApiErrorKind.network,
-        "Can't connect. Check your internet and try again.",
-      );
-    } on HttpException {
-      throw ApiException(
-        ApiErrorKind.network,
-        "Can't connect. Check your internet and try again.",
-      );
+      throw ApiException(ApiErrorKind.network, _cantConnect);
     } on TimeoutException {
-      throw ApiException(
-        ApiErrorKind.timeout,
-        'No reply in time. Check your internet and try again.',
-      );
+      throw ApiException(ApiErrorKind.timeout, _noReply);
+    }
+    if (res.statusCode == 502) {
+      throw ApiException(ApiErrorKind.server, _serverOff, statusCode: 502);
     }
     if (res.statusCode == 503) {
       throw ApiException(
         ApiErrorKind.server,
-        'The server is busy or waking up. Try this ball again in a minute.',
+        'The server is busy. Try this ball again in a minute.',
         statusCode: 503,
       );
     }
@@ -170,26 +170,15 @@ class PocketDrsApi {
       res = await _client
           .get(_u('/v1/jobs/$jobId'))
           .timeout(const Duration(seconds: 15));
-    } on SocketException {
-      throw ApiException(
-        ApiErrorKind.network,
-        "Can't connect. Check your internet and try again.",
-      );
+    } on IOException {
+      throw ApiException(ApiErrorKind.network, _cantConnect);
     } on http.ClientException {
-      throw ApiException(
-        ApiErrorKind.network,
-        "Can't connect. Check your internet and try again.",
-      );
-    } on HttpException {
-      throw ApiException(
-        ApiErrorKind.network,
-        "Can't connect. Check your internet and try again.",
-      );
+      throw ApiException(ApiErrorKind.network, _cantConnect);
     } on TimeoutException {
-      throw ApiException(
-        ApiErrorKind.timeout,
-        'No reply in time. Check your internet and try again.',
-      );
+      throw ApiException(ApiErrorKind.timeout, _noReply);
+    }
+    if (res.statusCode == 502) {
+      throw ApiException(ApiErrorKind.server, _serverOff, statusCode: 502);
     }
     if (res.statusCode >= 500) {
       throw ApiException(
@@ -223,26 +212,15 @@ class PocketDrsApi {
       res = await _client
           .get(_u('/v1/jobs/$jobId/result'))
           .timeout(const Duration(seconds: 30));
-    } on SocketException {
-      throw ApiException(
-        ApiErrorKind.network,
-        "Can't connect. Check your internet and try again.",
-      );
+    } on IOException {
+      throw ApiException(ApiErrorKind.network, _cantConnect);
     } on http.ClientException {
-      throw ApiException(
-        ApiErrorKind.network,
-        "Can't connect. Check your internet and try again.",
-      );
-    } on HttpException {
-      throw ApiException(
-        ApiErrorKind.network,
-        "Can't connect. Check your internet and try again.",
-      );
+      throw ApiException(ApiErrorKind.network, _cantConnect);
     } on TimeoutException {
-      throw ApiException(
-        ApiErrorKind.timeout,
-        'No reply in time. Check your internet and try again.',
-      );
+      throw ApiException(ApiErrorKind.timeout, _noReply);
+    }
+    if (res.statusCode == 502) {
+      throw ApiException(ApiErrorKind.server, _serverOff, statusCode: 502);
     }
     if (res.statusCode >= 500) {
       throw ApiException(
@@ -301,6 +279,7 @@ class PocketDrsApi {
         // a restarted server has forgotten the job, and polling won't bring it back
         if (e is ApiException && e.statusCode == 404) rethrow;
         if (++transient >= maxTransient) {
+          if (e is ApiException && e.statusCode == 502) rethrow;
           throw ApiException(
             ApiErrorKind.network,
             'Lost the connection while checking this ball. Try again.',

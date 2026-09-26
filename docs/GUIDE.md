@@ -15,7 +15,7 @@ ball reliably.
 
 ## Get the app
 
-Pocket DRS runs on Android 7 or newer. Download it from the
+Pocket DRS runs on Android 7.1.1 or newer. Download it from the
 [latest release](https://github.com/kafle1/pocket-drs/releases/latest):
 
 - **pocket-drs-arm64.apk** works on most phones. Start with this one.
@@ -180,10 +180,12 @@ If a message below appears, here is what it means and what to try.
 
 | Message you see | What it means | What to do |
 |---|---|---|
-| Can't connect. Check your internet and try again. | Your phone could not reach the server. | Check your Wi-Fi or mobile data, then try again. |
-| No reply in time. Check your internet and try again. | The server took too long to answer. | Check your connection and try again. |
-| Server is busy. Try this ball again in a minute. | The public server has too many jobs running at once. | Wait a minute, then try again. |
+| Can't reach the server. Check your internet, or try again later. | Your phone could not reach the server. Either your internet is down or the server is switched off. | Check your Wi-Fi or mobile data. If they work, the server is off for now, so try again later. |
+| No reply in time. Check your internet, or try again later. | The server took too long to answer. | Check your connection. If it is fine, the server may be off, so try again later. |
+| The server is off right now. Try again later. | The server's computer is online, but the checking program on it is not running. | Try again later. |
+| The server is busy. Try this ball again in a minute. | The public server has too many jobs running at once. | Wait a minute, then try again. |
 | Something went wrong checking this ball. Try again. | The server hit an error while checking. | Try again. If it keeps happening, the server may be down. |
+| The server no longer has this ball, maybe after a restart. Send it again. | The server restarted while checking your ball, or the ball is more than a day old. | Tap the circular arrow next to the ball to send it again. |
 | Lost the connection while checking this ball. Try again. | The app lost touch with the server partway through checking. | Check your connection and try again. |
 | This ball took too long to check. Try again. | The check ran longer than the app waits for. | Try again, ideally on a better connection. |
 | Could not check this ball. Try again. | The server sent back something the app could not read. | Try again. |

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- make host fills in HOST_DIR; caffeinate -s keeps the Mac awake while it is on the charger -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>io.github.kafle1.pocketdrs</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/bin/caffeinate</string>
+		<string>-s</string>
+		<string>HOST_DIR/.venv/bin/python</string>
+		<string>-m</string>
+		<string>uvicorn</string>
+		<string>app.main:app</string>
+		<string>--host</string>
+		<string>127.0.0.1</string>
+		<string>--port</string>
+		<string>7860</string>
+		<!-- nothing uses websockets, and uvicorn logs each refused one with the visitor's address -->
+		<string>--ws</string>
+		<string>none</string>
+	</array>
+	<!-- a ball pins every core, so let whatever the Mac's owner is doing go first -->
+	<key>Nice</key>
+	<integer>10</integer>
+	<key>WorkingDirectory</key>
+	<string>HOST_DIR</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>POCKET_DRS_DATA_DIR</key>
+		<string>HOST_DIR/data</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>HOST_DIR/server.log</string>
+	<key>StandardErrorPath</key>
+	<string>HOST_DIR/server.log</string>
+</dict>
+</plist>

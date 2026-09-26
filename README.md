@@ -89,8 +89,8 @@ page. `docs/usage-guide.md` has the request and result fields; `server/scripts/r
 builds a request for a bundled clip.
 
 To host the server yourself: `docker build -t pocket-drs-server server && docker run -p 7860:7860 pocket-drs-server`.
-The public server is a free Hugging Face Docker Space built from the same `server/` folder, and
-`make space` redeploys it.
+The public server runs on a Mac at home: `make host` starts it at every login, and Tailscale
+Funnel gives it a public https address. When that Mac is off, the app can't check balls.
 
 ## Reproduce the paper
 

@@ -16,7 +16,7 @@ What you need
 • Both sets of stumps in the frame
 • A red or pink ball
 • The main camera lens, not the ultra-wide
-• An internet connection. The video is analysed on a server and a result takes a few seconds.
+• An internet connection. The video is analysed on a server and a result takes about 20 to 30 seconds.
 
 Short net? Set the real pitch length in Settings.
 

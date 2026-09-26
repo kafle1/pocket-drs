@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../api/pocket_drs_api.dart';
 import '../theme/app_spacing.dart';
 import 'analyze_screen.dart';
 import 'session_screen.dart';
@@ -10,7 +9,6 @@ class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   void _open(BuildContext context, Widget screen) {
-    wakeServer();
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
   }
 

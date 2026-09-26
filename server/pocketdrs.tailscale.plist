@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- make host fills in HOST_DIR and TAILSCALED; userspace networking needs no admin rights or VPN prompt -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>io.github.kafle1.pocketdrs.tailscale</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>TAILSCALED</string>
+		<string>--tun=userspace-networking</string>
+		<string>--statedir=HOST_DIR/tailscale</string>
+		<string>--socket=HOST_DIR/tailscaled.sock</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/dev/null</string>
+	<key>StandardErrorPath</key>
+	<string>/dev/null</string>
+</dict>
+</plist>

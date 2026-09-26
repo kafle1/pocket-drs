@@ -23,8 +23,8 @@ class RequestIdFilter(logging.Filter):
 def build_uvicorn_log_config(*, log_level: str = "info") -> dict[str, Any]:
     """Return a uvicorn-compatible logging config.
 
-    Everything goes to stdout: the container's disk is ephemeral and the host's
-    log viewer only shows stdout anyway, so file handlers would just be unread.
+    Everything goes to stdout, and whatever runs the server decides where it
+    ends up: the container log, or ~/.pocket-drs/server.log under make host.
     """
     level = (log_level or "info").upper()
     fmt = "%(asctime)s [%(levelname)s] %(name)s req=%(req_id)s: %(message)s"
@@ -52,7 +52,8 @@ def build_uvicorn_log_config(*, log_level: str = "info") -> dict[str, Any]:
             "pocket_drs.job": {"level": level, "handlers": ["console"], "propagate": False},
             "uvicorn": {"level": level, "handlers": ["console"], "propagate": False},
             "uvicorn.error": {"level": level, "handlers": ["console"], "propagate": False},
-            "uvicorn.access": {"level": level, "handlers": ["console"], "propagate": False},
+            # the middleware already logs each request, and uvicorn only writes its own line when this has a handler
+            "uvicorn.access": {"level": level, "handlers": [], "propagate": False},
         },
         "root": {"level": level, "handlers": ["console"]},
     }

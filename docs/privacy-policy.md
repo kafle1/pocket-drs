@@ -18,9 +18,11 @@ The server deletes the video as soon as it has finished analysing it. The result
 numbers only: where the ball went, the verdict, the speed. Results are deleted once they are more
 than a day old. The cleanup runs whenever the next ball is sent in.
 
-Like any web server, the server writes a log line for each request. It holds the time, the page
-asked for, and the network address the request came from. The log never includes the video. The
-default server runs on Hugging Face Spaces, which keeps those logs under its own privacy policy.
+The server writes a log line for each request. It holds only the time and the page asked for,
+never your network address or the video. The
+default server is a computer at the developer's home, reached through Tailscale Funnel. Tailscale
+passes the encrypted connection through without being able to read it, but like any relay it
+sees your network address.
 
 The 3D view opens in your web browser and loads its drawing code from unpkg.com, so that site
 also sees your network address when you open it. Nothing about the ball is sent there.

@@ -1,4 +1,4 @@
-# Hugging Face Docker Space: free CPU tier, port 7860 fixed, runs as uid 1000, ephemeral disk.
+# listens on 7860 as uid 1000; jobs live in /app/data and are lost with the container
 FROM python:3.12-slim
 
 # libglib2.0-0 and libgomp1 are what opencv-python-headless needs on slim; no ffmpeg
@@ -24,4 +24,4 @@ USER appuser
 
 EXPOSE 7860
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860", "--ws", "none"]
