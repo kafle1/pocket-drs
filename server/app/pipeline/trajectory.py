@@ -27,7 +27,7 @@ import numpy as np
 
 @dataclass(frozen=True)
 class TrajectoryPoint:
-    t_ms: int
+    t_ms: float
     x_px: float
     y_px: float
     radius_px: float
@@ -254,7 +254,7 @@ def _search_best_arc(
                 tightness = max(0.1, 1.0 - (resid[inliers.index((k, di))] / search_radius_px))
                 conf = float(min(1.0, 0.4 * d["confidence"] + 0.6 * tightness))
                 traj_pts.append(TrajectoryPoint(
-                    t_ms=int(times[k]),
+                    t_ms=float(times[k]),
                     x_px=float(d["x"]),
                     y_px=float(d["y"]),
                     radius_px=float(d.get("radius_px", 0.0)),
@@ -380,7 +380,7 @@ def _extend_track(
     n_frames = len(candidates)
     idx_of_t = {t: i for i, t in enumerate(times)}
 
-    def local_predict(end_pts: list[TrajectoryPoint], t_ms: int) -> tuple[float, float]:
+    def local_predict(end_pts: list[TrajectoryPoint], t_ms: float) -> tuple[float, float]:
         t0 = end_pts[0].t_ms
         ts = np.array([p.t_ms - t0 for p in end_pts], dtype=float)
         deg = min(2, len(end_pts) - 1)
@@ -398,7 +398,7 @@ def _extend_track(
 
     def as_point(fi: int, d: dict) -> TrajectoryPoint:
         return TrajectoryPoint(
-            t_ms=int(times[fi]), x_px=float(d["x"]), y_px=float(d["y"]),
+            t_ms=float(times[fi]), x_px=float(d["x"]), y_px=float(d["y"]),
             radius_px=float(d.get("radius_px", 0.0)),
             confidence=float(d.get("confidence", 0.5)),
         )

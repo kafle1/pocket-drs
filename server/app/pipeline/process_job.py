@@ -177,7 +177,7 @@ def _extend_to_reversal(dets_per_frame, points, *, min_conf=0.4, max_step_per_17
                 return out[:len(out) - reversed_run + 1]
         else:
             reversed_run = 0
-        out.append({"t_ms": int(t_ms), "u": best["x"], "v": best["y"], "radius_px": best["radius_px"],
+        out.append({"t_ms": float(t_ms), "u": best["x"], "v": best["y"], "radius_px": best["radius_px"],
                     "confidence": best["confidence"]})
         prev_t, prev_u, prev_v = float(t_ms), best["x"], best["y"]
     return out
@@ -199,21 +199,20 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
         meta = reader.meta
         if meta.duration_ms and req.segment.start_ms >= meta.duration_ms:
             raise ValueError("segment starts after the end of the video")
-        step = max(1, round(1000 / req.tracking.sample_fps))
-        end = min(req.segment.end_ms, meta.duration_ms - 1) if meta.duration_ms > 0 else req.segment.end_ms
-        times_ms = list(range(req.segment.start_ms, end + 1, step))[:req.tracking.max_frames]
-        frames: list[np.ndarray] = []
-        for i, t in enumerate(times_ms):
-            try:
-                frames.append(_rotate(reader.frame_at_ms(t), req.video.rotation_deg))
-            except VideoDecodeError as e:
-                if not frames:
-                    raise
-                warnings.append(f"video truncated: analysed {len(frames)} of {len(times_ms)} frames ({e})")
-                break
-            if i % max(1, len(times_ms) // 10) == 0:
-                report(5 + 20 * i // max(1, len(times_ms) - 1), "decode")
-        times_ms = times_ms[:len(frames)]
+        # ask for a frame every 1000/sample_fps ms; each comes back labelled with its own timestamp
+        step = 1000.0 / req.tracking.sample_fps
+        end = min(req.segment.end_ms, meta.duration_ms) if meta.duration_ms > 0 else req.segment.end_ms
+        n_req = min(req.tracking.max_frames, int((end - req.segment.start_ms) / step + 1e-9) + 1)
+        picked, notes = reader.frames([req.segment.start_ms + k * step for k in range(n_req)],
+                                      progress=lambda f: report(5 + int(20 * f), "decode"))
+    for note in notes:
+        _log.warning("decode: %s", note)
+        warnings.append(note)
+    times_ms = [t for t, _ in picked]
+    frames = [f for _, f in picked]
+    del picked
+    for i, f in enumerate(frames):
+        frames[i] = _rotate(f, req.video.rotation_deg)
     height, width = frames[0].shape[:2]
     cv2.imwrite(str(artifacts_dir / "frame0.jpg"), frames[0])
 
@@ -326,7 +325,7 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
     v0 = tr.velocity(0.0)
 
     result["world_trajectory"] = {
-        "points_m": [{"t_ms": int(p["t_ms"]), "x": float(w[0]), "y": float(w[1]), "z": float(max(w[2], 0.0)),
+        "points_m": [{"t_ms": float(p["t_ms"]), "x": float(w[0]), "y": float(w[1]), "z": float(max(w[2], 0.0)),
                       "confidence": float(p["confidence"])} for p, w in zip(image_points, world_points)],
         "predicted_to_stumps_m": [{"t_ms": round(t0_ms + t * 1000.0), "x": float(x), "y": float(y), "z": float(z),
                                    "confidence": confidence} for t, x, y, z in predicted],

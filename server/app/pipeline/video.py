@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+import logging
+import math
 from dataclasses import dataclass
+from typing import Callable, Iterable
 
 import cv2
 import numpy as np
+
+_log = logging.getLogger("pocket_drs.pipeline")
+
+# two decoded frames closer than this in time are one frame shown twice (holds up to ~1000 fps)
+_SAME_FRAME_MS = 0.5
+# start decoding this far before the first requested time, so a seek that snaps to a keyframe
+# or lands a little late still starts before it
+_SEEK_LEAD_MS = 1000.0
 
 
 @dataclass(frozen=True)
@@ -17,23 +28,86 @@ class VideoDecodeError(RuntimeError):
     pass
 
 
+def pick_frames(stream: Iterable[tuple], requests_ms: list[float], fps: float, origin_ms: float = 0.0,
+                progress: Callable[[float], None] | None = None) -> tuple[list[tuple[float, object]], list[str]]:
+    """The decoded frame nearest each requested time, judged by the frame's own timestamp.
+
+    stream yields (pts_ms, nominal_ms, payload) in decode order: pts_ms is the container's
+    presentation time (0 or None when missing), nominal_ms the frame index over the reported
+    rate. Requests are ascending, in ms from the first frame. Returns ([(label_ms, payload)],
+    notes). Each frame comes back at most once, labelled with its timestamp minus origin_ms, or
+    with the requested time when it had no usable timestamp (the old behaviour). Frames whose
+    timestamp repeats or goes backwards are dropped."""
+    period = 1000.0 / fps
+    n = len(requests_ms)
+    picks: list[tuple[float, object]] = []
+    n_fallback = n_dup = n_back = 0
+    last_valid = prev = last_id = None
+    ri, fid, told = 0, -1, 0
+
+    def take(frame, r):
+        nonlocal last_id, n_fallback
+        c, payload, valid, i = frame
+        label = c if valid else r
+        if i == last_id or (picks and label <= picks[-1][0]):
+            return
+        last_id = i
+        n_fallback += not valid
+        picks.append((label, payload))
+
+    for pts, nominal, payload in stream:
+        fid += 1
+        # OpenCV reports a missing timestamp as 0, which only the clip's first frame can really have
+        valid = pts is not None and math.isfinite(pts) and (pts > 0 or (pts == 0 and nominal < period / 2))
+        if valid:
+            c = pts - origin_ms
+            if last_valid is not None and abs(c - last_valid) < _SAME_FRAME_MS:
+                n_dup += 1
+                continue
+            if last_valid is not None and c < last_valid:
+                n_back += 1
+                continue
+            last_valid = c
+        else:
+            c = prev[0] + period if prev is not None else float(nominal)
+        cur = (c, payload, valid, fid)
+        while ri < n and requests_ms[ri] <= c:
+            r = requests_ms[ri]
+            take(prev if prev is not None and r - prev[0] <= c - r else cur, r)
+            ri += 1
+        prev = cur
+        if progress is not None and ri - told >= max(1, n // 10):
+            told = ri
+            progress(ri / n)
+        if ri >= n:
+            break
+
+    # the last frame also answers requests that fall within one frame after it
+    while prev is not None and ri < n and requests_ms[ri] <= prev[0] + period:
+        take(prev, requests_ms[ri])
+        ri += 1
+    notes = []
+    if n_fallback:
+        notes.append(f"{n_fallback} of {len(picks)} frames had no timestamp and were labelled with the requested time")
+    if n_dup:
+        notes.append(f"dropped {n_dup} decoded frames that repeated the previous timestamp")
+    if n_back:
+        notes.append(f"dropped {n_back} decoded frames whose timestamp went backwards")
+    if ri < n and picks:
+        notes.append(f"video truncated: analysed {len(picks)} frames, the stream ended at "
+                     f"{prev[0]:.0f} ms before {n - ri} of {n} requested times")
+    return picks, notes
+
+
 class VideoReader:
-    """Frame-aligned video reader that survives phone-recorded HEVC.
+    """Reads a phone clip forward and labels each frame with its own presentation timestamp.
 
-    Phone clips routinely arrive with non-standard b-frame ordering and sparse
-    keyframes; ``cv2.CAP_PROP_POS_MSEC`` seek then blocks inside FFmpeg as it
-    scans for the nearest decodable frame, which is what shows up to the user
-    as the analysis job "stuck at 6%". We avoid the trap by never seeking by
-    millisecond. Instead we keep a running cursor on the current frame index
-    and either grab the next frame sequentially (the common case, since the
-    sampler asks for monotonically increasing timestamps) or do a single,
-    cheap ``CAP_PROP_POS_FRAMES`` jump when the gap is large.
-    """
+    Seeking by millisecond hangs FFmpeg on long-GOP phone HEVC (the old "stuck at 6%"), so the
+    reader makes at most one frame-index seek, a second before the segment, and decodes forward
+    from there. Times are in ms from the clip's first frame, so a stream whose first frame is
+    stamped later than 0 still lines up with the player position the app sends."""
 
-    _MAX_CONSECUTIVE_STALE = 3
-    # Safety margin (in frames) on top of ``target_idx`` bounding the forward
-    # scan after a seek, so a stuck/mislabelled stream can never loop forever.
-    _MAX_SEEK_SCAN = 300
+    _MAX_CONSECUTIVE_FAILS = 3
 
     def __init__(self, video_path: str):
         self._cap = cv2.VideoCapture(video_path)
@@ -41,18 +115,21 @@ class VideoReader:
             raise VideoDecodeError("Could not open video")
 
         fps = float(self._cap.get(cv2.CAP_PROP_FPS) or 0.0)
-        if fps <= 0:
+        if not math.isfinite(fps) or fps <= 0:
             fps = 30.0
 
         frame_count = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         duration_ms = 0
-        if frame_count > 0 and fps > 0:
+        if frame_count > 0:
             duration_ms = int(round((frame_count / fps) * 1000.0))
 
         self._meta = VideoMeta(fps=fps, frame_count=frame_count, duration_ms=duration_ms)
-        self._last_frame: np.ndarray | None = None
-        self._cursor_idx: int = -1  # next read returns frame index cursor+1
-        self._consecutive_stale = 0
+        # held so a segment near the start needs no seek at all
+        self._first = self._read()
+        if self._first is None:
+            raise VideoDecodeError("Could not decode the first frame")
+        pts = self._first[0]
+        self._origin_ms = pts if math.isfinite(pts) and pts > 0 else 0.0
 
     @property
     def meta(self) -> VideoMeta:
@@ -64,86 +141,53 @@ class VideoReader:
         except Exception:
             pass
 
-    def frame_at_ms(self, t_ms: int) -> np.ndarray:
-        if t_ms < 0:
-            t_ms = 0
-        if self._meta.duration_ms > 0 and t_ms >= self._meta.duration_ms:
-            t_ms = max(0, self._meta.duration_ms - 1)
+    def frames(self, requests_ms: list[float],
+               progress: Callable[[float], None] | None = None) -> tuple[list[tuple[float, np.ndarray]], list[str]]:
+        """[(label_ms, frame)] for ascending requested times, plus notes for the job's warnings."""
+        if not requests_ms:
+            return [], []
+        picks, notes = pick_frames(self._stream(float(requests_ms[0])), requests_ms, self._meta.fps,
+                                   self._origin_ms, progress)
+        if not picks:
+            raise VideoDecodeError(f"no frame decoded at or after {requests_ms[0]:.0f} ms")
+        return picks, notes
 
-        target_idx = int(round((t_ms / 1000.0) * self._meta.fps))
-        if self._meta.frame_count > 0:
-            target_idx = min(target_idx, max(0, self._meta.frame_count - 1))
-
-        # Already parked on the requested frame, hand back the cached copy.
-        if target_idx == self._cursor_idx and self._last_frame is not None:
-            return self._last_frame.copy()
-
-        # If the target is close and forward of the cursor, decode
-        # sequentially (the codec's fast path, no keyframe rescan, no MSEC
-        # ambiguity). Otherwise do a one-off frame-index seek. On long-GOP
-        # HEVC ``set(POS_FRAMES, N)`` lands on the nearest keyframe <= N, so we
-        # must never assume the next frame *is* N: we read forward and trust
-        # the container's real POS_FRAMES to tell us which frame we hold.
-        gap = target_idx - self._cursor_idx
-        if gap < 0 or gap > 16:
-            self._cap.set(cv2.CAP_PROP_POS_FRAMES, float(target_idx))
-            # Provisional; the true index is re-derived from POS_FRAMES after
-            # the first read below, which corrects for a keyframe landing.
-            self._cursor_idx = target_idx - 1
-
-        # Bound the forward scan: from any keyframe we need at most
-        # ``target_idx`` reads to reach the target, plus a margin to absorb
-        # POS_FRAMES reporting jitter. Guarantees termination even if the
-        # container's position never advances.
-        budget = target_idx + self._MAX_SEEK_SCAN
-        reads = 0
-        frame = None
-        while self._cursor_idx < target_idx:
-            if reads >= budget:
-                break  # give up cleanly; return the best frame decoded so far
+    def _read(self):
+        """(pts_ms, nominal_ms, frame) of the next decoded frame, or None at the end."""
+        for _ in range(self._MAX_CONSECUTIVE_FAILS):
             ok, raw = self._cap.read()
-            reads += 1
-            if not ok or raw is None:
-                if self._last_frame is None:
-                    raise VideoDecodeError(f"Failed to decode frame at {t_ms}ms")
-                self._consecutive_stale += 1
-                if self._consecutive_stale >= self._MAX_CONSECUTIVE_STALE:
-                    raise VideoDecodeError(
-                        f"Video appears truncated near {t_ms}ms "
-                        f"(decoding failed for {self._consecutive_stale} "
-                        "consecutive frames)"
-                    )
-                # One frame failed to decode. Re-anchor the cursor to the
-                # container's real position so a single skip can't offset the
-                # index/timestamp of every later frame.
-                pos = int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
-                if pos > 0:
-                    self._cursor_idx = pos - 1
-                return self._last_frame.copy()
-            # Trust the container's real frame index rather than a virtual +1,
-            # so a keyframe landing or a dropped frame can't drift the
-            # labelling. Use +1 only if POS_FRAMES is unavailable.
-            pos = int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
-            self._cursor_idx = (pos - 1) if pos > 0 else (self._cursor_idx + 1)
-            frame = raw
+            if ok and raw is not None:
+                pts = float(self._cap.get(cv2.CAP_PROP_POS_MSEC))
+                pos = float(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
+                return pts, max(0.0, pos - 1.0) * 1000.0 / self._meta.fps, raw
+        return None
 
-        if frame is None:
-            # Cursor already at/after target but nothing decoded this call;
-            # the cached last_frame is the correct response.
-            return (self._last_frame.copy() if self._last_frame is not None
-                    else self._read_sequential(t_ms))
+    def _stream(self, first_ms: float):
+        idx = int((first_ms - _SEEK_LEAD_MS) * self._meta.fps / 1000.0)
+        if idx > 0:
+            self._cap.set(cv2.CAP_PROP_POS_FRAMES, float(idx))
+            self._first = None
+            head = self._read()
+            if head is not None:
+                t = head[0] - self._origin_ms if math.isfinite(head[0]) and head[0] > 0 else head[1]
+                if t <= first_ms:
+                    yield head
+                    yield from self._rest()
+                    return
+                _log.warning("seek to frame %d landed at %.0f ms, past the first requested %.0f ms; "
+                             "decoding from the start instead", idx, t, first_ms)
+        if self._first is None:
+            self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0.0)
+            head = self._read()
+        else:
+            head, self._first = self._first, None
+        if head is not None:
+            yield head
+            yield from self._rest()
 
-        self._consecutive_stale = 0
-        self._last_frame = frame
-        return frame
-
-    def _read_sequential(self, t_ms: int) -> np.ndarray:
-        ok, frame = self._cap.read()
-        if not ok or frame is None:
-            raise VideoDecodeError(f"Failed to decode frame at {t_ms}ms")
-        self._cursor_idx += 1
-        self._last_frame = frame
-        return frame
+    def _rest(self):
+        while (f := self._read()) is not None:
+            yield f
 
     def __enter__(self) -> "VideoReader":
         return self
