@@ -72,6 +72,6 @@
       "fov_deg": 90.5
     }
   },
-  "workers": 5,
-  "seconds": 1137.6
+  "workers": 4,
+  "seconds": 116.6
 }
