@@ -8,12 +8,15 @@ when the caller does not supply them, the focal length and the pitch length.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 
 import cv2
 import numpy as np
-from scipy.optimize import minimize
+from scipy.optimize import least_squares, minimize
+
+_log = logging.getLogger("pocket_drs.pipeline")
 
 # Law 8: the wicket is 22.86 cm wide over the outer edges and 71.12 cm tall, stumps at most 3.81 cm across
 STUMP_HEIGHT_M = 0.711
@@ -40,6 +43,7 @@ class CameraPose:
     pitch_length_m: float
     pitch_width_m: float
     used_corners: bool
+    refined: bool = False         # the reprojection refine ran and was kept
 
     @property
     def fx(self) -> float:
@@ -65,6 +69,7 @@ class CameraPose:
     def notes(self) -> list[str]:
         return [
             "stump+corner pose" if self.used_corners else "stump-only pose",
+            "refined" if self.refined else "unrefined",
             f"length={self.pitch_length_m:.2f} m",
             f"reproj={self.reproj_error_px:.2f} px",
             f"fov={self.fov_deg:.0f} deg",
@@ -138,6 +143,46 @@ def _pnp(obj: np.ndarray, img: np.ndarray, K: np.ndarray):
     return err, R, t
 
 
+def _refine(obj: np.ndarray, img: np.ndarray, K: np.ndarray, R: np.ndarray, t: np.ndarray, err0: float,
+            free_focal: bool, image_size: tuple[int, int]):
+    """Pixel least squares over rotation, translation and, when it is free, the focal length, from the
+    PnP pose. SQPnP minimises an object-space error, so its pose is not the best fit to the taps and
+    loses up to 4x in sd on some pose coordinates (paper/theory/CRLB-NOTES.md, section 5).
+    Returns (err, R, t, K) or a reason string when the result is not usable."""
+    f0, cx, cy = float(K[0, 0]), float(K[0, 2]), float(K[1, 2])
+    n = 7 if free_focal else 6
+
+    def project(z):
+        Rz = cv2.Rodrigues(z[:3])[0] @ R
+        pc = obj @ Rz.T + t + z[3:6]
+        return Rz, pc, f0 + (z[6] if free_focal else 0.0)
+
+    def res(z):
+        _, pc, f = project(z)
+        return np.concatenate([f * pc[:, 0] / pc[:, 2] + cx - img[:, 0], f * pc[:, 1] / pc[:, 2] + cy - img[:, 1]])
+
+    try:
+        sol = least_squares(res, np.zeros(n), method="lm", x_scale=([1e-3] * 3 + [1e-2] * 3 + [10.0])[:n])
+    except (ValueError, np.linalg.LinAlgError) as e:
+        return f"solver error: {e}"
+    if not sol.success or not np.all(np.isfinite(sol.x)):
+        return f"did not converge ({sol.message})"
+    R1, pc, f1 = project(sol.x)
+    t1 = t + sol.x[3:6]
+    # the same admissible region the grid search uses: FOV range, camera above the ground, taps in front
+    fov1 = math.degrees(2.0 * math.atan((max(image_size) / 2.0) / f1)) if f1 > 0 else float("nan")
+    if not FOV_RANGE_DEG[0] <= fov1 <= FOV_RANGE_DEG[1]:
+        return f"focal length left the FOV range (fov {fov1:.1f} deg)"
+    if float((-R1.T @ t1)[2]) <= 0.0 or np.any(pc[:, 2] <= 0.0):
+        return "pose flipped behind the marks or below the ground"
+    err1 = float(np.sqrt(np.sum(sol.fun ** 2) / len(obj)))
+    if not math.isfinite(err1) or err1 > err0:
+        return f"reprojection error rose from {err0:.2f} to {err1:.2f} px"
+    K1 = K.copy()
+    K1[0, 0] = K1[1, 1] = f1
+    return err1, R1, t1, K1
+
+
 def solve_camera_pose(
     *,
     image_size: tuple[int, int],
@@ -146,6 +191,7 @@ def solve_camera_pose(
     pitch_width_m: float = PITCH_WIDTH_M,
     fov_deg: float | None = None,
     pitch_length_m: float | None = None,
+    refine: bool = True,
 ) -> CameraPose:
     """Pose from eight stump corners (striker TL,TR,BR,BL then bowler TL,TR,BR,BL) and,
     optionally, the four pitch corners (striker-left, striker-right, bowler-right,
@@ -154,6 +200,10 @@ def solve_camera_pose(
     The corners sit off the stump plane and break the focal-length/pitch-length ambiguity the
     stumps alone leave open. They are dropped when they disagree with the stumps, because the
     stump height is the one dimension the Laws fix exactly.
+
+    The winning pose then gets a pixel least-squares refine over rotation, translation and the focal
+    length when it was swept (pitch length stays where the sweep put it). A refine that fails or
+    leaves the admissible region is logged and the unrefined pose is kept.
     """
     if len(stump_quads_px) != 8:
         raise CalibrationError("Need exactly 8 stump corners (4 per end)")
@@ -209,5 +259,17 @@ def solve_camera_pose(
             best, used_corners = joint, True
 
     err, R, t, K, fov, L = best
-    return CameraPose(K=K, R=R, t=t, reproj_error_px=err, fov_deg=fov,
-                      pitch_length_m=L, pitch_width_m=pitch_width_m, used_corners=used_corners)
+    refined = False
+    if refine:
+        obj, img = _stump_object_points(L), stump_img
+        if used_corners:
+            obj, img = np.vstack([obj, _corner_object_points(L, pitch_width_m)]), np.vstack([img, corner_img])
+        out = _refine(obj, img, K, R, t, err, fov_deg is None, (width, height))
+        if isinstance(out, str):
+            _log.warning("calibration refine rejected, keeping the unrefined pose: %s", out)
+        else:
+            err, R, t, K = out
+            fov = math.degrees(2.0 * math.atan((max(width, height) / 2.0) / float(K[0, 0])))
+            refined = True
+    return CameraPose(K=K, R=R, t=t, reproj_error_px=err, fov_deg=fov, pitch_length_m=L,
+                      pitch_width_m=pitch_width_m, used_corners=used_corners, refined=refined)

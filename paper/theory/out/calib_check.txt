@@ -1,18 +1,24 @@
-draws 400 of 400, failures 0, used the pitch corners 400, focal 951.7 px
-app pose: mean error (w rad x3, t m x3, f px) [ 2.22472e-04 -7.69607e-05 -4.33498e-04 -1.13248e-04 -4.62140e-04
+draws 400 of 400, failures 0, used the pitch corners 400, app refine kept 400, focal 951.7 px
+unrefined: mean error (w rad x3, t m x3, f px) [ 2.22472e-04 -7.69607e-05 -4.33498e-04 -1.13248e-04 -4.62140e-04
   2.11916e-02  6.57206e+00]
-app pose: sd [1.43891e-03 1.58973e-03 1.10243e-02 3.41409e-03 4.02608e-03 7.23428e-02
+unrefined: sd [1.43891e-03 1.58973e-03 1.10243e-02 3.41409e-03 4.02608e-03 7.23428e-02
  2.28228e+01]
+app pose: mean error [-6.90487e-06 -4.02645e-05 -3.56847e-05 -4.14935e-05 -4.30627e-04
+  5.85306e-03  1.65105e+00]
+app pose: sd [1.44158e-03 1.08178e-03 2.81195e-03 2.58734e-03 3.95708e-03 7.22063e-02
+ 2.28077e+01]
 refined:  mean error [-6.93153e-06 -4.02634e-05 -3.56837e-05 -4.14915e-05 -4.30667e-04
   5.85226e-03  1.65077e+00]
 CRLB sd per pose coordinate: [1.44731e-03 1.06136e-03 2.77048e-03 2.61919e-03 3.98804e-03 7.17569e-02
  2.27091e+01]
-app pose: sd empirical / sd CRLB per coordinate 0.99 1.50 3.98 1.30 1.01 1.01 1.01
-app pose: generalised eigenvalues of Cemp vs CRLB min 0.81 max 16.03 (1 means efficient, >1 means information is lost)
+unrefined: sd empirical / sd CRLB per coordinate 0.99 1.50 3.98 1.30 1.01 1.01 1.01
+unrefined: generalised eigenvalues of Cemp vs CRLB min 0.81 max 16.03 (1 means efficient, >1 means information is lost)
+app pose: sd empirical / sd CRLB per coordinate 1.00 1.02 1.01 0.99 0.99 1.01 1.00
+app pose: generalised eigenvalues of Cemp vs CRLB min 0.79 max 1.15 (1 means efficient, >1 means information is lost)
 refined : sd empirical / sd CRLB per coordinate 1.00 1.02 1.01 0.99 0.99 1.01 1.00
 refined : generalised eigenvalues of Cemp vs CRLB min 0.79 max 1.15 (1 means efficient, >1 means information is lost)
-s90_L8: crossing sd from calibration alone, CRLB-optimal pose 0.38/0.56 cm, app pose 0.86/0.78 cm, refined 0.39/0.56 cm, app bias -0.08/+0.16 cm
-s120_L8: crossing sd from calibration alone, CRLB-optimal pose 0.41/0.55 cm, app pose 0.88/0.71 cm, refined 0.42/0.56 cm, app bias -0.09/+0.16 cm
-s145_L8: crossing sd from calibration alone, CRLB-optimal pose 0.43/0.55 cm, app pose 0.89/0.68 cm, refined 0.44/0.55 cm, app bias -0.10/+0.16 cm
-s120_L6: crossing sd from calibration alone, CRLB-optimal pose 0.33/0.53 cm, app pose 0.54/0.56 cm, refined 0.33/0.53 cm, app bias -0.06/+0.16 cm
-s90_L6: crossing sd from calibration alone, CRLB-optimal pose 0.32/0.49 cm, app pose 0.56/0.52 cm, refined 0.32/0.49 cm, app bias -0.05/+0.13 cm
+s90_L8: crossing sd from calibration alone, CRLB-optimal pose 0.38/0.56 cm, unrefined 0.86/0.78 cm, app pose 0.39/0.56 cm, refined 0.39/0.56 cm, unrefined bias -0.08/+0.16 cm, app bias -0.02/+0.08 cm
+s120_L8: crossing sd from calibration alone, CRLB-optimal pose 0.41/0.55 cm, unrefined 0.88/0.71 cm, app pose 0.42/0.56 cm, refined 0.42/0.56 cm, unrefined bias -0.09/+0.16 cm, app bias -0.02/+0.08 cm
+s145_L8: crossing sd from calibration alone, CRLB-optimal pose 0.43/0.55 cm, unrefined 0.89/0.68 cm, app pose 0.44/0.55 cm, refined 0.44/0.55 cm, unrefined bias -0.10/+0.16 cm, app bias -0.02/+0.08 cm
+s120_L6: crossing sd from calibration alone, CRLB-optimal pose 0.33/0.53 cm, unrefined 0.54/0.56 cm, app pose 0.33/0.53 cm, refined 0.33/0.53 cm, unrefined bias -0.06/+0.16 cm, app bias -0.01/+0.07 cm
+s90_L6: crossing sd from calibration alone, CRLB-optimal pose 0.32/0.49 cm, unrefined 0.56/0.52 cm, app pose 0.32/0.49 cm, refined 0.32/0.49 cm, unrefined bias -0.05/+0.13 cm, app bias -0.01/+0.07 cm
