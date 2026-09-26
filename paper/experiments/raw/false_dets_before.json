@@ -1,6 +1,6 @@
 {
  "tag": "before",
- "root": "pre",
+ "root": "before_root",
  "filtered": false,
  "picks": [
   0,
@@ -13,27 +13,27 @@
   91
  ],
  "fake_radius_px": 90.0,
- "weights_sha1": "43983dcc499f7979f36aa4a84c3e8ef1ce42c425",
+ "weights_sha1": "c3cdaba45ca5a2dc173431c7a177dda604f628f5",
  "summary": {
   "clean": {
-   "correct": 8,
+   "correct": 0,
    "clips": 8,
    "fake_in_track": 0
   },
   "static": {
-   "correct": 3,
-   "clips": 8,
-   "fake_in_track": 5
-  },
-  "drift": {
-   "correct": 2,
-   "clips": 8,
-   "fake_in_track": 151
-  },
-  "top": {
    "correct": 4,
    "clips": 8,
-   "fake_in_track": 7
+   "fake_in_track": 0
+  },
+  "drift": {
+   "correct": 4,
+   "clips": 8,
+   "fake_in_track": 144
+  },
+  "top": {
+   "correct": 0,
+   "clips": 8,
+   "fake_in_track": 5
   }
  }
 }

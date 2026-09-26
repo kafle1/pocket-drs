@@ -10,6 +10,7 @@
   },
   "fps": 60.0,
   "tap_px": 2.0,
+  "pin_fov": false,
   "n": 100,
-  "seconds": 1307.7
+  "seconds": 1133.7
 }

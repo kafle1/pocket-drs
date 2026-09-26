@@ -1,0 +1,33 @@
+scenario,i,truth,verdict,track_from,n_track,fake_in_track,y_err_cm,z_err_cm,ball_dets,fake_dets,other_dets,ball_dropped,fake_dropped,other_dropped,note
+clean,0,not_out,not_out,ColourMotionDetector,30,0,0.92,1.14,,,,,,,
+clean,13,not_out,not_out,ColourMotionDetector,34,0,0.26,0.71,,,,,,,
+clean,26,not_out,not_out,FakeYolo,30,0,0.13,0.03,,,,,,,
+clean,39,not_out,not_out,FakeYolo,31,0,0.44,0.79,,,,,,,
+clean,52,not_out,not_out,ColourMotionDetector,26,0,0.89,2.69,,,,,,,
+clean,65,not_out,not_out,FakeYolo,22,0,0.61,4.47,,,,,,,
+clean,78,not_out,not_out,FakeYolo,27,0,0.01,1.03,,,,,,,
+clean,91,not_out,not_out,FakeYolo,21,0,0.78,0.42,,,,,,,
+static,0,not_out,not_out,ColourMotionDetector,30,0,0.92,1.14,,,,,,,
+static,13,not_out,not_out,ColourMotionDetector,34,0,0.26,0.71,,,,,,,
+static,26,not_out,not_out,FakeYolo,30,0,0.13,0.03,,,,,,,
+static,39,not_out,,FakeYolo,32,1,,,,,,,,,3-D reconstruction discarded (99.2 px residual); the track or the calibration is
+static,52,not_out,,ColourMotionDetector,27,1,,,,,,,,,3-D reconstruction discarded (109.0 px residual); the track or the calibration i
+static,65,not_out,,FakeYolo,23,1,,,,,,,,,3-D reconstruction discarded (113.6 px residual); the track or the calibration i
+static,78,not_out,,FakeYolo,28,1,,,,,,,,,3-D reconstruction discarded (104.8 px residual); the track or the calibration i
+static,91,not_out,,FakeYolo,22,1,,,,,,,,,3-D reconstruction discarded (120.6 px residual); the track or the calibration i
+drift,0,not_out,not_out,ColourMotionDetector,30,0,0.92,1.14,,,,,,,
+drift,13,not_out,,FakeYolo,40,40,,,,,,,,,3-D reconstruction discarded (355.7 px residual); the track or the calibration i
+drift,26,not_out,,FakeYolo,36,36,,,,,,,,,3-D reconstruction discarded (361.7 px residual); the track or the calibration i
+drift,39,not_out,,FakeYolo,37,37,,,,,,,,,3-D reconstruction discarded (25.1 px residual); the track or the calibration is
+drift,52,not_out,,ColourMotionDetector,29,3,,,,,,,,,3-D reconstruction discarded (164.0 px residual); the track or the calibration i
+drift,65,not_out,not_out,ColourMotionDetector,26,0,0.06,0.84,,,,,,,
+drift,78,not_out,,ColourMotionDetector,34,4,,,,,,,,,3-D reconstruction discarded (176.9 px residual); the track or the calibration i
+drift,91,not_out,,FakeYolo,31,31,,,,,,,,,3-D reconstruction discarded (19.1 px residual); the track or the calibration is
+top,0,not_out,not_out,ColourMotionDetector,31,1,25.84,4.52,,,,,,,
+top,13,not_out,not_out,ColourMotionDetector,34,0,0.26,0.71,,,,,,,
+top,26,not_out,umpires_call,FakeYolo,31,1,22.49,13.3,,,,,,,
+top,39,not_out,,FakeYolo,32,1,,,,,,,,,3-D reconstruction discarded (14.4 px residual); the track or the calibration is
+top,52,not_out,not_out,ColourMotionDetector,27,1,11.64,8.61,,,,,,,
+top,65,not_out,out,FakeYolo,23,1,18.46,2.56,,,,,,,
+top,78,not_out,not_out,FakeYolo,28,1,43.59,49.41,,,,,,,
+top,91,not_out,umpires_call,FakeYolo,22,1,0.58,41.22,,,,,,,

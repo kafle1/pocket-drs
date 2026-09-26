@@ -237,22 +237,44 @@ for clip in ("test3", "test4", "test5"):
             L.append(f"{name} & {fr} & {r['reproj_px']:.1f} & {r['n_track']} & -- & -- & -- & declined \\\\")
             continue
         verdict = {"not_out": "not out", "out": "out", "umpires_call": "umpire's call"}.get(r["verdict"], r["verdict"])
-        L.append(f"{name} & {fr} & {r['reproj_px']:.1f} & {r['n_track']} & {r['bounce_x_m']:.1f} & "
-                 f"${r['y_cm']:+.1f} \\pm {r['sigma_y_cm']:.0f}$ & ${r['z_cm']:.1f} \\pm {r['sigma_z_cm']:.0f}$ & {verdict} \\\\")
+        cx = "--" if r["bounce_x_m"] is None else f"{r['bounce_x_m']:.1f}"
+        L.append(f"{name} & {fr} & {r['reproj_px']:.1f} & {r['n_track']} & {cx} & "
+                 f"${r['y_cm']:+.1f} \\pm {r['sigma_y_cm']:.1f}$ & ${r['z_cm']:.1f} \\pm {r['sigma_z_cm']:.1f}$ & {verdict} \\\\")
     L.append(r"\midrule")
 L.pop()
 L += [r"\bottomrule", r"\end{tabular}"]
 write_table("real.tex", L)
-for clip in ("test3", "test4"):
+# exp6's cross-validated model term, to set beside each clip's fit-only sigma
+mod6 = json.load(open(os.path.join(RAW, "exp6_model_error.json")))["forms"] if os.path.exists(os.path.join(RAW, "exp6_model_error.json")) else None
+
+
+def sigma_mod_cm(q, x_b):
+    f = mod6[q]
+    p = f["params_m"]
+    s = {"constant": lambda: p[0], "proportional to x_b": lambda: p[0] * x_b,
+         "constant + proportional": lambda: float(np.hypot(p[0], p[1] * x_b))}[f["chosen"]]()
+    return 100.0 * s
+
+
+for clip in ("test3", "test4", "test5"):
     allr = next(x for x in e3 if x["clip"] == clip and x["frames"] == "all")
     ev = next(x for x in e3 if x["clip"] == clip and x["frames"] == "even"); od = next(x for x in e3 if x["clip"] == clip and x["frames"] == "odd")
     tag = clip.capitalize()
-    m(f"Real{tag}Reproj", allr["reproj_px"]); m(f"Real{tag}SigmaY", allr["sigma_y_cm"], "{:.0f}"); m(f"Real{tag}SigmaZ", allr["sigma_z_cm"], "{:.0f}")
-    m(f"Real{tag}SpreadY", abs(ev["y_cm"] - od["y_cm"]), "{:.0f}"); m(f"Real{tag}SpreadZ", abs(ev["z_cm"] - od["z_cm"]), "{:.0f}")
-    m(f"Real{tag}ContactX", allr["bounce_x_m"]); m(f"Real{tag}Speed", allr["speed_kmh"], "{:.0f}"); m(f"Real{tag}Track", allr["n_track"], "{}")
-t5 = next(x for x in e3 if x["clip"] == "test5" and x["frames"] == "all")
-m("RealTestFiveReproj", t5["reproj_px"]); m("RealTestFiveTrack", t5["n_track"], "{}")
-m("RealTestFiveLength", t5["length_m"]); m("RealTestFiveResidual", t5["discard_px"], "{:.0f}")
+    m(f"Real{tag}Reproj", allr["reproj_px"]); m(f"Real{tag}Track", allr["n_track"], "{}"); m(f"Real{tag}Length", allr["length_m"])
+    m(f"Real{tag}ContactX", "--" if allr["bounce_x_m"] is None else f"{allr['bounce_x_m']:.1f}")
+    if allr["verdict"] in (None, "error", "None"):
+        m(f"Real{tag}Residual", "--" if allr["discard_px"] is None else f"{allr['discard_px']:.0f}")
+        continue
+    m(f"Real{tag}Residual", "--")
+    m(f"Real{tag}SigmaY", allr["sigma_y_cm"]); m(f"Real{tag}SigmaZ", allr["sigma_z_cm"])
+    m(f"Real{tag}SpreadY", abs(ev["y_cm"] - od["y_cm"])); m(f"Real{tag}SpreadZ", abs(ev["z_cm"] - od["z_cm"]))
+    m(f"Real{tag}Speed", allr["speed_kmh"], "{:.0f}")
+    pitch = [int(g) for x in (allr, ev, od) for g in re.findall(r"pitched outside \w+ \((\d+) cm\)", x["reason"] or "")]
+    if pitch:
+        m(f"Real{tag}PitchMin", min(pitch), "{}"); m(f"Real{tag}PitchMax", max(pitch), "{}")
+    if mod6 and allr["bounce_x_m"] is not None:
+        for q, s in (("y", allr["sigma_y_cm"]), ("z", allr["sigma_z_cm"])):
+            m(f"Real{tag}FullSigma{q.upper()}", float(np.hypot(s, sigma_mod_cm(q, allr["bounce_x_m"]))))
 
 # ------------------------------------------------------------------ revision: uncertainty experiments 4-9
 # each block runs only when its raw files exist, so the committed results above stay reproducible alone

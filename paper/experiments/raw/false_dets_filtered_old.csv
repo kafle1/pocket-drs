@@ -1,0 +1,33 @@
+scenario,i,truth,verdict,track_from,n_track,fake_in_track,y_err_cm,z_err_cm,ball_dets,fake_dets,other_dets,ball_dropped,fake_dropped,other_dropped,note
+clean,0,not_out,not_out,ColourMotionDetector,30,0,0.92,1.14,98,0,67,0,0,65,
+clean,13,not_out,not_out,ColourMotionDetector,34,0,0.26,0.71,105,0,65,0,0,63,
+clean,26,not_out,not_out,FakeYolo,30,0,0.13,0.03,103,0,55,0,0,53,
+clean,39,not_out,not_out,FakeYolo,31,0,0.44,0.79,109,0,58,0,0,58,
+clean,52,not_out,not_out,ColourMotionDetector,26,0,0.89,2.69,73,0,52,0,0,50,
+clean,65,not_out,not_out,FakeYolo,22,0,0.61,4.47,77,0,49,0,0,49,
+clean,78,not_out,not_out,FakeYolo,27,0,0.01,1.03,86,0,52,0,0,52,
+clean,91,not_out,not_out,FakeYolo,21,0,0.78,0.42,74,0,40,0,0,38,
+static,0,not_out,not_out,ColourMotionDetector,30,0,0.92,1.14,98,33,67,0,0,65,
+static,13,not_out,not_out,ColourMotionDetector,34,0,0.26,0.71,105,33,65,0,0,63,
+static,26,not_out,not_out,FakeYolo,30,0,0.13,0.03,103,30,55,0,0,53,
+static,39,not_out,not_out,FakeYolo,31,0,0.44,0.79,109,31,58,0,0,58,dropped 1 of 1 points past the tracked arc that its flight does not explain
+static,52,not_out,not_out,ColourMotionDetector,26,0,0.89,2.69,73,28,52,0,0,50,dropped 1 of 1 points past the tracked arc that its flight does not explain
+static,65,not_out,not_out,FakeYolo,22,0,0.61,4.47,77,26,49,0,0,49,dropped 1 of 1 points past the tracked arc that its flight does not explain
+static,78,not_out,not_out,FakeYolo,27,0,0.01,1.03,86,26,52,0,0,52,dropped 1 of 1 points past the tracked arc that its flight does not explain
+static,91,not_out,not_out,FakeYolo,21,0,0.78,0.42,74,26,40,0,0,38,dropped 1 of 1 points past the tracked arc that its flight does not explain
+drift,0,not_out,not_out,ColourMotionDetector,30,0,0.92,1.14,98,40,67,0,0,65,
+drift,13,not_out,not_out,ColourMotionDetector,34,0,0.26,0.71,105,40,65,0,0,63,dropped 2 of 2 points past the tracked arc that its flight does not explain
+drift,26,not_out,not_out,FakeYolo,30,0,0.13,0.03,103,36,55,0,0,53,
+drift,39,not_out,not_out,FakeYolo,31,0,0.44,0.79,109,37,58,0,0,58,dropped 4 of 4 points past the tracked arc that its flight does not explain
+drift,52,not_out,not_out,ColourMotionDetector,26,0,0.89,2.69,73,33,52,0,0,50,dropped 3 of 3 points past the tracked arc that its flight does not explain
+drift,65,not_out,not_out,FakeYolo,22,0,0.61,4.47,77,31,49,0,0,49,
+drift,78,not_out,not_out,FakeYolo,27,0,0.01,1.03,86,31,52,0,0,52,dropped 4 of 4 points past the tracked arc that its flight does not explain
+drift,91,not_out,not_out,FakeYolo,21,0,0.78,0.42,74,31,40,0,0,38,
+top,0,not_out,not_out,ColourMotionDetector,30,0,0.92,1.14,98,33,67,0,33,65,
+top,13,not_out,not_out,ColourMotionDetector,34,0,0.26,0.71,105,33,65,0,33,63,
+top,26,not_out,not_out,FakeYolo,30,0,0.13,0.03,103,30,55,0,30,53,
+top,39,not_out,not_out,FakeYolo,31,0,0.44,0.79,109,31,58,0,31,58,
+top,52,not_out,not_out,ColourMotionDetector,26,0,0.89,2.69,73,28,52,0,28,50,
+top,65,not_out,not_out,FakeYolo,22,0,0.61,4.47,77,26,49,0,26,49,
+top,78,not_out,not_out,FakeYolo,27,0,0.01,1.03,86,26,52,0,26,52,
+top,91,not_out,not_out,FakeYolo,21,0,0.78,0.42,74,26,40,0,26,38,
