@@ -75,6 +75,70 @@ rep("The system is a\ncoaching instrument that says how sure it is, not a substi
 # table II shows no fall up to 12 px, so "until it is large" claims a knee the data don't have
 rep("Calibration tap error has little effect until it is large\n",
     "Calibration tap error has little effect across the range tested\n")
+# detector retrained with video frames; exp 2 and exp 3 rerun on it
+rep(r"""and the paper reports the real-footage behaviour, including one clip the system declines.""",
+    r"""and on two of three real clips the stated sigma is smaller than the spread between repeat analyses.""")
+rep(r"""and one of three real clips is declined.""",
+    r"""and on two of three real clips the stated sigma is too small.""")
+rep(r"""a YOLO detector~\cite{jocher2023ultralytics} fine-tuned on cricket balls and a
+classical detector""",
+    r"""a YOLO detector~\cite{jocher2023ultralytics}, fine-tuned on photos of cricket, tennis and other
+sports balls~\cite{kuznetsova2020open,lin2014coco} and on cricket video frames with YouTube-sourced frames
+excluded~\cite{rfcricv2,rftracker}, and a classical detector""")
+rep(r"""\CalAppSdY~cm. The size and flight tests were added after the retrained detector fired on a large round
+object in one real clip;""",
+    r"""\CalAppSdY~cm. The submitted detector weights were lost; the retrained detector adds cricket video frames to
+the photos. The size and flight tests were added after an earlier photo-only retrain fired on a large round
+object in one real clip;""")
+rep(r"""The vertical error is larger
+than in Experiment~1 because the detector's centroid on a motion-smeared ball is biased along the streak, a pixel-noise level nearer 2 to 3~px than the reference 1~px, and the propagated
+sigma reflects it: the median""",
+    r"""The stump-plane errors are below
+Experiment~1's reference because the grid flies without drag, swing or spin, the setting in which
+Experiment~1 gives \PhysOffMedY{} and \PhysOffMedZ~cm. The median""")
+block(r"""Table~\ref{tab:real} reports the real clips without embellishment.""",
+      r"""uncertainty is not yet a guarantee.""",
+      r"""On the outdoor off-spinner of Table~\ref{tab:real} (reproj.\ \RealTestThreeReproj~px, \RealTestThreeTrack{}
+tracked frames, \RealTestThreeSpeed~km/h) only the even-frame analysis sees the bounce; the other two fall back
+to the flagged single-parabola fit, and all three return umpire's call. Their predictions differ by
+\RealTestThreeSpreadY~cm laterally and \RealTestThreeSpreadZ~cm vertically, inside a stated sigma of
+\RealTestThreeSigmaY{} and \RealTestThreeSigmaZ~cm: the clip supports little, and the output says so. Both
+indoor clips are not out on the pitching test in all three analyses, the leg-spinner pitching
+\RealTestFourPitchMin{} to \RealTestFourPitchMax~cm outside the leg line and the off-spinner, on a short net
+whose fitted length is \RealTestFiveLength~m, \RealTestFivePitchMin{} to \RealTestFivePitchMax~cm outside it.
+On both the stated sigma looks too small. The half-rate predictions of the leg-spinner differ by
+\RealTestFourSpreadY~cm laterally against a stated \RealTestFourSigmaY~cm on the full track, and those of the
+off-spinner by \RealTestFiveSpreadZ~cm vertically against \RealTestFiveSigmaZ~cm. Halving the frames should
+make the halves differ by about twice the full-track sigma, not four times. The cross-validated model term
+(Section~\ref{sec:coverage}) grows with the distance from bounce to stumps, only \RealTestFourContactX~m here,
+and takes these sigmas to just \RealTestFourFullSigmaY{} and \RealTestFiveFullSigmaZ~cm. The halves' own,
+larger sigmas do cover their disagreement. Three clips with one split each make this a weak test: it suggests
+the full-track sigma is too small on two of the three, but cannot say by how much. Real footage also carries
+errors the synthetic study does not model, a moving camera, occlusion by the batter and a net rather than a
+pitch.""")
+# cuts that pay for the dataset credits
+rep(r"""then through the full pipeline on rendered clips, then
+on real hand-held footage with a repeatability test (Section~\ref{sec:results}).""",
+    r"""then through the full pipeline on rendered clips and
+on real hand-held footage (Section~\ref{sec:results}).""")
+rep(r"""umpire's-call bands used by ball tracking in the professional game are set out in the ICC playing
+conditions~\cite{icc2023drs}.""",
+    r"""umpire's-call bands of professional ball tracking are set out in the ICC playing
+conditions~\cite{icc2023drs}.""")
+rep(r"""Coverage is the fraction of deliveries whose absolute error lies within one,
+two and three propagated sigmas.""",
+    r"""Coverage is the fraction of errors within one,
+two and three propagated sigmas.""")
+rep(r"""so the decision band takes its $k$ from risk and not from a nominal
+Gaussian.""",
+    r"""so the band takes its $k$ from risk, not a nominal
+Gaussian.""")
+rep(r"""The reported release speed is an average over the arc, not the speed
+at the hand.""",
+    r"""The reported release speed is an arc average, not the speed
+at the hand.""")
+# long dataset urls in the references need to break at hyphens
+rep("\\usepackage{url}", "\\usepackage[hyphens]{url}")
 open(f"{d}/main.tex", "w").write(src)
 with open(f"{d}/refs.bib", "a") as fh:
     fh.write("\n" + snip("bib.bib"))
