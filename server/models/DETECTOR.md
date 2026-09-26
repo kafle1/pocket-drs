@@ -192,7 +192,9 @@ so they move with a few hard scenes.
   On the current code, the analyses out of 9 that returned a verdict instead of discarding the track:
   9 with these weights, 8 with the photo-only retrain, 7 with the colour tracker alone, and 6 in the
   submitted run.
-- On the rendered grid (Exp 2) these weights give 96/100 correct, 0 false outs and 0 missed outs.
+- On the rendered grid (Exp 2) these weights give 96/100 correct, 0 false outs and 0 missed outs. The
+  photo-only retrain gives 97/100 and 0 false outs on the same grid, so the renders don't tell the two
+  detectors apart. Only the real clips do.
 - Open Images publishes its image licences as "listed as" CC BY 2.0, without warranty.
   CC BY-SA 2.0 photos are in the training set.
 - The Roboflow uploaders licence their sets as CC BY 4.0. The frames left in are phone and net-camera
