@@ -1,4 +1,4 @@
-"""Render the Three.js 3D Hawk-Eye viewer HTML for a finished analysis.
+"""Render the Three.js 3D ball path viewer HTML for a finished analysis.
 
 The HTML template lives at ``app/templates/three_d_viewer.html.tmpl``; the
 ``__PAYLOAD__`` placeholder is replaced with a JSON blob the page loads
@@ -48,9 +48,9 @@ def build_payload(result: dict[str, Any]) -> dict[str, Any]:
             "y_m": impact.get("y_m"),
             "z_m": impact.get("z_m") or 0.0,
         },
-        "speed_kmh": float(metrics.get("speed_kmh") or 0.0),
-        "swing_cm": float(metrics.get("swing_sf") or 0.0),
-        "spin_deg": float(metrics.get("spin_deg") or 0.0),
+        "speed_kmh": metrics.get("speed_kmh"),
+        "swing_cm": metrics.get("swing_cm"),
+        "spin_deg": metrics.get("spin_deg"),
         "lbw_decision": lbw.get("decision"),
         "checks": {
             "pitching_in_line": bool((lbw.get("checks") or {}).get("pitching_in_line", True)),

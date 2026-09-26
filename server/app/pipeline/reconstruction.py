@@ -1,25 +1,23 @@
-"""Monocular 3-D reconstruction of one cricket delivery from a calibrated single view.
+"""Refine one tracked delivery into a metric 3-D path with an uncertainty.
 
-A delivery is a projectile from release to the pitch, one bounce, and a projectile again
-until it reaches the batter. One camera cannot measure the depth of any single detection,
-but three things are known exactly: gravity, the ball's radius, and the plane it bounces
-on. The bounce is the anchor. Its image position back-projects onto the ground plane to a
-metric point with no depth ambiguity, and once that point and the bounce instant are fixed
-every other parameter of the two parabolas is linear in the pixel measurements.
+trajectory.py picks the ball and a first 3-D flight. Here that flight is fitted to every
+detection by robust least squares, with gravity, air drag, the ball's radius and the pitch
+plane fixed, and its covariance is carried through to the stump-plane prediction.
 
-Model, with tau = t - t_b and the ball centre at height R at contact:
+Model: both halves leave the contact point (x_b, y_b, R) at t_b, the one before it with
+velocity (vx-, vy-, vz-) under gravity plus a constant sideways swing, the one after it with
+(k vx-, vy+, -e vz-) under gravity alone, and both slowed by a cricket ball's drag (_flight).
 
-    pre-bounce   p(t) = (x_b, y_b, R) + (vx-, vy-, vz-) tau - (0, 0, g/2) tau^2
-    post-bounce  p(t) = (x_b, y_b, R) + (vx+, vy+, -e vz-) tau - (0, 0, g/2) tau^2
+Ten parameters: t_b, x_b, y_b, vx-, vy-, vz-, k, vy+, e, swing. The post-bounce sideways
+velocity is free so seam and spin deviation off the pitch is measured, not assumed; the pace
+kept down the pitch (k) and the vertical rebound (restitution e) are estimated within
+physical bounds.
 
-Nine parameters: t_b, x_b, y_b, vx-, vy-, vz-, vx+, vy+, e. The post-bounce horizontal
-velocity is free so seam and spin deviation off the pitch is measured, not assumed; the
-vertical rebound is tied to the pre-bounce descent through a restitution coefficient that
-is itself estimated within physical bounds.
+A delivery whose bounce is not in the tracked window (a full toss, or a clip cut before
+the pitch) is fitted as one flight under gravity and drag, with its own, larger, uncertainty.
 
-A delivery whose bounce is not in the observed window (a full toss, or a clip cut before
-the pitch) is fitted with the six-parameter single-parabola model of Ribnick et al., with
-the ball's apparent size as the scale cue, and reported with its own, larger, uncertainty.
+The ball's apparent size is left out: blur and compression inflate a small blob by 20-40%,
+which pulls the depth, and so the height at the stumps, off by more than it helps.
 """
 
 from __future__ import annotations
@@ -36,45 +34,78 @@ GRAVITY = 9.81
 BALL_RADIUS_M = 0.036
 RESTITUTION_PRIOR = 0.55
 RESTITUTION_BOUNDS = (0.25, 0.85)
+# share of its pace down the pitch a ball keeps through the bounce, 76-88% measured (James et al. 2005)
+PACE_KEPT_PRIOR = 0.85
+PACE_KEPT_BOUNDS = (0.5, 1.0)
+# drag deceleration over speed squared, 1/m: sea-level air, drag coefficient 0.45, a 160 g ball
+DRAG_PER_M = 0.5 * 1.2 * 0.45 * math.pi * BALL_RADIUS_M ** 2 / 0.16
+SWING_BOUND_MS2 = 6.0
 
-Detection = tuple[float, float, float, float, float]   # t_s, u, v, radius_px, weight
+Detection = tuple[float, float, float, float]   # t_s, u, v, weight
+
+
+def _flight(p0: np.ndarray, v0: np.ndarray, a: np.ndarray, tau: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(N,3) positions and velocities tau seconds after (p0, v0), under the constant pull a and drag.
+
+    Drag scales with the speed along the pitch instead of the full speed, 1-2% apart for a
+    bowled ball, which solves dv/dt = a - k|vx|v in closed form."""
+    c = max(DRAG_PER_M * abs(float(v0[0])), 1e-6)
+    ct = np.maximum(c * np.asarray(tau, float), -0.9)     # a real flight never gets near -0.9; keeps a wild solver step finite
+    s, L = ct / c, np.log1p(ct)
+    p = p0[None, :] + v0[None, :] * (L / c)[:, None] + a[None, :] * (s / (2 * c) - L / (2 * c * c) + s * s / 4)[:, None]
+    v = (v0[None, :] + a[None, :] * (s + c * s * s / 2)[:, None]) / (1.0 + ct)[:, None]
+    return p, v
+
+
+def _touchdown(p0: np.ndarray, v0: np.ndarray, a: np.ndarray) -> float | None:
+    """Seconds until the ball centre next comes down to height R, or None if it never does."""
+    vz, disc = float(v0[2]), float(v0[2]) ** 2 + 2.0 * GRAVITY * (float(p0[2]) - BALL_RADIUS_M)
+    if disc <= 0:
+        return None
+    t = (vz + math.sqrt(disc)) / GRAVITY        # drag-free, then Newton on the drag model
+    for _ in range(4):
+        p, v = _flight(p0, v0, a, np.array([t]))
+        t -= (p[0, 2] - BALL_RADIUS_M) / v[0, 2]
+    return t
 
 
 @dataclass(frozen=True)
 class Trajectory:
-    """Two-parabola delivery model. ``t`` is seconds from the first detection."""
+    """Bounce delivery model. ``t`` is seconds from the first detection."""
     t_b: float
     x_b: float
     y_b: float
     v_pre: np.ndarray       # (vx-, vy-, vz-) at the instant before contact
     v_post: np.ndarray      # (vx+, vy+, vz+) at the instant after contact
+    swing: float            # sideways acceleration before contact, m/s^2
     bounce_observed: bool   # False when the bounce lies outside the tracked window
 
     @property
     def restitution(self) -> float:
         return float(-self.v_post[2] / self.v_pre[2]) if self.v_pre[2] < 0 else float("nan")
 
-    def position(self, t: np.ndarray | float) -> np.ndarray:
-        """(N,3) world positions at times ``t``."""
+    def _halves(self, t: np.ndarray | float) -> tuple[np.ndarray, tuple, tuple]:
         tau = np.atleast_1d(np.asarray(t, dtype=float)) - self.t_b
         anchor = np.array([self.x_b, self.y_b, BALL_RADIUS_M])
-        post = tau >= 0.0
-        v = np.where(post[:, None], self.v_post[None, :], self.v_pre[None, :])
-        p = anchor[None, :] + v * tau[:, None]
-        p[:, 2] -= 0.5 * GRAVITY * tau ** 2
-        return p
+        pre = _flight(anchor, self.v_pre, np.array([0.0, self.swing, -GRAVITY]), tau)
+        post = _flight(anchor, self.v_post, np.array([0.0, 0.0, -GRAVITY]), tau)
+        return (tau >= 0.0)[:, None], pre, post
+
+    def position(self, t: np.ndarray | float) -> np.ndarray:
+        """(N,3) world positions at times ``t``."""
+        after, pre, post = self._halves(t)
+        return np.where(after, post[0], pre[0])
 
     def velocity(self, t: float) -> np.ndarray:
-        tau = t - self.t_b
-        v = (self.v_post if tau >= 0.0 else self.v_pre).copy()
-        v[2] -= GRAVITY * tau
-        return v
+        after, pre, post = self._halves(t)
+        return np.where(after, post[1], pre[1])[0]
 
     def as_dict(self) -> dict:
         return {
             "t_b_s": self.t_b, "x_b_m": self.x_b, "y_b_m": self.y_b,
             "v_pre_ms": [float(a) for a in self.v_pre],
             "v_post_ms": [float(a) for a in self.v_post],
+            "swing_ms2": self.swing,
             "restitution": self.restitution,
             "bounce_observed": self.bounce_observed,
         }
@@ -83,7 +114,7 @@ class Trajectory:
 @dataclass(frozen=True)
 class Reconstruction:
     trajectory: Trajectory
-    covariance: np.ndarray          # 9x9 over (t_b, x_b, y_b, v_pre, vx+, vy+, e)
+    covariance: np.ndarray          # 10x10 over (t_b, x_b, y_b, v_pre, k, vy+, e, swing)
     rms_px: float
     notes: list[str]
 
@@ -95,105 +126,11 @@ class StumpPlanePrediction:
     z: float
     sigma_y: float
     sigma_z: float
-    extra_bounces: int
 
 
-# --------------------------------------------------------------------------- #
-# Image-space bounce detection
-# --------------------------------------------------------------------------- #
-
-def _quad_fit(t: np.ndarray, x: np.ndarray, w: np.ndarray) -> tuple[np.ndarray, float]:
-    """Weighted quadratic in t. Returns coefficients (highest first) and weighted SSE."""
-    deg = 2 if len(t) >= 3 else 1
-    c = np.polyfit(t, x, deg, w=np.sqrt(w))
-    r = x - np.polyval(c, t)
-    return c, float(np.sum(w * r * r))
-
-
-def find_bounce_split(dets: list[Detection], *, min_side: int = 3) -> tuple[int, float, float, float] | None:
-    """Locate the pitch contact in the image track.
-
-    Fits one quadratic per axis to the whole track and to every pre/post split, and keeps
-    the split that explains the pixels best. Vertical image motion reverses at contact, so
-    a real bounce halves the residual; a full toss gains nothing from splitting and is
-    reported as None. Returns (k, t_b, u_b, v_b): the first post-bounce index, the contact
-    instant interpolated from the two vertical arcs, and the image point at that instant.
-    """
-    n = len(dets)
-    if n < 2 * min_side:
-        return None
-    t = np.array([d[0] for d in dets]); u = np.array([d[1] for d in dets])
-    v = np.array([d[2] for d in dets]); w = np.array([max(d[4], 0.05) for d in dets])
-    _, sse_u = _quad_fit(t, u, w)
-    _, sse_v = _quad_fit(t, v, w)
-    whole = sse_u + sse_v
-
-    best = None
-    for k in range(min_side, n - min_side + 1):
-        cu1, s1 = _quad_fit(t[:k], u[:k], w[:k]); cv1, s2 = _quad_fit(t[:k], v[:k], w[:k])
-        cu2, s3 = _quad_fit(t[k:], u[k:], w[k:]); cv2, s4 = _quad_fit(t[k:], v[k:], w[k:])
-        sse = s1 + s2 + s3 + s4
-        if best is None or sse < best[0]:
-            best = (sse, k, cu1, cv1, cu2, cv2)
-    if best is None or best[0] > 0.5 * whole:
-        return None
-    sse, k, cu1, cv1, cu2, cv2 = best
-
-    # contact instant: where the two vertical arcs meet, bracketed by the neighbouring frames
-    lo, hi = t[k - 1], t[k]
-    ts = np.linspace(lo, hi, 41)
-    gap = np.abs(np.polyval(cv1, ts) - np.polyval(cv2, ts)) + np.abs(np.polyval(cu1, ts) - np.polyval(cu2, ts))
-    t_b = float(ts[int(np.argmin(gap))])
-    u_b = 0.5 * (np.polyval(cu1, t_b) + np.polyval(cu2, t_b))
-    v_b = 0.5 * (np.polyval(cv1, t_b) + np.polyval(cv2, t_b))
-    return k, t_b, float(u_b), float(v_b)
-
-
-# --------------------------------------------------------------------------- #
-# Linear initialisation
-# --------------------------------------------------------------------------- #
-
-def _velocity_from_anchor(pose: CameraPose, dets: list[Detection], anchor: np.ndarray, t_b: float) -> np.ndarray | None:
-    """Velocity at contact for one side of the bounce, given the contact point.
-
-    With p(t) = a + V tau - (0,0,g/2) tau^2 and a known, the projection equations are
-    linear in V after cross-multiplying out the depth. Two equations per frame, three
-    unknowns.
-    """
-    if len(dets) < 2:
-        return None
-    R, tr = pose.R, pose.t
-    rows, rhs = [], []
-    for t, u, v, _r, w in dets:
-        tau = t - t_b
-        b = R @ (anchor + np.array([0.0, 0.0, -0.5 * GRAVITY * tau * tau])) + tr
-        M = R * tau
-        sw = math.sqrt(max(w, 0.05))
-        rows.append(sw * ((u - pose.cx) * M[2] - pose.fx * M[0]))
-        rhs.append(sw * (pose.fx * b[0] - (u - pose.cx) * b[2]))
-        rows.append(sw * ((v - pose.cy) * M[2] - pose.fy * M[1]))
-        rhs.append(sw * (pose.fy * b[1] - (v - pose.cy) * b[2]))
-    V, *_ = np.linalg.lstsq(np.asarray(rows), np.asarray(rhs), rcond=None)
-    return V if np.all(np.isfinite(V)) else None
-
-
-def _linear_parabola(pose: CameraPose, dets: list[Detection]) -> np.ndarray | None:
-    """Ribnick, Atev and Papanikolopoulos (2009): the six parameters of a single gravity
-    parabola are linear in the pixel measurements. Returns (x0, y0, z0, vx, vy, vz) at t=0."""
-    if len(dets) < 3:
-        return None
-    R, tr = pose.R, pose.t
-    rows, rhs = [], []
-    for t, u, v, _r, w in dets:
-        A = np.hstack([R, R * t])                       # camera coords = A theta + b
-        b = R @ np.array([0.0, 0.0, -0.5 * GRAVITY * t * t]) + tr
-        sw = math.sqrt(max(w, 0.05))
-        rows.append(sw * ((u - pose.cx) * A[2] - pose.fx * A[0]))
-        rhs.append(sw * (pose.fx * b[0] - (u - pose.cx) * b[2]))
-        rows.append(sw * ((v - pose.cy) * A[2] - pose.fy * A[1]))
-        rhs.append(sw * (pose.fy * b[1] - (v - pose.cy) * b[2]))
-    th, *_ = np.linalg.lstsq(np.asarray(rows), np.asarray(rhs), rcond=None)
-    return th if np.all(np.isfinite(th)) else None
+def _flight_px(pose: CameraPose, theta: np.ndarray, t: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Pixels and depth of the single flight theta = (x0, y0, z0, vx, vy, vz) at times t."""
+    return pose.project(_flight(theta[:3], theta[3:], np.array([0.0, 0.0, -GRAVITY]), t)[0])
 
 
 # --------------------------------------------------------------------------- #
@@ -201,15 +138,15 @@ def _linear_parabola(pose: CameraPose, dets: list[Detection]) -> np.ndarray | No
 # --------------------------------------------------------------------------- #
 
 def _unpack(theta: np.ndarray, bounce_observed: bool) -> Trajectory:
-    t_b, x_b, y_b, vx0, vy0, vz0, vx1, vy1, e = (float(a) for a in theta)
+    t_b, x_b, y_b, vx0, vy0, vz0, k, vy1, e, swing = (float(a) for a in theta)
     v_pre = np.array([vx0, vy0, vz0])
-    v_post = np.array([vx1, vy1, -e * vz0])
-    return Trajectory(t_b, x_b, y_b, v_pre, v_post, bounce_observed)
+    v_post = np.array([k * vx0, vy1, -e * vz0])
+    return Trajectory(t_b, x_b, y_b, v_pre, v_post, swing, bounce_observed)
 
 
 def _fit_bounce(pose: CameraPose, dets: list[Detection], theta0: np.ndarray, *, f_scale: float) -> tuple[np.ndarray, np.ndarray, float] | None:
-    t = np.array([d[0] for d in dets]); u = np.array([d[1] for d in dets])
-    v = np.array([d[2] for d in dets]); w = np.sqrt(np.array([max(d[4], 0.05) for d in dets]))
+    t, u, v, w = (np.array(c, float) for c in zip(*dets))
+    w = np.sqrt(np.maximum(w, 0.05))
     t_lo, t_hi = float(t.min()), float(t.max())
 
     def residuals(theta):
@@ -218,56 +155,46 @@ def _fit_bounce(pose: CameraPose, dets: list[Detection], theta0: np.ndarray, *, 
         bad = depth <= 0.05
         ru = np.where(bad, 1e3, (u - uu) * w)
         rv = np.where(bad, 1e3, (v - vv) * w)
-        # soft priors, in pixel-comparable units: restitution near its typical value, and the
-        # horizontal velocity change at contact small unless the pixels say otherwise
+        # soft priors, in pixel-comparable units: typical restitution and pace kept, little
+        # sideways change at contact and modest swing unless the pixels say otherwise
         pri = np.array([
             (theta[8] - RESTITUTION_PRIOR) / 0.15,
-            (theta[6] - theta[3]) / 4.0,
+            (theta[6] - PACE_KEPT_PRIOR) / 0.15,
             (theta[7] - theta[4]) / 2.0,
+            theta[9] / 2.0,
         ])
         return np.concatenate([ru, rv, pri])
 
-    lower = np.array([t_lo, -10.0, -3.0, -60.0, -15.0, -25.0, -60.0, -15.0, RESTITUTION_BOUNDS[0]])
-    upper = np.array([t_hi, 35.0, 3.0, 60.0, 15.0, -0.05, 60.0, 15.0, RESTITUTION_BOUNDS[1]])
+    lower = np.array([t_lo, -10.0, -3.0, -60.0, -15.0, -25.0, PACE_KEPT_BOUNDS[0], -15.0, RESTITUTION_BOUNDS[0], -SWING_BOUND_MS2])
+    upper = np.array([t_hi, 35.0, 3.0, -1.0, 15.0, -0.05, PACE_KEPT_BOUNDS[1], 15.0, RESTITUTION_BOUNDS[1], SWING_BOUND_MS2])
     x0 = np.clip(theta0, lower + 1e-6, upper - 1e-6)
     try:
         sol = least_squares(residuals, x0, bounds=(lower, upper), loss="soft_l1",
                             f_scale=f_scale, max_nfev=400, xtol=1e-10, ftol=1e-10)
     except Exception:
         return None
-    if not sol.success and sol.status <= 0:
+    if sol.status <= 0:
         return None
-    m = 2 * len(dets)
-    pix = sol.fun[:m]
-    rms = float(np.sqrt(np.mean(pix ** 2)))
-    dof = max(1, m - len(x0))
+    rms = float(np.sqrt(np.mean(sol.fun[:2 * len(dets)] ** 2)))
+    dof = max(1, len(sol.fun) - len(x0))
     cov = _covariance(sol.jac, float(np.sum(sol.fun ** 2)) / dof)
     return sol.x, cov, rms
 
 
-def _fit_flight(pose: CameraPose, dets: list[Detection], theta0: np.ndarray, *, f_scale: float, radius_weight: float) -> tuple[np.ndarray, np.ndarray, float] | None:
-    """Single parabola with the apparent-size cue. theta = (x0, y0, z0, vx, vy, vz) at t=0."""
-    t = np.array([d[0] for d in dets]); u = np.array([d[1] for d in dets])
-    v = np.array([d[2] for d in dets]); r = np.array([d[3] for d in dets])
-    w = np.sqrt(np.array([max(d[4], 0.05) for d in dets]))
-    use_r = r > 1.0
-
-    def positions(theta):
-        p = theta[None, :3] + theta[None, 3:] * t[:, None]
-        p[:, 2] -= 0.5 * GRAVITY * t * t
-        return p
+def _fit_flight(pose: CameraPose, dets: list[Detection], theta0: np.ndarray, *, f_scale: float) -> tuple[np.ndarray, np.ndarray, float] | None:
+    """Single flight under gravity and drag. theta = (x0, y0, z0, vx, vy, vz) at t=0."""
+    t, u, v, w = (np.array(c, float) for c in zip(*dets))
+    w = np.sqrt(np.maximum(w, 0.05))
 
     def residuals(theta):
-        uu, vv, depth = pose.project(positions(theta))
+        uu, vv, depth = _flight_px(pose, theta, t)
         bad = depth <= 0.05
         ru = np.where(bad, 1e3, (u - uu) * w)
         rv = np.where(bad, 1e3, (v - vv) * w)
-        r_hat = pose.fx * BALL_RADIUS_M / np.where(bad, 1.0, depth)
-        rr = np.where(use_r & ~bad, radius_weight * w * (r - r_hat), 0.0)
-        return np.concatenate([ru, rv, rr])
+        return np.concatenate([ru, rv])
 
     lower = np.array([-10.0, -3.0, 0.0, -60.0, -15.0, -25.0])
-    upper = np.array([35.0, 3.0, 4.0, 60.0, 15.0, 15.0])
+    upper = np.array([35.0, 3.0, 4.0, -1.0, 15.0, 15.0])
     x0 = np.clip(theta0, lower + 1e-6, upper - 1e-6)
     try:
         sol = least_squares(residuals, x0, bounds=(lower, upper), loss="soft_l1",
@@ -293,100 +220,49 @@ def _covariance(jac: np.ndarray, sigma2: float) -> np.ndarray:
 # Public entry points
 # --------------------------------------------------------------------------- #
 
-def reconstruct(pose: CameraPose, dets: list[Detection], *, f_scale_px: float = 2.0) -> Reconstruction | None:
-    """Recover the delivery from per-frame detections (t_s, u, v, radius_px, weight).
+def reconstruct(pose: CameraPose, dets: list[Detection], start: Trajectory, *, f_scale_px: float = 2.0) -> Reconstruction | None:
+    """Refine the tracker's delivery on its detections (t_s from the first, u, v, weight).
 
-    Tries the bounce model first. When no contact is visible in the track, or the anchored
-    fit does not explain the pixels, the single-parabola model is used and flagged.
+    With a bounce in the track both parabolas are fitted through one contact point. Without one,
+    a single parabola, reported with its own, larger, uncertainty.
     """
-    dets = sorted(dets, key=lambda d: d[0])
-    if len(dets) < 4:
-        return None
-    t0 = dets[0][0]
-    dets = [(d[0] - t0, d[1], d[2], d[3], d[4]) for d in dets]
-    notes: list[str] = []
-
-    split = find_bounce_split(dets)
-    if split is not None:
-        k, t_b, u_b, v_b = split
-        best = None
-        for anchor in _anchor_candidates(pose, dets, k, t_b, u_b, v_b):
-            v_pre = _velocity_from_anchor(pose, dets[:k], anchor, t_b)
-            if v_pre is None or v_pre[2] >= -0.05:
-                continue
-            v_post = _velocity_from_anchor(pose, dets[k:], anchor, t_b)
-            if v_post is None:
-                v_post = v_pre * np.array([1.0, 1.0, -RESTITUTION_PRIOR])
-            e0 = float(np.clip(-v_post[2] / v_pre[2], *RESTITUTION_BOUNDS))
-            theta0 = np.array([t_b, anchor[0], anchor[1], *v_pre, v_post[0], v_post[1], e0])
-            fit = _fit_bounce(pose, dets, theta0, f_scale=f_scale_px)
-            if fit is not None and (best is None or fit[2] < best[2]):
-                best = fit
-        if best is not None:
-            theta, cov, rms = best
-            tr = _unpack(theta, True)
-            notes.append(f"bounce anchored at frame {k}, t_b={tr.t_b:.3f}s, e={tr.restitution:.2f}")
-            return Reconstruction(tr, cov, rms, notes)
-        notes.append("bounce seen in the image but no anchored fit converged")
-
-    # no contact in the window: one parabola, scale from gravity and apparent size
-    th0 = _linear_parabola(pose, dets)
-    if th0 is None:
-        return None
-    fit = _fit_flight(pose, dets, th0, f_scale=f_scale_px, radius_weight=0.3)
+    if start.bounce_observed:
+        fit = _fit_bounce(pose, dets, _theta_of(start), f_scale=f_scale_px)
+        if fit is None:
+            return None
+        theta, cov, rms = fit
+        tr = _unpack(theta, True)
+        return Reconstruction(tr, cov, rms, [f"bounce at t_b={tr.t_b:.3f}s, e={tr.restitution:.2f}"])
+    th0 = np.concatenate([start.position(0.0)[0], start.velocity(0.0)])
+    fit = _fit_flight(pose, dets, th0, f_scale=f_scale_px)
     if fit is None:
         return None
     theta, cov6, rms = fit
-    notes.append("no bounce in the tracked window; single-parabola fit")
-    return Reconstruction(_flight_as_trajectory(theta), _flight_covariance(theta, cov6), rms, notes)
+    return Reconstruction(flight_trajectory(theta), _flight_covariance(theta, cov6), rms,
+                          ["no bounce in the tracked window; single-parabola fit"])
 
 
-def _anchor_candidates(pose: CameraPose, dets: list[Detection], k: int, t_b: float, u_b: float, v_b: float) -> list[np.ndarray]:
-    """Starting points for the contact position. The image intersection is exact when the
-    contact is close; seen from far down the pitch a pixel of error on the ground plane is
-    metres, so the pre- and post-bounce parabolas' own ground crossings are tried as well
-    and the fit that explains the pixels best wins."""
-    L = pose.pitch_length_m
-    out = []
-
-    def keep(p):
-        if p is not None and np.all(np.isfinite(p)) and -2.0 <= p[0] <= L + 2.0 and abs(p[1]) <= 2.0:
-            out.append(np.array([p[0], p[1], BALL_RADIUS_M]))
-
-    keep(pose.backproject_to_plane(u_b, v_b, BALL_RADIUS_M))
-    for side in (dets[:k], dets[k:]):
-        th = _linear_parabola(pose, side) if len(side) >= 3 else None
-        if th is None:
-            continue
-        t_side = side[0][0]
-        tau = t_b - t_side
-        keep(np.array([th[0] + th[3] * tau, th[1] + th[4] * tau, BALL_RADIUS_M]))
-    for i in (k - 1, k):
-        keep(pose.backproject_to_plane(dets[i][1], dets[i][2], BALL_RADIUS_M))
-    return out
-
-
-def _flight_as_trajectory(theta: np.ndarray) -> Trajectory:
-    """Express a single parabola in the bounce parameterisation by placing the (unobserved)
-    contact where the parabola would meet the ground, with the prior restitution."""
-    x0, y0, z0, vx, vy, vz = (float(a) for a in theta)
-    h = z0 - BALL_RADIUS_M
-    disc = vz * vz + 2.0 * GRAVITY * h
-    t_b = (vz + math.sqrt(disc)) / GRAVITY if disc > 0 else max(0.0, (vz + 1e-6) / GRAVITY)
-    v_pre = np.array([vx, vy, vz - GRAVITY * t_b])
-    v_post = np.array([vx, vy, -RESTITUTION_PRIOR * v_pre[2]])
-    return Trajectory(t_b, x0 + vx * t_b, y0 + vy * t_b, v_pre, v_post, False)
+def flight_trajectory(theta: np.ndarray) -> Trajectory:
+    """Express a single flight in the bounce parameterisation by placing the (unobserved)
+    contact where it would meet the ground, with the prior restitution and pace kept."""
+    p0, v0, g = np.asarray(theta[:3], float), np.asarray(theta[3:], float), np.array([0.0, 0.0, -GRAVITY])
+    t_b = _touchdown(p0, v0, g)
+    if t_b is None:
+        t_b = max(0.0, (float(v0[2]) + 1e-6) / GRAVITY)
+    p, v = (a[0] for a in _flight(p0, v0, g, np.array([t_b])))
+    v_post = np.array([PACE_KEPT_PRIOR * v[0], v[1], -RESTITUTION_PRIOR * v[2]])
+    return Trajectory(t_b, float(p[0]), float(p[1]), v, v_post, 0.0, False)
 
 
 def _flight_covariance(theta: np.ndarray, cov6: np.ndarray) -> np.ndarray:
     """Push the 6-parameter covariance through the reparameterisation numerically, and give
-    the unobserved restitution and post-bounce deviation their prior spread."""
+    the unobserved pace kept, restitution and post-bounce deviation their prior spread."""
     def f(th):
-        tr = _flight_as_trajectory(th)
-        return np.array([tr.t_b, tr.x_b, tr.y_b, *tr.v_pre, tr.v_post[0], tr.v_post[1], RESTITUTION_PRIOR])
+        tr = flight_trajectory(th)
+        return np.array([tr.t_b, tr.x_b, tr.y_b, *tr.v_pre, PACE_KEPT_PRIOR, tr.v_post[1], RESTITUTION_PRIOR, 0.0])
     J = _numeric_jacobian(f, theta)
     cov = J @ cov6 @ J.T
-    cov[6, 6] += 4.0 ** 2
+    cov[6, 6] += 0.15 ** 2
     cov[7, 7] += 2.0 ** 2
     cov[8, 8] += 0.15 ** 2
     return cov
@@ -406,31 +282,42 @@ def _numeric_jacobian(f, x: np.ndarray, rel: float = 1e-6) -> np.ndarray:
 
 def _theta_of(tr: Trajectory) -> np.ndarray:
     e = tr.restitution if math.isfinite(tr.restitution) else RESTITUTION_PRIOR
-    return np.array([tr.t_b, tr.x_b, tr.y_b, *tr.v_pre, tr.v_post[0], tr.v_post[1], e])
+    k = tr.v_post[0] / tr.v_pre[0] if tr.v_pre[0] else PACE_KEPT_PRIOR
+    return np.array([tr.t_b, tr.x_b, tr.y_b, *tr.v_pre, k, tr.v_post[1], e, tr.swing])
 
 
 def _stump_plane_point(theta: np.ndarray, x_target: float, bounce_observed: bool) -> np.ndarray:
-    """(t, y, z, n_extra_bounces) where the post-contact path crosses x = x_target.
+    """(t, y, z, n_extra_bounces) where the path crosses x = x_target.
     A ball that would touch down again before the plane is bounced again with the same
     restitution."""
     tr = _unpack(theta, bounce_observed)
-    x_b, y_b, v = tr.x_b, tr.y_b, tr.v_post.copy()
-    t_b = tr.t_b
+    p, v, t_b = np.array([tr.x_b, tr.y_b, BALL_RADIUS_M]), tr.v_post.copy(), tr.t_b
+    g = np.array([0.0, 0.0, -GRAVITY])
+    if tr.x_b <= x_target:
+        # a full toss lands past the plane, so it crosses on the way down
+        if abs(tr.v_pre[0]) < 1e-6:
+            return np.array([np.nan, np.nan, np.nan, 0])
+        c = DRAG_PER_M * abs(tr.v_pre[0])
+        ct = math.expm1((x_target - tr.x_b) * c / tr.v_pre[0])
+        if ct <= -0.9:
+            return np.array([np.nan, np.nan, np.nan, 0])
+        q = _flight(p, tr.v_pre, np.array([0.0, tr.swing, -GRAVITY]), np.array([ct / c]))[0][0]
+        return np.array([t_b + ct / c, q[1], q[2], 0])
     extra = 0
     for _ in range(4):
         if abs(v[0]) < 1e-6:
             return np.array([np.nan, np.nan, np.nan, extra])
-        tau = (x_target - x_b) / v[0]
-        if tau < 0:
-            tau = 0.0
-        z = BALL_RADIUS_M + v[2] * tau - 0.5 * GRAVITY * tau * tau
-        if z >= BALL_RADIUS_M - 1e-9:
-            return np.array([t_b + tau, y_b + v[1] * tau, z, extra])
+        c = DRAG_PER_M * abs(v[0])
+        tau = max(0.0, math.expm1((x_target - p[0]) * c / v[0]) / c)   # x under drag, inverted
+        q = _flight(p, v, g, np.array([tau]))[0][0]
+        if q[2] >= BALL_RADIUS_M - 1e-9:
+            return np.array([t_b + tau, q[1], q[2], extra])
         # second contact before the plane
-        disc = v[2] * v[2]
-        t_hit = (v[2] + math.sqrt(disc)) / GRAVITY if v[2] > 0 else 1e-6
-        x_b += v[0] * t_hit; y_b += v[1] * t_hit; t_b += t_hit
-        v = np.array([v[0], v[1], -tr.restitution * (v[2] - GRAVITY * t_hit)])
+        t_hit = _touchdown(p, v, g) if v[2] > 0 else 1e-6
+        p, v = (a[0] for a in _flight(p, v, g, np.array([t_hit])))
+        p[2] = BALL_RADIUS_M
+        v = np.array([v[0], v[1], -tr.restitution * v[2]])
+        t_b += t_hit
         extra += 1
     return np.array([np.nan, np.nan, np.nan, extra])
 
@@ -445,7 +332,7 @@ def predict_stump_plane(rec: Reconstruction, x_target: float = 0.0) -> StumpPlan
     S = J @ rec.covariance @ J.T
     sy = float(math.sqrt(max(S[0, 0], 0.0)))
     sz = float(math.sqrt(max(S[1, 1], 0.0)))
-    return StumpPlanePrediction(float(p[0]), float(p[1]), float(p[2]), sy, sz, int(p[3]))
+    return StumpPlanePrediction(float(p[0]), float(p[1]), float(p[2]), sy, sz)
 
 
 def position_sigma(rec: Reconstruction, t: float) -> tuple[float, float, float]:
@@ -460,6 +347,13 @@ def bounce_sigma(rec: Reconstruction) -> tuple[float, float]:
     """1-sigma of the contact point along and across the pitch."""
     c = rec.covariance
     return float(math.sqrt(max(c[1, 1], 0.0))), float(math.sqrt(max(c[2, 2], 0.0)))
+
+
+def speed_sigma(rec: Reconstruction) -> float:
+    """1-sigma of the speed at the first detection, m/s."""
+    theta = _theta_of(rec.trajectory)
+    J = _numeric_jacobian(lambda th: np.linalg.norm(_unpack(th, rec.trajectory.bounce_observed).velocity(0.0)), theta)
+    return float(math.sqrt(max((J @ rec.covariance @ J.T)[0, 0], 0.0)))
 
 
 def sample_path(tr: Trajectory, t_from: float, t_to: float, n: int = 48) -> np.ndarray:

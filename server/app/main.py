@@ -1,26 +1,26 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import shutil
+import threading
 import time
-import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Header, Request
-from fastapi.responses import FileResponse, PlainTextResponse, Response
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from firebase_admin import firestore as fb_firestore
 
 from .jobs import JobPaths, JobStore, default_job_store
-from .job_logging import job_log_context
 from .logging_setup import configure_logging, request_id_ctx
-from .firebase_config import initialize_firebase, verify_user_token, get_firestore
 from .models import (
     ApiError,
     CreateJobRequest,
@@ -38,29 +38,8 @@ configure_logging(log_level=os.environ.get("POCKET_DRS_LOG_LEVEL", "info"))
 _log = logging.getLogger("pocket_drs")
 
 
-def _require_user_id(authorization: str | None) -> str:
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
-
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
-        raise HTTPException(status_code=401, detail="Invalid Authorization header")
-
-    uid = verify_user_token(token)
-    if not uid:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    return uid
-
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    # fail fast: without Firestore the server cannot store results or check tokens
-    db = initialize_firebase()
-    try:
-        db.collection("_health").document("startup").get()
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"Firestore is not reachable: {e}. Check connectivity, the service account "
-                           "project_id, and that Firestore is enabled in the Firebase console.")
-    _log.info("Firebase initialized and Firestore reachable")
     # jobs still queued or running belong to a previous process whose worker pool is gone
     recovered = _store.recover_interrupted_jobs()
     if recovered:
@@ -71,12 +50,8 @@ async def _lifespan(app: FastAPI):
 app = FastAPI(title="PocketDRS Server", version="1.0", lifespan=_lifespan)
 
 
+# one log line per request, under an id the client also gets back in X-Request-Id
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Assign a request id, log one INFO line per request with timing.
-
-    The id is also returned to clients via the `X-Request-Id` header so a
-    Flutter-side report can be traced straight to its server log line.
-    """
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
         incoming = request.headers.get("x-request-id", "").strip()
@@ -108,40 +83,57 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             request_id_ctx.reset(token)
 
 
+_MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+_UPLOAD_DEADLINE_S = 600    # the app gives up on an upload after 10 minutes too
+
+
+@app.middleware("http")
+async def _cap_upload(request: Request, call_next):
+    # starlette spools the whole multipart body to disk before create_job runs, so cap it by header
+    if request.method != "POST":
+        return await call_next(request)
+    size = request.headers.get("content-length", "")
+    if not size.isdigit():
+        return JSONResponse({"detail": "Content-Length header required"}, status_code=411)
+    if int(size) > _MAX_UPLOAD_BYTES:
+        return JSONResponse({"detail": f"Video exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit"},
+                            status_code=413)
+    # the job queue only says busy after the body is on disk, so parallel uploads could still fill it
+    if _uploads.locked():
+        return JSONResponse({"detail": "Server busy: too many uploads at once, try again shortly"}, status_code=503)
+    async with _uploads:
+        # a phone that drops off the network mid-upload leaves a half-open socket that would hold its slot forever
+        try:
+            async with asyncio.timeout(_UPLOAD_DEADLINE_S):
+                return await call_next(request)
+        except TimeoutError:
+            return JSONResponse({"detail": "The upload took too long. Try again on a better connection."}, status_code=408)
+
+
 app.add_middleware(RequestLoggingMiddleware)
 
-
-
-_cors_origins_raw = os.environ.get("POCKET_DRS_CORS_ORIGINS", "").strip()
-_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
-if _cors_origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=_cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# public, anonymous API: any origin may call it, and there are no cookies to guard
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 _store: JobStore = default_job_store()
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="job-worker")
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="job-worker")
 
-
-def _firestore_safe(value: Any) -> Any:
-    """Firestore rejects arrays nested in arrays; the camera matrices are stored as row-indexed maps.
-    Everything else in a result is already JSON-clean (see process_job._finite)."""
-    if isinstance(value, dict):
-        return {str(k): _firestore_safe(v) for k, v in value.items()}
-    if isinstance(value, list):
-        items = [_firestore_safe(x) for x in value]
-        return {str(i): x for i, x in enumerate(items)} if any(isinstance(x, list) for x in items) else items
-    return value
+# the ball detector pins every CPU, so one job runs at a time and a burst past the cap gets a 503
+_MAX_JOBS = 10
+_job_slots = threading.Semaphore(_MAX_JOBS)
+_uploads = asyncio.Semaphore(_MAX_JOBS)
 
 
 def _load_json(s: str) -> dict[str, Any]:
     try:
         v = json.loads(s)
-    except json.JSONDecodeError as e:
+    except (ValueError, RecursionError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid request_json: {e}")
     if not isinstance(v, dict):
         raise HTTPException(status_code=400, detail="request_json must be a JSON object")
@@ -153,174 +145,97 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def _write_failed_status_safe(paths: JobPaths, message: str) -> None:
-    """Best-effort ``failed`` status write that never raises.
+# what people see when they open the hosted server's page
+@app.get("/", response_class=PlainTextResponse)
+def root() -> str:
+    return "Pocket DRS analysis server is running. Get the app at https://github.com/kafle1/pocket-drs"
 
-    Last line of defense for the background worker: if job setup (creating the
-    log dir / opening a per-job FileHandler) or the inner failure handler itself
-    throws, the ThreadPoolExecutor future is never awaited and the exception is
-    silently dropped, leaving status.json stuck at queued/running forever. This
-    forces a terminal ``failed`` status and swallows any error doing so.
-    """
+
+# the worker's future is never awaited, so a failure here would otherwise leave the job running forever
+def _write_failed_status_safe(paths: JobPaths, error: ApiError) -> None:
     try:
-        _store.write_status(
-            paths,
-            status=JobStatus.failed,
-            progress=ProgressInfo(pct=100, stage="failed"),
-            error=ApiError(code="INTERNAL_ERROR", message=message or "Job failed", details=None),
-        )
+        _store.write_status(paths, status=JobStatus.failed, progress=ProgressInfo(pct=100, stage="failed"), error=error)
     except Exception:  # noqa: BLE001
-        try:
-            _log.exception("Could not write failed-status for job_id=%s", paths.job_dir.name)
-        except Exception:
-            pass
+        _log.exception("could not mark job %s failed", paths.job_dir.name)
 
 
-def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], artifacts_dir: Path, user_id: str) -> None:
+def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], artifacts_dir: Path) -> None:
     paths = _store.job_paths(job_id)
+    last = None
+
+    # the pipeline reports every decoded frame, so only a new percent or stage is written to disk
+    def progress(pct: int, stage: str) -> None:
+        nonlocal last
+        if (pct, stage) != last:
+            _store.write_status(paths, status=JobStatus.running, progress=ProgressInfo(pct=pct, stage=stage), error=None)
+            last = (pct, stage)
+
     try:
-        last_stage: str | None = None
-        last_pct: int | None = None
-        # The pipeline calls `progress(pct, stage)` per decoded frame; writing the
-        # status JSON to disk on every call serialises the worker on a hot atomic
-        # rename and visibly stalls the client at the first decode checkpoint
-        # (typically ~6%) when the file is on slow storage. Coalesce updates: only
-        # flush to disk when the integer percent moves or the stage label changes.
-        # Internal frame-level updates still call this; the worker just batches
-        # them between the meaningful boundaries the client polls for.
-        last_written_pct: int | None = None
-        last_written_stage: str | None = None
-
-        with job_log_context(job_id=job_id, artifacts_dir=artifacts_dir) as job_log:
-            job_log.info(
-                "Processing job_id=%s user_id=%s video=%s size=%dMB",
-                job_id,
-                user_id,
-                video_path.name,
-                video_path.stat().st_size // (1024 * 1024),
-            )
-
-            def progress(pct: int, stage: str) -> None:
-                nonlocal last_stage, last_pct, last_written_pct, last_written_stage
-                if pct != last_written_pct or stage != last_written_stage:
-                    _store.write_status(
-                        paths,
-                        status=JobStatus.running,
-                        progress=ProgressInfo(pct=pct, stage=stage),
-                        error=None,
-                    )
-                    last_written_pct = pct
-                    last_written_stage = stage
-
-                if stage != last_stage or last_pct is None or abs(pct - last_pct) >= 10:
-                    job_log.info("Progress: %d%% - %s", pct, stage)
-                    last_stage = stage
-                    last_pct = pct
-
-            try:
-                progress(1, "starting")
-                out = run_pipeline(
-                    video_path=video_path,
-                    request_json=request_json,
-                    artifacts_dir=artifacts_dir,
-                    progress=progress,
-                )
-                _store.write_result(paths, out.result)
-                _store.write_status(
-                    paths,
-                    status=JobStatus.succeeded,
-                    progress=ProgressInfo(pct=100, stage="succeeded"),
-                    error=None,
-                )
-                track = out.result.get("track") or {}
-                job_log.info("Completed: %d tracking points, %d warnings",
-                             len(track.get("image_points") or []), len(out.warnings))
-                try:
-                    get_firestore().collection("users").document(user_id).collection("analyses").add({
-                        "jobId": job_id,
-                        "result": _firestore_safe(out.result),
-                        "createdAt": fb_firestore.SERVER_TIMESTAMP,
-                    })
-                    job_log.info("Saved to Firestore for user %s", user_id)
-                except Exception as e:  # noqa: BLE001
-                    job_log.warning("Failed to save to Firestore: %s", e)
-
-            except Exception as e:  # noqa: BLE001
-                tb = traceback.format_exc()
-                error_type = e.__class__.__name__
-                error_msg = str(e) if str(e) else error_type
-                job_log.error("Failed with %s: %s\n%s", error_type, error_msg, tb)
-                err = map_exception_to_api_error(e)
-                _store.write_status(
-                    paths,
-                    status=JobStatus.failed,
-                    progress=ProgressInfo(pct=100, stage="failed"),
-                    error=err,
-                )
+        progress(1, "starting")
+        out = run_pipeline(video_path=video_path, request_json=request_json, artifacts_dir=artifacts_dir,
+                           progress=progress)
+        _store.write_result(paths, out.result)
+        _store.write_status(paths, status=JobStatus.succeeded, progress=ProgressInfo(pct=100, stage="succeeded"),
+                            error=None)
+        _log.info("job %s done with %d warnings", job_id, len(out.warnings))
     except Exception as e:  # noqa: BLE001
-        # Anything that escaped the inner handler, e.g. job_log_context failing
-        # to create the log dir / open a FileHandler, or the failure handler's
-        # own write_status raising, must still land as "failed", or the dropped
-        # worker future leaves the job stuck in queued/running forever.
-        try:
-            _log.exception("Job worker crashed for job_id=%s", job_id)
-        except Exception:
-            pass
-        _write_failed_status_safe(paths, f"Job worker crashed: {e.__class__.__name__}: {e}")
+        _log.exception("job %s failed", job_id)
+        _write_failed_status_safe(paths, map_exception_to_api_error(e))
+    finally:
+        _job_slots.release()
+        # nothing serves the clip back, so it goes as soon as the analysis ends
+        video_path.unlink(missing_ok=True)
 
 
 @app.post("/v1/jobs", response_model=CreateJobResponse)
 async def create_job(
     video_file: UploadFile = File(...),
     request_json: str = Form(...),
-    authorization: str | None = Header(None),
 ) -> CreateJobResponse:
     req_dict = _load_json(request_json)
-
-    user_id = _require_user_id(authorization)
 
     try:
         CreateJobRequest.model_validate(req_dict)
     except Exception as e:  # noqa: BLE001
+        # full validation detail goes to the log only; the client gets one plain sentence
         _log.warning("Invalid job request: %s", str(e))
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="The app sent an invalid request. Update the app and try again.")
 
-    job_id, paths = _store.create_job()
-    _log.debug("Created job: job_id=%s user_id=%s filename=%s", job_id, user_id, video_file.filename)
+    if not _job_slots.acquire(blocking=False):
+        raise HTTPException(
+            status_code=503,
+            detail=f"Server busy: {_MAX_JOBS} jobs already queued or running, try again shortly",
+        )
 
-    _store.write_request(paths, req_dict)
-    _store.write_meta(paths, {"user_id": user_id})
+    submitted, paths = False, None
     try:
-        bytes_written = 0
+        job_id, paths = _store.create_job()
+        _store.write_request(paths, req_dict)
         with paths.video_path.open("wb") as f:
-            while True:
-                chunk = await video_file.read(1024 * 1024)
-                if not chunk:
-                    break
-                f.write(chunk)
-                bytes_written += len(chunk)
-        _log.debug("Video uploaded: job_id=%s size=%dMB", job_id, bytes_written // (1024 * 1024))
-    except Exception as e:
-        _log.error("Failed to save video: job_id=%s error=%s", job_id, str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to save video: {e}")
-    finally:
-        await video_file.close()
+            await run_in_threadpool(shutil.copyfileobj, video_file.file, f, 1 << 20)
 
-    _executor.submit(_process_job, job_id, paths.video_path, req_dict, paths.artifacts_dir, user_id)
+        _executor.submit(_process_job, job_id, paths.video_path, req_dict, paths.artifacts_dir)
+        submitted = True
+    except Exception:
+        _log.exception("Failed to save the uploaded video")
+        raise HTTPException(status_code=500, detail="The server couldn't save the video. Try again.")
+    finally:
+        if not submitted:
+            _job_slots.release()
+            # no worker will ever delete a half-saved clip
+            if paths is not None:
+                shutil.rmtree(paths.job_dir, ignore_errors=True)
+        await video_file.close()
 
     return CreateJobResponse(job_id=job_id, status=JobStatus.queued)
 
 
 @app.get("/v1/jobs/{job_id}", response_model=JobStatusResponse)
-def get_job_status(job_id: str, authorization: str | None = Header(None)) -> JobStatusResponse:
-    user_id = _require_user_id(authorization)
+def get_job_status(job_id: str) -> JobStatusResponse:
     if not _store.exists(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
     paths = _store.job_paths(job_id)
-    owner_id = _store.read_owner_user_id(paths)
-    if owner_id != user_id:
-        raise HTTPException(status_code=404, detail="Job not found")
     raw = _store.read_status(paths)
 
     status = JobStatus(raw["status"])
@@ -334,15 +249,11 @@ def get_job_status(job_id: str, authorization: str | None = Header(None)) -> Job
 
 
 @app.get("/v1/jobs/{job_id}/result", response_model=JobResultResponse)
-def get_job_result(job_id: str, authorization: str | None = Header(None)) -> JobResultResponse:
-    user_id = _require_user_id(authorization)
+def get_job_result(job_id: str) -> JobResultResponse:
     if not _store.exists(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
     paths = _store.job_paths(job_id)
-    owner_id = _store.read_owner_user_id(paths)
-    if owner_id != user_id:
-        raise HTTPException(status_code=404, detail="Job not found")
     status_raw = _store.read_status(paths)
     status = JobStatus(status_raw["status"])
     error_raw = status_raw.get("error")
@@ -356,43 +267,19 @@ def get_job_result(job_id: str, authorization: str | None = Header(None)) -> Job
 
 
 @app.get("/v1/jobs/{job_id}/three-d", response_class=Response)
-def get_job_three_d(job_id: str, token: str | None = None, authorization: str | None = Header(None)):
-    """Render the Three.js Hawk-Eye viewer as a self-contained HTML page.
-
-    Auth is accepted via the standard ``Authorization: Bearer`` header OR a
-    ``?token=`` query string, since the app opens the URL in a new browser
-    tab where custom headers are awkward to attach. The token is the same
-    Firebase ID token the app uses for ``/v1/jobs`` calls.
-    """
-    bearer = authorization or (f"Bearer {token}" if token else None)
-    user_id = _require_user_id(bearer)
+def get_job_three_d(job_id: str):
+    """Render the Three.js 3D ball path viewer as a self-contained HTML page."""
+    # this page opens in the phone's browser, so errors get a sentence, not JSON
     if not _store.exists(job_id):
-        raise HTTPException(status_code=404, detail="Job not found")
+        return PlainTextResponse("This ball is no longer on the server. Results are kept for a day, and a "
+                                 "server restart clears them. Send the ball again to see it in 3D.", status_code=404)
     paths = _store.job_paths(job_id)
-    if _store.read_owner_user_id(paths) != user_id:
-        raise HTTPException(status_code=404, detail="Job not found")
     status_raw = _store.read_status(paths)
     if JobStatus(status_raw["status"]) != JobStatus.succeeded:
-        raise HTTPException(status_code=409, detail="Job not finished")
-    return Response(content=render_html(_store.read_result(paths)), media_type="text/html")
-
-
-@app.get("/v1/jobs/{job_id}/artifacts/{name}")
-def get_artifact(job_id: str, name: str, authorization: str | None = Header(None)):
-    user_id = _require_user_id(authorization)
-    if not _store.exists(job_id):
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    paths = _store.job_paths(job_id)
-    owner_id = _store.read_owner_user_id(paths)
-    if owner_id != user_id:
-        raise HTTPException(status_code=404, detail="Job not found")
-    file_path = (paths.artifacts_dir / name).resolve()
-    if paths.artifacts_dir.resolve() not in file_path.parents:
-        raise HTTPException(status_code=400, detail="Invalid artifact path")
-
-    if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(status_code=404, detail="Artifact not found")
-
-    return FileResponse(str(file_path))
-
+        return PlainTextResponse("This ball is still being checked, or the check failed. Open it again from the app "
+                                 "once it shows a verdict.", status_code=409)
+    result = _store.read_result(paths)
+    if not (result.get("world_trajectory") or {}).get("points_m"):
+        return PlainTextResponse("No ball path was found for this delivery, so there is nothing to show in 3D.",
+                                 status_code=409)
+    return Response(content=render_html(result), media_type="text/html")

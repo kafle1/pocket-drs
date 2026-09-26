@@ -2,12 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>PocketDRS — 3D Hawk-Eye</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pocket DRS 3D ball path</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden;
     background: linear-gradient(180deg, #244f74 0%, #163a55 32%, #0d2336 60%, #07121d 100%);
     color: #eef3f8; font: 13px/1.4 -apple-system, "Segoe UI", system-ui, sans-serif; }
   #scene { position: absolute; inset: 0; }
+  /* css sizes the canvas, so a stale width mid-rotation can't make chrome zoom the page out */
+  #scene canvas { display: block; width: 100%; height: 100%; }
 
   #panels { position: absolute; top: 20px; left: 20px; display: flex;
             flex-direction: column; gap: 13px; opacity: 0; transition: opacity .8s ease .5s; }
@@ -34,6 +37,24 @@
            transition: opacity 1s ease 1s; }
   #brand b { color: #e9f0f7; letter-spacing: 1px; }
   #help { position: absolute; bottom: 16px; right: 20px; color: #51647a; font-size: 11px; }
+  @media (max-width: 520px) { #help { left: 22px; right: auto; bottom: 38px; } }
+  /* phones get compact cards; a tall screen has no room for side columns, so they run in rows across the top */
+  @media (orientation: portrait), (max-height: 480px) {
+    #panels { top: 12px; left: 12px; gap: 6px; }
+    #metrics { top: 12px; right: 12px; gap: 6px; }
+    .pan { width: 104px; }
+    .ph, .pv { padding: 5px 8px; letter-spacing: .4px; white-space: nowrap; overflow: hidden; }
+    .ph { font-size: 9px; } .pv { font-size: 10px; }
+    .mc { min-width: 76px; padding: 6px 10px; }
+    .mc b { font-size: 18px; }
+  }
+  @media (orientation: portrait) {
+    #panels { right: 12px; flex-direction: row; }
+    .pan { width: auto; flex: 1; min-width: 0; }
+    .ph, .pv { padding: 5px 6px; }
+    #metrics { top: 70px; left: 12px; flex-direction: row; }
+    .mc { flex: 1; min-width: 0; }
+  }
   .show { opacity: 1 !important; }
 </style>
 </head>
@@ -53,8 +74,8 @@
   <div class="mc"><span>SPIN</span><b id="m-spin">–</b> <i>deg</i></div>
 </div>
 
-<div id="brand"><b>PocketDRS</b> · 3D HAWK-EYE</div>
-<div id="help">drag = orbit · scroll = zoom</div>
+<div id="brand"><b>Pocket DRS</b> · 3D BALL PATH</div>
+<div id="help">drag to orbit · pinch or scroll to zoom</div>
 
 <script type="importmap">
 { "imports": {
@@ -77,12 +98,12 @@ const L = PAYLOAD.pitch_length_m;
 const PW = PAYLOAD.pitch_width_m;
 const halfW = PW / 2;
 const STUMP_H = 0.711, STUMP_DX = 0.114, CORR_HALF = STUMP_DX + 0.036;
-const TARGET_X = 0;                          // striker wicket — the judged end
+const TARGET_X = 0;                          // striker wicket, the judged end
 let W = window.innerWidth, H = window.innerHeight;
 
 // ---------------------------------------------------------------- renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-renderer.setSize(W, H);
+renderer.setSize(W, H, false);
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -93,10 +114,16 @@ document.getElementById("scene").appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x0b1a2a, L + 8, L + 30);
+// bloom drops the canvas alpha, so the sky has to be painted inside the scene
+const sky = document.createElement("canvas"); sky.width = 1; sky.height = 256;
+const skyCtx = sky.getContext("2d"), skyGrad = skyCtx.createLinearGradient(0, 0, 0, 256);
+[[0, "#244f74"], [0.32, "#163a55"], [0.6, "#0d2336"], [1, "#07121d"]].forEach(([o, c]) => skyGrad.addColorStop(o, c));
+skyCtx.fillStyle = skyGrad; skyCtx.fillRect(0, 0, 1, 256);
+scene.background = new THREE.CanvasTexture(sky);
+scene.background.colorSpace = THREE.SRGBColorSpace;
 
 const camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 200);
 camera.up.set(0, 0, 1);
-camera.position.set(-4.0, 2.3, 1.95);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(L * 0.30, 0, 0.42);
@@ -150,7 +177,7 @@ function mownTexture() {
     new THREE.MeshStandardMaterial({ color: 0xa49b66, roughness: 0.97 }));
   worn.position.set(L / 2, 0, 0.001); worn.receiveShadow = true; scene.add(worn);
 }
-// white creases (popping + return + bowling) — crisp markings
+// white creases (popping, return and bowling)
 function line3(a, b, op = 0.92) {
   const g = new THREE.BufferGeometry().setFromPoints([
     new THREE.Vector3(...a), new THREE.Vector3(...b)]);
@@ -194,9 +221,7 @@ function stumps(x, color, scale, glow) {
   const bgeo = new THREE.CylinderGeometry(0.01, 0.01, STUMP_DX + 0.02, 12);
   for (const off of [-STUMP_DX / 2, STUMP_DX / 2]) {
     const b = new THREE.Mesh(bgeo, bmat); b.position.set(x, off, STUMP_H + 0.015);
-    // Bails lie ACROSS the three stumps (along world Y, the stump line). The
-    // default cylinder axis is already Y; the previous rotation.z=PI/2 turned
-    // them onto X (pointing down the pitch) — the "opposite way" the bails sat.
+    // the cylinder's own axis is y, which already lays the bails across the stumps
     b.castShadow = true; grp.add(b);
   }
   return grp;
@@ -216,16 +241,16 @@ function tube(points, color, radius, opacity, emissive) {
   return { mesh, curve };
 }
 const trackedRaw = PAYLOAD.tracked.map(p => [p.x, p.y, p.z]);
-const predicted = PAYLOAD.predicted.map(p => [p.x, p.y, p.z]);
+// the first predicted sample repeats the last tracked point
+const predicted = PAYLOAD.predicted.slice(1).map(p => [p.x, p.y, p.z]);
 
 // The bounce is the lowest point of the incoming arc (where the ball pitches).
-// Split the path there: RED descends to the bounce, PINK rises away from it —
+// Split the path there: RED descends to the bounce, PINK rises away from it,
 // so the pitch reads as a sharp V, never a flat smear along the ground.
 let bi = 0;
 for (let i = 1; i < trackedRaw.length; i++) if (trackedRaw[i][2] < trackedRaw[bi][2]) bi = i;
-const bouncePt = trackedRaw.length ? trackedRaw[bi] : null;
-const trackDown = bouncePt ? trackedRaw.slice(0, bi + 1) : trackedRaw;
-const predUp = (bouncePt ? [bouncePt] : []).concat(predicted);
+const trackDown = trackedRaw.slice(0, bi + 1);
+const predUp = trackedRaw.slice(bi).concat(predicted);
 
 if (trackDown.length >= 2) scene.add(tube(trackDown, 0xff3b30, 0.045, 1.0, 0.32).mesh);
 if (predUp.length >= 2) scene.add(tube(predUp, 0xff9a86, 0.040, 0.9, 0.25).mesh);
@@ -233,7 +258,7 @@ if (predUp.length >= 2) scene.add(tube(predUp, 0xff9a86, 0.040, 0.9, 0.25).mesh)
 // One smooth curve (incoming + predicted) for the moving ball.
 let fullCurve = null;
 {
-  const all = trackDown.concat(predicted).map(p => new THREE.Vector3(p[0], p[1], Math.max(0.0, p[2])));
+  const all = trackedRaw.concat(predicted).map(p => new THREE.Vector3(p[0], p[1], Math.max(0.0, p[2])));
   if (all.length >= 2) fullCurve = new THREE.CatmullRomCurve3(all, false, "catmullrom", 0.5);
 }
 const impact = PAYLOAD.impact;
@@ -277,23 +302,52 @@ const GRN = "#2faa4a", RED = "#d23b2f", YEL = "#e0a52b";
 const c = PAYLOAD.checks || {};
 const setP = (id, t, col) => { const e = document.getElementById(id); e.textContent = t; e.style.background = col; };
 setP("p-pitch", c.pitching_in_line ? "IN LINE" : "OUTSIDE", c.pitching_in_line ? RED : GRN);
-setP("p-impact", c.impact_in_line ? "IN LINE" : "OUTSIDE OFF", c.impact_in_line ? RED : GRN);
+setP("p-impact", c.impact_in_line ? "IN LINE" : "OUTSIDE", c.impact_in_line ? RED : GRN);
 setP("p-wickets", c.wickets_hitting ? "HITTING" : "MISSING", c.wickets_hitting ? RED : GRN);
 const dec = (PAYLOAD.lbw_decision || "?").toUpperCase().replace(/_/g, " ");
 setP("p-decision", dec, dec === "OUT" ? RED : dec === "NOT OUT" ? GRN : YEL);
-document.getElementById("m-speed").textContent = (PAYLOAD.speed_kmh || 0).toFixed(0);
-document.getElementById("m-swing").textContent = (PAYLOAD.swing_cm || 0).toFixed(0);
-document.getElementById("m-spin").textContent = (PAYLOAD.spin_deg || 0).toFixed(1);
+// null means not measured, which is not the same as zero
+const fmt = (v, digits) => v == null ? "–" : v.toFixed(digits);
+document.getElementById("m-speed").textContent = fmt(PAYLOAD.speed_kmh, 0);
+document.getElementById("m-swing").textContent = fmt(PAYLOAD.swing_cm, 0);
+document.getElementById("m-spin").textContent = fmt(PAYLOAD.spin_deg, 1);
 for (const id of ["panels", "metrics", "brand"]) document.getElementById(id).classList.add("show");
+
+// ---------------------------------------------------------------- framing
+// side-on suits a wide screen; a tall one is too narrow for that, so it looks down the pitch from behind the striker
+const WIDE = new THREE.Vector3(-4.0, 2.3, 1.95), TALL = new THREE.Vector3(-5.5, 0.9, 4.2);
+const keep = trackedRaw.concat(predicted, [[0, -CORR_HALF, STUMP_H], [0, CORR_HALF, 0], [L, 0, STUMP_H]])
+  .map(p => new THREE.Vector3(...p));
+if (impactPt) keep.push(new THREE.Vector3(...impactPt));
+let tall = null;
+function frame() {
+  // on a tall screen the cards span the top and the labels the bottom, so the scene centres between them
+  const box = id => document.getElementById(id).getBoundingClientRect();
+  const top = H >= W ? Math.max(box("panels").bottom, box("metrics").bottom) + 8 : 0;
+  const bot = H >= W ? H - Math.min(box("brand").top, box("help").top) + 8 : 0;
+  camera.aspect = W / H;
+  camera.setViewOffset(W, H, 0, (bot - top) / 2, W, H);
+  if ((H >= W) === tall) return;               // a small resize keeps the user's orbit
+  tall = H >= W;
+  const dir = (tall ? TALL : WIDE).clone().sub(controls.target), v = new THREE.Vector3();
+  const ymax = 1 - 2 * top / H - 0.08, ymin = 2 * bot / H - 1 + 0.08;
+  // back off until the whole path and both wickets are on screen, whatever its shape
+  for (let s = 1; s < 4; s *= 1.05) {
+    camera.position.copy(controls.target).addScaledVector(dir, s);
+    camera.lookAt(controls.target); camera.updateMatrixWorld();
+    if (keep.every(p => { v.copy(p).project(camera); return Math.abs(v.x) < 0.92 && v.y < ymax && v.y > ymin; })) break;
+  }
+}
+frame();
 
 // ---------------------------------------------------------------- resize + loop
 window.addEventListener("resize", () => {
   W = window.innerWidth; H = window.innerHeight;
-  renderer.setSize(W, H); if (composer) composer.setSize(W, H);
-  camera.aspect = W / H; camera.updateProjectionMatrix();
+  renderer.setSize(W, H, false); if (composer) composer.setSize(W, H);
+  frame();
 });
 
-// Static framed default view — the user orbits manually (no auto-rotation).
+// Static framed default view; the user orbits manually (no auto-rotation).
 let t0 = null;
 const LOOP = 2600, HOLD = 1100;
 const _bp = new THREE.Vector3();

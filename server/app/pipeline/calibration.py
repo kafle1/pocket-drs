@@ -2,8 +2,8 @@
 
 World frame: X down the pitch (0 at the striker's stumps, L at the bowler's), Y across
 the pitch, Z up. The two stump sets are the metric anchor: their height is fixed by the
-Laws, so eight tapped stump corners plus the four pitch corners pin the camera pose and,
-when the caller does not supply them, the focal length and the pitch length.
+Laws, so eight tapped stump corners a known pitch length apart pin the camera pose and
+the focal length.
 """
 
 from __future__ import annotations
@@ -15,9 +15,9 @@ import cv2
 import numpy as np
 
 STUMP_HEIGHT_M = 0.711
-STUMP_LATERAL_DX_M = 0.114        # middle stump centre to outer stump centre
+STUMP_OUTER_HALF_M = 0.1143       # Law 8.1: the wicket is 22.86 cm wide across the outer edges
 STUMP_HALF_WIDTH_M = 0.018        # half thickness of one stump
-STUMP_OUTER_HALF_M = STUMP_LATERAL_DX_M + STUMP_HALF_WIDTH_M   # outer edge of the outer stump
+STUMP_LATERAL_DX_M = STUMP_OUTER_HALF_M - STUMP_HALF_WIDTH_M   # middle stump centre to outer stump centre
 PITCH_LENGTH_M = 20.12
 PITCH_WIDTH_M = 3.05
 
@@ -35,7 +35,6 @@ class CameraPose:
     fov_deg: float
     pitch_length_m: float
     pitch_width_m: float
-    used_corners: bool
 
     @property
     def fx(self) -> float:
@@ -60,7 +59,6 @@ class CameraPose:
     @property
     def notes(self) -> list[str]:
         return [
-            "stump+corner pose" if self.used_corners else "stump-only pose",
             f"length={self.pitch_length_m:.2f} m",
             f"reproj={self.reproj_error_px:.2f} px",
             f"fov={self.fov_deg:.0f} deg",
@@ -82,23 +80,6 @@ class CameraPose:
             return None
         return float(u[0]), float(v[0]), float(d[0])
 
-    def ray_world(self, u: float, v: float) -> np.ndarray:
-        """Unit direction in world coordinates of the ray through pixel (u, v)."""
-        r = np.array([(u - self.cx) / self.fx, (v - self.cy) / self.fy, 1.0])
-        r = self.R.T @ r
-        return r / np.linalg.norm(r)
-
-    def backproject_to_plane(self, u: float, v: float, z_plane: float) -> np.ndarray | None:
-        """Intersect the pixel ray with the horizontal plane z = z_plane. Exact, no size cue."""
-        c = self.centre_world
-        r = self.ray_world(u, v)
-        if abs(r[2]) < 1e-9:
-            return None
-        s = (z_plane - c[2]) / r[2]
-        if s <= 0:
-            return None
-        return c + s * r
-
 
 def intrinsics(width: int, height: int, fov_deg: float) -> np.ndarray:
     """K from the field of view along the frame's long axis, square pixels, centred principal point."""
@@ -114,13 +95,11 @@ def _stump_object_points(length: float) -> np.ndarray:
     return np.array([(0.0, dy, dz) for dy, dz in side] + [(length, dy, dz) for dy, dz in side])
 
 
-def _corner_object_points(length: float, width: float) -> np.ndarray:
-    hw = width / 2.0
-    return np.array([(0.0, -hw, 0.0), (0.0, hw, 0.0), (length, hw, 0.0), (length, -hw, 0.0)])
-
-
 def _pnp(obj: np.ndarray, img: np.ndarray, K: np.ndarray):
-    ok, rvec, tvec = cv2.solvePnP(obj, img, K, None, flags=cv2.SOLVEPNP_SQPNP)
+    try:
+        ok, rvec, tvec = cv2.solvePnP(obj, img, K, None, flags=cv2.SOLVEPNP_SQPNP)
+    except cv2.error:                        # degenerate marks, eg all eight on one spot
+        return None
     if not ok:
         return None
     R, _ = cv2.Rodrigues(rvec)
@@ -134,71 +113,39 @@ def _pnp(obj: np.ndarray, img: np.ndarray, K: np.ndarray):
     return err, R, t
 
 
+def _upright(quad: np.ndarray) -> np.ndarray:
+    """One set's corners as the image's TL, TR, BR, BL, whatever order they were tapped in."""
+    by_y = quad[np.argsort(quad[:, 1])]
+    top, bottom = by_y[:2], by_y[2:]
+    return np.concatenate([top[np.argsort(top[:, 0])], bottom[np.argsort(-bottom[:, 0])]])
+
+
 def solve_camera_pose(
     *,
     image_size: tuple[int, int],
     stump_quads_px: list[tuple[float, float]],
-    pitch_corners_px: list[tuple[float, float]] | None,
+    pitch_length_m: float,
     pitch_width_m: float = PITCH_WIDTH_M,
-    fov_deg: float | None = None,
-    pitch_length_m: float | None = None,
 ) -> CameraPose:
-    """Pose from eight stump corners (striker TL,TR,BR,BL then bowler TL,TR,BR,BL) and,
-    optionally, the four pitch corners (striker-left, striker-right, bowler-right,
-    bowler-left). FOV and pitch length are swept when not supplied.
-
-    The corners sit off the stump plane and break the focal-length/pitch-length ambiguity the
-    stumps alone leave open. They are dropped when they disagree with the stumps, because the
-    stump height is the one dimension the Laws fix exactly.
-    """
+    """Pose from eight stump corners (striker TL,TR,BR,BL then bowler TL,TR,BR,BL) a known
+    pitch length apart. The field of view is swept: the far set's size against the near
+    set's then fixes the focal length."""
     if len(stump_quads_px) != 8:
         raise CalibrationError("Need exactly 8 stump corners (4 per end)")
-    if pitch_corners_px is not None and len(pitch_corners_px) != 4:
-        raise CalibrationError("Need exactly 4 pitch corners, or none")
     width, height = image_size
-    stump_img = np.asarray(stump_quads_px, dtype=float)
-    corner_img = None if pitch_corners_px is None else np.asarray(pitch_corners_px, dtype=float)
-
-    fovs = [fov_deg] if fov_deg is not None else [28, 34, 40, 46, 52, 58, 64, 70, 78, 86]
-
-    def solve(fov, L, use_corners):
+    img = np.asarray(stump_quads_px, dtype=float)
+    bat, bowl = _upright(img[:4]), _upright(img[4:])
+    if np.ptp(bat[:, 1]) > np.ptp(bowl[:, 1]):   # phone behind the batter, where the world's left shows on the right
+        bat, bowl = bat[[1, 0, 3, 2]], bowl[[1, 0, 3, 2]]
+    obj, img = _stump_object_points(pitch_length_m), np.concatenate([bat, bowl])
+    best = None
+    for fov in np.arange(5.0, 100.01, 0.5):         # 5 deg still covers a phone zoomed past 10x
         K = intrinsics(width, height, float(fov))
-        obj, img = _stump_object_points(L), stump_img
-        if use_corners:
-            obj, img = np.vstack([obj, _corner_object_points(L, pitch_width_m)]), np.vstack([img, corner_img])
         sol = _pnp(obj, img, K)
-        return None if sol is None else (sol[0], sol[1], sol[2], K, float(fov), float(L))
-
-    def sweep(use_corners: bool):
-        # a pinned length is one solve per FOV; otherwise half-metre steps, then 5 cm around the best
-        best = None
-        for fov in fovs:
-            if pitch_length_m is not None:
-                lengths = [pitch_length_m]
-            else:
-                coarse = min((solve(fov, L, use_corners) for L in np.arange(2.0, 25.0001, 0.5)),
-                             key=lambda c: c[0] if c else np.inf, default=None)
-                if coarse is None:
-                    continue
-                lengths = np.arange(max(2.0, coarse[5] - 0.5), min(25.0, coarse[5] + 0.5) + 1e-9, 0.05)
-            for L in lengths:
-                sol = solve(fov, L, use_corners)
-                if sol is not None and (best is None or sol[0] < best[0]):
-                    best = sol
-        return best
-
-    joint = sweep(True) if corner_img is not None else None
-    stumps_only = sweep(False)
-    if joint is None and stumps_only is None:
-        raise CalibrationError("Stump calibration is degenerate; re-mark the stump bases and tops.")
-
-    used_corners = False
-    best = stumps_only
-    if joint is not None:
-        tol = max(6.0, 0.012 * width)
-        if stumps_only is None or joint[0] <= max(tol, 2.0 * stumps_only[0] + 3.0):
-            best, used_corners = joint, True
-
-    err, R, t, K, fov, L = best
+        if sol is not None and (best is None or sol[0] < best[0]):
+            best = (*sol, K, float(fov))
+    if best is None:
+        raise CalibrationError("The stump marks don't look like two sets of stumps. Re-mark the corners of both.")
+    err, R, t, K, fov = best
     return CameraPose(K=K, R=R, t=t, reproj_error_px=err, fov_deg=fov,
-                      pitch_length_m=L, pitch_width_m=pitch_width_m, used_corners=used_corners)
+                      pitch_length_m=pitch_length_m, pitch_width_m=pitch_width_m)

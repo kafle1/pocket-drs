@@ -1,543 +1,341 @@
-"""Multi-frame trajectory association via RANSAC over a constant-acceleration model.
+"""Pick the ball out of per-frame detections by fitting one calibrated 3-D delivery.
 
-The per-frame detector emits many candidates (people, shadows, kit, the ball).
-A single ball trajectory is the unique subset of candidates that satisfies a
-smooth motion model across time.  This module recovers it by:
-
-1. For each pair of detections in early frames, hypothesise an initial state
-   (position, velocity).
-2. Forward-propagate that hypothesis with constant downward image-acceleration
-   (the ball pulls down due to gravity *plus* perspective foreshortening).
-3. Count how many subsequent detections lie within a search radius of the
-   propagated position.  The hypothesis with the most inliers wins.
-4. Refine with a least-squares fit on the inlier set.
-
-The result is a list of `(t_ms, x_px, y_px, radius_px, confidence)` tuples
-covering only the frames where the ball was seen, plus a per-tuple confidence
-that is high when the model fit is tight.
+A flight is (p, v), the ball's position and velocity in pitch metres at an origin time, under
+gravity alone. Three detections a few frames apart fix one by linear least squares on the pixel
+position and the depth the apparent size implies. RANSAC over those triples keeps only flights a
+bowler can produce: one crossing the bowling crease at hand height, or one rising off the pitch
+after a bounce. The bounce's other half is then fitted from the bounce point, so the track runs
+from the hand to wherever the ball leaves the model: bat, pad or the edge of the frame.
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import numpy as np
 
+from .calibration import CameraPose
+from .reconstruction import BALL_RADIUS_M, GRAVITY, Trajectory, flight_trajectory
+
+TOP = 8                      # candidates per frame, strongest first
+GAPS_S = (0.04, 0.07, 0.11)  # spacing of the three detections that seed a flight
+SIG_PX, SIG_R = 2.0, 0.35    # centre noise in pixels; relative size noise, a weak depth cue
+SIZE = (0.35, 2.8)           # a candidate's radius over the flight's predicted one
+MAX_GAP_S = 0.15             # longest a track may go unseen, behind a player or against a wall the ball's colour
+MIN_SWEEP = 0.035            # of fx: a blob sitting on one camera ray fits a flight but never moves
+RELEASE_M = 1.6              # the hand lets go about this far in front of the bowler's stumps
+MIN_POINTS = 6
+BOUNCE_KEEP = np.linspace(0.65, 1.05, 9)  # share of the speed down the pitch a bounce can keep
+
 
 @dataclass(frozen=True)
-class TrajectoryPoint:
-    t_ms: int
-    x_px: float
-    y_px: float
-    radius_px: float
-    confidence: float
+class BallTrack:
+    points: list[dict]       # {t_ms, u, v, radius_px, confidence}, one per frame the ball was matched in
+    score: float             # summed fit quality, at most 1 per point
+    model: Trajectory        # the flight those points fit, t = 0 at the first point
 
 
 @dataclass(frozen=True)
-class TrajectoryFit:
-    points: list[TrajectoryPoint]
-    inliers: int          # number of detections that supported the fit
-    candidates_total: int # total candidates considered across frames
-    rms_px: float         # RMS reprojection error in pixels
-    px_per_ms_x: float    # mean image velocity, x
+class _Arc:
+    th: np.ndarray           # (p, v) at t0
+    t0: float
+    fit: np.ndarray          # per-frame fit quality, 0 where unmatched
+    idx: np.ndarray          # per-frame candidate, -1 where unmatched
+    post: bool               # the half after the bounce
 
 
-def _propagate(
-    *,
-    x0: float,
-    y0: float,
-    vx: float,           # px / ms
-    vy: float,           # px / ms
-    ay: float,           # px / ms^2 (downward, positive = falling)
-    dt: float,           # ms
-) -> tuple[float, float]:
-    """Constant-acceleration image-space propagation."""
-    return (x0 + vx * dt, y0 + vy * dt + 0.5 * ay * dt * dt)
+def _flight(pose: CameraPose, t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The camera-frame ball as A @ (p, v) + b, t seconds after the flight's origin."""
+    A = np.concatenate([np.broadcast_to(pose.R, t.shape + (3, 3)), pose.R * t[..., None, None]], -1)
+    return A, pose.t - 0.5 * GRAVITY * (t * t)[..., None] * pose.R[:, 2]
 
 
-def _frames_in_order(
-    detections_by_frame: list[tuple[int, list[dict]]],
-) -> list[tuple[int, list[dict]]]:
-    return sorted(detections_by_frame, key=lambda x: x[0])
+def _solve(pose: CameraPose, A, b, u, v, r) -> np.ndarray:
+    """Least-squares x with the camera-frame ball at A @ x + b, batched over axis 0 of (H, n) inputs."""
+    D = BALL_RADIUS_M * pose.fx / r
+    du, dv = u - pose.cx, v - pose.cy
+    rows = np.stack([du[..., None] * A[..., 2, :] - pose.fx * A[..., 0, :],
+                     dv[..., None] * A[..., 2, :] - pose.fy * A[..., 1, :], A[..., 2, :]], -2)
+    rhs = np.stack([pose.fx * b[..., 0] - du * b[..., 2], pose.fy * b[..., 1] - dv * b[..., 2], D - b[..., 2]], -1)
+    w = 1.0 / (D[..., None] * np.array([SIG_PX, SIG_PX, SIG_R]))
+    m = A.shape[-1]
+    M = (rows * w[..., None]).reshape(len(u), -1, m)
+    y = (rhs * w).reshape(len(u), -1)
+    N = np.einsum("hki,hkj->hij", M, M) + 1e-9 * np.eye(m)
+    return np.linalg.solve(N, np.einsum("hki,hk->hi", M, y)[..., None])[..., 0]
 
 
-def _suppress_static_clutter(
-    frames: list[tuple[int, list[dict]]],
-    *,
-    image_diagonal_px: float,
-    occupancy_frac: float = 0.30,
-) -> list[tuple[int, list[dict]]]:
-    """Drop detections that recur at the same image location across the clip.
-
-    A genuine cricket ball passes through any given pixel neighbourhood in at
-    most one or two frames. A static red/round object (sponsor logo, helmet,
-    distant kit, bat handle) sits in the same place for the whole sequence
-    and is the dominant false-positive in handheld footage. Standard
-    background-modelling practice: treat anything persistent as background.
-
-    For each detection we count how many *other* frames contain a detection
-    within a small radius. If that occupancy exceeds `occupancy_frac` of all
-    frames, the detection is static clutter and is removed.
-    """
-    n_frames = len(frames)
-    if n_frames < 6:
-        return frames
-    radius = max(12.0, 0.012 * image_diagonal_px)  # ~26 px on 1080p
-    r2 = radius * radius
-
-    # Per-frame representative points (use every detection).
-    pts_per_frame: list[list[tuple[float, float]]] = [
-        [(float(d["x"]), float(d["y"])) for d in dets] for _, dets in frames
-    ]
-
-    # A truly static object (net post, cone) leaves near-neighbour hits spread
-    # across the WHOLE clip, from the first frames to the last. A genuinely
-    # slow / near-axial ball (umpire-POV release phase moving a few px/frame)
-    # only lingers in a neighbourhood for a contiguous window and then moves on,
-    # so its hits stay temporally clustered even when numerous. Gate suppression
-    # on temporal SPAN, not merely count, so a slow early track is not deleted.
-    span_frac = 0.60
-    cleaned: list[tuple[int, list[dict]]] = []
-    for fi, (t_ms, dets) in enumerate(frames):
-        kept: list[dict] = []
-        for d in dets:
-            dx0, dy0 = float(d["x"]), float(d["y"])
-            occ = 0
-            first_hit: int | None = None
-            last_hit = 0
-            for fj in range(n_frames):
-                if fj == fi:
-                    continue
-                for (px, py) in pts_per_frame[fj]:
-                    if (px - dx0) ** 2 + (py - dy0) ** 2 <= r2:
-                        occ += 1
-                        if first_hit is None:
-                            first_hit = fj
-                        last_hit = fj
-                        break
-            # fj is iterated in ascending order, so first_hit/last_hit bound the
-            # frame range over which the neighbourhood stayed occupied.
-            span = 0 if first_hit is None else (last_hit - first_hit + 1)
-            is_static = (
-                occ > occupancy_frac * n_frames and span >= span_frac * n_frames
-            )
-            if not is_static:
-                kept.append(d)
-        cleaned.append((t_ms, kept))
-    return cleaned
+def _position(th: np.ndarray, t: np.ndarray) -> np.ndarray:
+    p = th[:, None, :3] + th[:, None, 3:] * t[..., None]
+    p[..., 2] -= 0.5 * GRAVITY * t * t
+    return p
 
 
-def _search_best_arc(
-    candidates: list[list[dict]],
-    times: list[int],
-    *,
-    image_diagonal_px: float,
-    search_radius_px: float,
-    min_inliers: int,
-    max_seed_pairs: int,
-    total_candidates: int,
-    exclude: set[tuple[int, int]] | None = None,
-) -> tuple[TrajectoryFit | None, set[tuple[int, int]]]:
-    """Recover the single best constant-acceleration arc by RANSAC.
+def _predict(pose: CameraPose, th: np.ndarray, t: np.ndarray):
+    """Pixel centre, expected radius and an in-play mask for flights th (H, 6) at times t (H, F)."""
+    p = _position(th, t)
+    u, v, d = (a.reshape(t.shape) for a in pose.project(p.reshape(-1, 3)))
+    live = ((d > 0.5) & (p[..., 0] > 0) & (p[..., 0] < pose.pitch_length_m + 4) & (p[..., 2] > -0.05)
+            & (np.abs(p[..., 1]) < 3.5))
+    return u, v, BALL_RADIUS_M * pose.fx / np.maximum(d, 0.5), live
 
-    `exclude` holds (frame_idx, detection_idx) pairs already claimed by an
-    earlier arc; they are skipped both as seeds and as inliers so a later pass
-    can find a *different* arc, the far side of a bounce. Returns the winning
-    fit together with the set of (frame_idx, detection_idx) it claimed.
-    """
-    exclude = exclude or set()
-    n_frames = len(candidates)
 
-    # Seed hypotheses from detection pairs across the WHOLE clip. A delivery can
-    # be released anywhere in the (often untrimmed) segment, so we pair every
-    # frame with a short forward window rather than only the opening frames.
-    pair_span = max(2, n_frames // 4)
-    seed_pairs: list[tuple[int, int, int, int]] = []
-    for i in range(n_frames):
-        for j in range(i + 1, min(n_frames, i + pair_span + 1)):
-            for ai in range(len(candidates[i])):
-                if (i, ai) in exclude:
-                    continue
-                for bj in range(len(candidates[j])):
-                    if (j, bj) in exclude:
-                        continue
-                    seed_pairs.append((i, ai, j, bj))
-    if len(seed_pairs) > max_seed_pairs:
-        # Subsample uniformly so we don't blow up on noisy frames.
-        idx = np.linspace(0, len(seed_pairs) - 1, max_seed_pairs).astype(int)
-        seed_pairs = [seed_pairs[k] for k in idx]
-    if not seed_pairs:
-        return None, set()
+def _plausible(th: np.ndarray) -> np.ndarray:
+    """Down the pitch at 43 to 180 km/h with modest sideways and vertical speed."""
+    vx, vy, vz = th[:, 3], th[:, 4], th[:, 5]
+    return (vx > -50) & (vx < -12) & (np.abs(vy) < 8) & (vz > -25) & (vz < 12)
 
-    best_fit: TrajectoryFit | None = None
-    best_keys: set[tuple[int, int]] = set()
 
-    # Image-space gravity seeds for a phone-held camera; the LSQ refinement
-    # adjusts the exact value. Zero covers near-axis (umpire-POV) motion.
-    g_seed_options = [0.0, 5e-4, 2e-3]
+def _released(th: np.ndarray, pitch_length: float) -> np.ndarray:
+    """Traced back, the flight crosses the bowling crease at hand height."""
+    t = (pitch_length - RELEASE_M - th[:, 0]) / th[:, 3]
+    z = th[:, 2] + th[:, 5] * t - 0.5 * GRAVITY * t * t
+    return (z > 1.0) & (z < 3.2) & (np.abs(th[:, 1] + th[:, 4] * t) < 1.8)
 
-    for (i, ai, j, bj) in seed_pairs:
-        x0, y0 = candidates[i][ai]["x"], candidates[i][ai]["y"]
-        x1, y1 = candidates[j][bj]["x"], candidates[j][bj]["y"]
-        dt_ij = float(times[j] - times[i])
-        if dt_ij <= 0:
-            continue
-        vx = (x1 - x0) / dt_ij
-        vy = (y1 - y0) / dt_ij
 
-        # Reject seeds whose displacement is too small to be the ball.
-        disp_px = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
-        min_disp_px = max(2.0, 0.002 * image_diagonal_px)  # ~4 px on 1080p
-        if disp_px < min_disp_px:
-            continue
+def _bounced(th: np.ndarray, pitch_length: float) -> np.ndarray:
+    """Traced back, the flight leaves the pitch rising: the half after a bounce."""
+    up = np.sqrt(th[:, 5] ** 2 + 2 * GRAVITY * np.maximum(th[:, 2], 0))
+    t = (th[:, 5] - up) / GRAVITY
+    x = th[:, 0] + th[:, 3] * t
+    return (th[:, 2] > 0) & (up < 8) & (x > 0.5) & (x < pitch_length - 3) & (np.abs(th[:, 1] + th[:, 4] * t) < 1.8)
 
-        for g_seed in g_seed_options:
-            inliers: list[tuple[int, int]] = []  # (frame_idx, det_idx)
-            sq_err_sum = 0.0
-            for k in range(i, n_frames):
-                dt_k = float(times[k] - times[i])
-                px, py = _propagate(x0=x0, y0=y0, vx=vx, vy=vy, ay=g_seed, dt=dt_k)
-                # Pick the closest in-frame detection if any is within radius.
-                best_d = None
-                best_d2 = search_radius_px * search_radius_px
-                best_idx = -1
-                for di, d in enumerate(candidates[k]):
-                    if (k, di) in exclude:
-                        continue
-                    dx = d["x"] - px
-                    dy = d["y"] - py
-                    d2 = dx * dx + dy * dy
-                    if d2 < best_d2:
-                        best_d2 = d2
-                        best_d = d
-                        best_idx = di
-                if best_d is not None:
-                    inliers.append((k, best_idx))
-                    sq_err_sum += best_d2
 
-            if len(inliers) < min_inliers:
+def _bounce_ok(w: np.ndarray, vb: np.ndarray, after: bool) -> np.ndarray:
+    """A real bounce keeps most of the speed down the pitch and sends the ball back up."""
+    ratio = w[:, 0] / vb[0]
+    ok = (w[:, 0] < -3) & (np.abs(w[:, 1] - vb[1]) < 4)
+    if after:
+        e = w[:, 2] / -vb[2]
+        return ok & (ratio > 0.6) & (ratio < 1.1) & (e > 0.25) & (e < 0.9)
+    e = vb[2] / -w[:, 2]
+    return ok & (ratio > 1 / 1.1) & (ratio < 1 / 0.6) & (w[:, 2] < 0) & (e > 0.25) & (e < 0.9)
+
+
+def _run(hit: np.ndarray, seed: np.ndarray, T: np.ndarray) -> np.ndarray:
+    """Hits reachable from each row's seed frame across gaps of at most MAX_GAP_S."""
+    H, F = hit.shape
+    h = hit.copy()
+    h[np.arange(H), seed] = True
+    last = np.maximum.accumulate(np.where(h, np.arange(F), -1), 1)
+    prev = np.concatenate([np.full((H, 1), -1), last[:, :-1]], 1)
+    seg = np.cumsum(h & (T - np.append(T, -np.inf)[prev] > MAX_GAP_S), 1)
+    return hit & (seg == seg[np.arange(H), seed][:, None])
+
+
+def _score(pose: CameraPose, th, t0, T, U, V, R, seed, keep=True, spread=0.0):
+    """Each flight's nearest fitting candidate per frame. Returns fit quality (H, F) and candidate (H, F)."""
+    u, v, rhat, live = _predict(pose, th, T[None] - t0[:, None])
+    tau = np.hypot(3.0 + 1.2 * rhat, 3.0 * spread)
+    d = np.hypot(U[None] - u[..., None], V[None] - v[..., None])
+    ratio = R[None] / rhat[..., None]
+    d = np.where((live & keep)[..., None] & (d < tau[..., None]) & (ratio > SIZE[0]) & (ratio < SIZE[1]), d, np.inf)
+    k = d.argmin(-1)
+    dm = np.take_along_axis(d, k[..., None], -1)[..., 0]
+    hit = _run(np.isfinite(dm), seed, T)
+    return np.where(hit, 1.0 - (dm / tau) ** 2, 0.0), np.where(hit, k, -1)
+
+
+def _spread(pose: CameraPose, th: np.ndarray, t0: float, T: np.ndarray, f: np.ndarray, u, v) -> np.ndarray:
+    """Per-frame pixel spread of a flight fitted to detections u, v at frames f.
+
+    Tight across the matches, it widens past them: a short arc barely fixes speed along the camera's line of sight."""
+    d = 1e-3
+    pu, pv, rh, _ = _predict(pose, th[None] + np.vstack([np.zeros(6), d * np.eye(6)]), np.broadcast_to(T - t0, (7, len(T))))
+    J = np.stack([pu[1:] - pu[0], pv[1:] - pv[0]], -1) / d                     # (6, F, 2)
+    res = np.r_[pu[0, f] - u, pv[0, f] - v]
+    s2 = max(SIG_PX ** 2, res @ res / max(len(res) - 6, 1))
+    Jm = J[:, f].reshape(6, -1)
+    Jr = (rh[1:, f] - rh[0, f]) / (d * SIG_R * rh[0, f])                     # the size cue, in units of its noise
+    C = np.linalg.inv(Jm @ Jm.T / s2 + Jr @ Jr.T + 1e-9 * np.eye(6))
+    return np.sqrt(np.maximum(np.einsum("ifk,ij,jfk->f", J, C, J), 0.0))
+
+
+def _sweep(U, V, idx) -> np.ndarray:
+    """Image distance from each track's first match to its last."""
+    hit = idx >= 0
+    a = hit.argmax(1)
+    z = hit.shape[1] - 1 - hit[:, ::-1].argmax(1)
+    h = np.arange(len(idx))
+    return np.hypot(U[a, idx[h, a]] - U[z, idx[h, z]], V[a, idx[h, a]] - V[z, idx[h, z]])
+
+
+def _arcs(pose: CameraPose, T, U, V, R) -> list[_Arc]:
+    """The best flight out of the hand and the best off the pitch, each refined on its matches."""
+    L = pose.pitch_length_m
+    dt = float(np.median(np.diff(T)))
+    has = ~np.isnan(U)
+    best = {}                                   # post-bounce? -> (score, th, t0, seed frame)
+    for g in sorted({max(1, round(s / dt)) for s in GAPS_S}):
+        for i in range(len(T) - 2 * g):
+            fr = np.array([i, i + g, i + 2 * g])
+            ks = [np.flatnonzero(has[f]) for f in fr]
+            if not all(len(k) for k in ks):
                 continue
-            rms = (sq_err_sum / len(inliers)) ** 0.5
-
-            # Refine via weighted LSQ on the inlier set.
-            ts = np.array([times[k] - times[i] for (k, _) in inliers], dtype=float)
-            xs = np.array([candidates[k][di]["x"] for (k, di) in inliers], dtype=float)
-            ys = np.array([candidates[k][di]["y"] for (k, di) in inliers], dtype=float)
-            ws = np.array([candidates[k][di]["confidence"] for (k, di) in inliers], dtype=float)
-            ws = np.clip(ws, 0.1, 1.0)
-
-            # x(t) = x0 + vx * t   (linear)
-            # y(t) = y0 + vy * t + 0.5 * ay * t^2  (quadratic)
-            try:
-                vx_fit, x0_fit = np.polyfit(ts, xs, 1, w=ws)
-                ay_half, vy_fit, y0_fit = np.polyfit(ts, ys, 2, w=ws)
-                ay_fit = 2.0 * ay_half
-            except Exception:
+            k = np.stack([m.ravel() for m in np.meshgrid(*ks, indexing="ij")], 1)
+            t = np.broadcast_to(T[fr] - T[i], k.shape)
+            u, v, r = U[fr, k], V[fr, k], R[fr, k]
+            th = _solve(pose, *_flight(pose, t), u, v, r)
+            m = _plausible(th)
+            if not m.any():
                 continue
-
-            # Recompute residuals after refinement.
-            x_pred = x0_fit + vx_fit * ts
-            y_pred = y0_fit + vy_fit * ts + 0.5 * ay_fit * ts * ts
-            resid = np.hypot(xs - x_pred, ys - y_pred)
-            rms_refined = float(np.sqrt(np.mean(resid * resid)))
-
-            # Reject refinements that are noticeably worse than the seed.
-            if rms_refined > rms * 1.5:
+            th, t, u, v = th[m], t[m], u[m], v[m]
+            pu, pv, rhat, live = _predict(pose, th, t)
+            m = (live & (np.hypot(pu - u, pv - v) < 3.0 + 1.2 * rhat)).all(1)
+            post = _bounced(th, L)
+            m &= post | _released(th, L)
+            if not m.any():
                 continue
-
-            # Build trajectory points.
-            traj_pts: list[TrajectoryPoint] = []
-            for (k, di) in inliers:
-                d = candidates[k][di]
-                # Confidence: detector conf * fit-tightness.
-                tightness = max(0.1, 1.0 - (resid[inliers.index((k, di))] / search_radius_px))
-                conf = float(min(1.0, 0.4 * d["confidence"] + 0.6 * tightness))
-                traj_pts.append(TrajectoryPoint(
-                    t_ms=int(times[k]),
-                    x_px=float(d["x"]),
-                    y_px=float(d["y"]),
-                    radius_px=float(d.get("radius_px", 0.0)),
-                    confidence=conf,
-                ))
-
-            fit = TrajectoryFit(
-                points=traj_pts,
-                inliers=len(inliers),
-                candidates_total=total_candidates,
-                rms_px=rms_refined,
-                px_per_ms_x=float(vx_fit),
-            )
-
-            # Score: prefer more inliers, then tighter fit.
-            if best_fit is None or (fit.inliers, -fit.rms_px) > (best_fit.inliers, -best_fit.rms_px):
-                best_fit = fit
-                best_keys = set(inliers)
-
-    return best_fit, best_keys
-
-
-def _merge_bounce_arcs(
-    fit_a: TrajectoryFit,
-    fit_b: TrajectoryFit,
-    *,
-    search_radius_px: float,
-) -> TrajectoryFit | None:
-    """Stitch two arcs that meet at a bounce into one continuous track.
-
-    A bouncing ball is two parabolas sharing the bounce instant. Only the
-    horizontal image motion is continuous across the bounce, the vertical
-    velocity flips, so the join is validated on horizontal evidence alone:
-
-      * the arcs are disjoint and time-ordered (one clearly precedes the other),
-      * the gap between them is at most a few sampled frames (the ball is
-        smallest and most often missed right at the pitch),
-      * both travel the same left/right direction at a similar horizontal pace,
-      * extrapolating the earlier arc at its own horizontal velocity lands near
-        where the later arc begins.
-
-    When those hold the two are the one ball and we concatenate them; otherwise
-    the second arc is unrelated clutter and we return None (keep only the first).
-    """
-    if not fit_a.points or not fit_b.points:
-        return None
-    early, late = (
-        (fit_a, fit_b) if fit_a.points[0].t_ms <= fit_b.points[0].t_ms else (fit_b, fit_a)
-    )
-    e = early.points
-    l = late.points
-
-    # Disjoint and ordered in time, no interleaving.
-    if l[0].t_ms <= e[-1].t_ms:
-        return None
-
-    # Bounded gap: a few times the typical sampling interval of the earlier arc.
-    dts = [e[k].t_ms - e[k - 1].t_ms for k in range(1, len(e)) if e[k].t_ms > e[k - 1].t_ms]
-    dt_typ = float(np.median(dts)) if dts else float(l[0].t_ms - e[-1].t_ms)
-    gap_ms = float(l[0].t_ms - e[-1].t_ms)
-    if dt_typ > 0 and gap_ms > 6.0 * dt_typ:
-        return None
-
-    # Same horizontal travel direction across the join.
-    dir_e = e[-1].x_px - e[0].x_px
-    dx_join = l[0].x_px - e[-1].x_px
-    if dir_e != 0.0 and dx_join != 0.0 and math.copysign(1.0, dir_e) != math.copysign(1.0, dx_join):
-        return None
-
-    # Similar horizontal pace (sign + magnitude), the ball does not change its
-    # left/right speed appreciably at the bounce.
-    vxa, vxb = early.px_per_ms_x, late.px_per_ms_x
-    if vxa != 0.0 and vxb != 0.0:
-        if math.copysign(1.0, vxa) != math.copysign(1.0, vxb):
-            return None
-        ratio = abs(vxb) / abs(vxa)
-        if ratio < 0.4 or ratio > 2.5:
-            return None
-
-    # Horizontal continuity: the earlier arc, run forward at its own velocity,
-    # should reach the later arc's first detection in x.
-    x_pred = e[-1].x_px + early.px_per_ms_x * gap_ms
-    if abs(x_pred - l[0].x_px) > 3.0 * search_radius_px:
-        return None
-
-    points = list(e) + list(l)
-    n = len(points)
-    rms = math.sqrt(
-        (early.rms_px ** 2 * len(e) + late.rms_px ** 2 * len(l)) / max(1, n)
-    )
-    return TrajectoryFit(
-        points=points,
-        inliers=early.inliers + late.inliers,
-        candidates_total=early.candidates_total,
-        rms_px=rms,
-        px_per_ms_x=early.px_per_ms_x,
-    )
-
-
-def _extend_track(
-    points: list[TrajectoryPoint],
-    candidates: list[list[dict]],
-    times: list[int],
-    *,
-    search_radius_px: float,
-    max_gap: int = 2,
-) -> list[TrajectoryPoint]:
-    """Greedily absorb clean detections at the two ends of a recovered arc.
-
-    The constant-acceleration image model fits the bulk of the flight, but a
-    fast, near-axial ball accelerates in the image under perspective, so the
-    last (and first) genuine detections fall just outside the *global* fit's
-    search radius and get dropped, the track stops short of the stumps (or of
-    the release). We locally extrapolate a quadratic through the arc's end
-    points and accept the nearest detection that continues it, frame by frame,
-    re-fitting as we go so the extrapolation tracks the curvature. Bounded by
-    the search radius and a small consecutive-gap tolerance so static clutter
-    near the stumps is not absorbed.
-    """
-    if len(points) < 3:
-        return points
-
-    n_frames = len(candidates)
-    idx_of_t = {t: i for i, t in enumerate(times)}
-
-    def local_predict(end_pts: list[TrajectoryPoint], t_ms: int) -> tuple[float, float]:
-        t0 = end_pts[0].t_ms
-        ts = np.array([p.t_ms - t0 for p in end_pts], dtype=float)
-        deg = min(2, len(end_pts) - 1)
-        cu = np.polyfit(ts, np.array([p.x_px for p in end_pts]), deg)
-        cv = np.polyfit(ts, np.array([p.y_px for p in end_pts]), deg)
-        return float(np.polyval(cu, t_ms - t0)), float(np.polyval(cv, t_ms - t0))
-
-    def nearest(fi: int, pu: float, pv: float) -> dict | None:
-        best, best_d2 = None, search_radius_px * search_radius_px
-        for d in candidates[fi]:
-            d2 = (d["x"] - pu) ** 2 + (d["y"] - pv) ** 2
-            if d2 < best_d2:
-                best_d2, best = d2, d
-        return best
-
-    def as_point(fi: int, d: dict) -> TrajectoryPoint:
-        return TrajectoryPoint(
-            t_ms=int(times[fi]), x_px=float(d["x"]), y_px=float(d["y"]),
-            radius_px=float(d.get("radius_px", 0.0)),
-            confidence=float(d.get("confidence", 0.5)),
-        )
-
-    # Forward from the last point.
-    pts_fwd = list(points)
-    last_i = idx_of_t.get(pts_fwd[-1].t_ms, n_frames - 1)
-    gap = 0
-    for fi in range(last_i + 1, n_frames):
-        pu, pv = local_predict(pts_fwd[-8:], times[fi])
-        d = nearest(fi, pu, pv)
-        if d is None:
-            gap += 1
-            if gap > max_gap:
+            th, post = th[m], post[m]
+            fit, idx = _score(pose, th, np.full(len(th), T[i]), T, U, V, R, seed=np.full(len(th), i))
+            s = np.where(_sweep(U, V, idx) > MIN_SWEEP * pose.fx, fit.sum(1), 0.0)
+            for side in (False, True):
+                sc = np.where(post == side, s, 0.0)
+                j = int(np.argmax(sc))
+                if sc[j] > best.get(side, (0.0,))[0]:
+                    best[side] = (sc[j], th[j], T[i], i)
+    arcs = []
+    for post, (_, th, t0, i) in best.items():
+        ok = _bounced if post else _released
+        th, t0v, seed = th[None], np.array([t0]), np.array([i])
+        fit, idx = _score(pose, th, t0v, T, U, V, R, seed=seed)
+        for _ in range(10):
+            f = np.flatnonzero(idx[0] >= 0)
+            if len(f) < 3:
                 break
-            continue
-        gap = 0
-        pts_fwd.append(as_point(fi, d))
-
-    # Backward from the first point (operate on a forward-time list, prepend).
-    first_i = idx_of_t.get(points[0].t_ms, 0)
-    gap = 0
-    for fi in range(first_i - 1, -1, -1):
-        pu, pv = local_predict(pts_fwd[:8], times[fi])
-        d = nearest(fi, pu, pv)
-        if d is None:
-            gap += 1
-            if gap > max_gap:
+            k = idx[0, f]
+            new = _solve(pose, *_flight(pose, (T[f] - t0)[None]), U[f, k][None], V[f, k][None], R[f, k][None])
+            if not (_plausible(new) & ok(new, L))[0]:
                 break
+            th = new
+            # grow the track into frames the refit can now reach, looking as wide as the fit is unsure
+            fit, grown = _score(pose, th, t0v, T, U, V, R, seed=seed, spread=_spread(pose, th[0], t0, T, f, U[f, k], V[f, k]))
+            if (grown == idx).all():
+                break
+            idx = grown
+        arcs.append(_Arc(th[0], t0, fit[0], idx[0], post))
+    return arcs
+
+
+def _other_half(pose: CameraPose, arc: _Arc, T, U, V, R):
+    """The bounce's other half, fitted from a bounce point on the arc's path.
+
+    Returns (per-frame fit, candidates, other half's flight, bounce time, arc's velocity at the bounce), or None."""
+    used = np.flatnonzero(arc.idx >= 0)
+    ka = arc.idx[used]
+    after = not arc.post
+    sgn = 1 if after else -1
+    edge = used[-1] if after else used[0]
+    dt = float(np.median(np.diff(T)))
+    ends = T[used[-3:] if after else used[:3]] - arc.t0
+    # the bounce can hide in a run of missed frames, so step on through the gap to where this half meets the pitch
+    z, vz = arc.th[2], arc.th[5]
+    ground = (vz + (1 if after else -1) * np.sqrt(max(vz * vz + 2 * GRAVITY * (z - BALL_RADIUS_M), 0.0))) / GRAVITY
+    reach = MAX_GAP_S
+    lo, hi = (ends[0], max(ends[-1] + 0.5 * dt, min(ground, ends[-1] + reach))) if after else \
+        (min(ends[0] - 0.5 * dt, max(ground, ends[0] - reach)), ends[-1])
+    best = None
+    for tb in np.arange(lo, hi + 0.25 * dt, 0.5 * dt):
+        # refit the arc to land on the pitch at tb, so the bounce can't hang in the air
+        A, b = _flight(pose, (T[used] - arc.t0 - tb)[None])
+        g = _solve(pose, A[..., [0, 1, 3, 4, 5]], b + A[..., 2] * BALL_RADIUS_M, *(a[used, ka][None] for a in (U, V, R)))[0]
+        g = np.r_[g[:2], BALL_RADIUS_M, g[2:]]
+        P, vb = g[:3], g[3:]
+        s = T - arc.t0 - tb
+        side = ((s > 0) if after else (s < 0)) & (np.abs(s) < 0.6)
+
+        def solve(f, k, wx=None):
+            A, b = _flight(pose, s[f])
+            if wx is None:
+                return _solve(pose, A[..., 3:], b + pose.R @ P, U[f, k], V[f, k], R[f, k])
+            w = _solve(pose, A[..., 4:], b + pose.R @ P + A[..., 3] * wx[:, None, None], U[f, k], V[f, k], R[f, k])
+            return np.concatenate([wx[:, None], w], 1)
+
+        # grow out from the bounce a gap at a time, so the half can't leap ahead to the batter's gloves
+        keep = side & (sgn * (T - T[edge]) <= MAX_GAP_S)
+        f, k = np.nonzero(keep[:, None] & ~np.isnan(U))
+        if not len(f):
             continue
-        gap = 0
-        pts_fwd.insert(0, as_point(fi, d))
+        if after:
+            # a few frames after the bounce can't split speed from rise; the pre half skips this so clutter can't pose as a release
+            wx = vb[0] * BOUNCE_KEEP
+            f, k, x = np.repeat(f, len(wx)), np.repeat(k, len(wx)), np.tile(wx, len(f))
+            w = solve(f[:, None], k[:, None], x)
+        else:
+            w = solve(f[:, None], k[:, None])
+        w = w[_bounce_ok(w, vb, after)]
+        if not len(w):
+            continue
+        th = np.concatenate([np.broadcast_to(P, w.shape), w], 1)
+        t0v = np.array([arc.t0 + tb])
+        fit, idx = _score(pose, th, np.repeat(t0v, len(th)), T, U, V, R, seed=np.full(len(th), edge), keep=keep)
+        j = int(np.argmax(fit.sum(1)))
+        th, fit, idx = th[j:j + 1], fit[j:j + 1], idx[j:j + 1]
+        for _ in range(10):
+            fi = np.flatnonzero(idx[0] >= 0)
+            if not len(fi):
+                break
+            wj = solve(fi[None], idx[0, fi][None], th[:, 3] if after else None)
+            if not _bounce_ok(wj, vb, after)[0]:
+                break
+            th = np.concatenate([P[None], wj], 1)
+            keep = side & (sgn * (T - T[fi[-1] if after else fi[0]]) <= MAX_GAP_S)
+            fit, grown = _score(pose, th, t0v, T, U, V, R, seed=np.array([edge]), keep=keep)
+            if (grown == idx).all():
+                break
+            idx = grown
+        if not ((idx[0] >= 0) & (arc.idx < 0)).any():
+            continue                             # it only re-labels the arc's own frames
+        afit, aidx = _score(pose, g[None], t0v, T, U, V, R, seed=np.array([edge]), keep=~side,
+                            spread=_spread(pose, g, t0v[0], T, used, U[used, ka], V[used, ka]))
+        merged = np.where(side, fit[0], afit[0])
+        if best is None or merged.sum() > best[0].sum():
+            best = (merged, np.where(side, idx[0], aidx[0]), th[0], arc.t0 + tb, vb)
+    return best
 
-    pts_fwd.sort(key=lambda p: p.t_ms)
-    return pts_fwd
 
+def find_ball(pose: CameraPose, dets_per_frame: list[tuple[int, list[dict]]]) -> BallTrack | None:
+    """The delivery the detections best support, or None when nothing moves like a bowled ball.
 
-def find_ball_trajectory(
-    detections_by_frame: list[tuple[int, list[dict]]],
-    *,
-    image_diagonal_px: float,
-    min_inliers: int = 6,
-    search_radius_px: float | None = None,
-    max_seed_pairs: int = 1500,
-) -> TrajectoryFit | None:
-    """Find the dominant ball trajectory across frames.
-
-    Parameters
-    ----------
-    detections_by_frame:
-        List of (t_ms, [detection_dict]).  Each detection_dict needs at least
-        x, y, radius_px, confidence.
-    image_diagonal_px:
-        Used to scale tolerances.  Pass sqrt(w^2 + h^2) of the source frame.
-    min_inliers:
-        Reject hypotheses with fewer than this many supporting detections.
-    search_radius_px:
-        Tolerance for an in-frame detection to count as an inlier.  Defaults
-        to ~3 % of the image diagonal which works for typical 1080p phone
-        footage at umpire-POV framing.
-    """
-    frames = _frames_in_order(detections_by_frame)
-    n_frames = len(frames)
-    if n_frames < 4:
+    dets_per_frame is [(t_ms, candidates strongest first)] in time order."""
+    F = len(dets_per_frame)
+    if F < 3:
         return None
-
-    if search_radius_px is None:
-        search_radius_px = max(15.0, 0.03 * image_diagonal_px)
-
-    # Suppress static clutter (sponsor logos, helmets, bat handles) before
-    # association, these are the dominant false positive in handheld footage
-    # and the RANSAC will happily fit a "trajectory" through a static cluster.
-    frames = _suppress_static_clutter(frames, image_diagonal_px=image_diagonal_px)
-    total_candidates = sum(len(d) for _, d in frames)
-    if total_candidates < min_inliers:
+    T = np.array([t for t, _ in dets_per_frame], float) / 1000.0
+    L = pose.pitch_length_m
+    far = max(np.linalg.norm(np.array([x, y, 0.0]) - pose.centre_world) for x in (0.0, L + 4) for y in (-3.5, 3.5))
+    # a speck smaller than the ball at the far end of play never fits a flight, so it can't take a slot
+    rmin = SIZE[0] * BALL_RADIUS_M * pose.fx / far
+    U, V, R, C = (np.full((F, TOP), np.nan) for _ in range(4))
+    for f, (_, ds) in enumerate(dets_per_frame):
+        for k, d in enumerate([c for c in ds if c["radius_px"] >= rmin][:TOP]):
+            U[f, k], V[f, k], R[f, k], C[f, k] = d["x"], d["y"], max(d["radius_px"], 1.0), d["confidence"]
+    best = None
+    for arc in _arcs(pose, T, U, V, R):
+        other = _other_half(pose, arc, T, U, V, R)
+        # only a whole delivery counts: the half before the bounce must leave the hand
+        if arc.post and (other is None or not _released(other[2][None], pose.pitch_length_m)[0]):
+            continue
+        if other is not None and not arc.post and other[0].sum() <= arc.fit.sum():
+            other = None
+        fit = arc.fit if other is None else other[0]
+        if best is None or fit.sum() > best[1].sum():
+            best = (arc, fit, arc.idx if other is None else other[1], other)
+    if best is None or (best[2] >= 0).sum() < MIN_POINTS:
         return None
+    arc, fit, idx, other = best
+    f = np.flatnonzero(idx >= 0)
+    points = [{"t_ms": int(dets_per_frame[i][0]), "u": float(U[i, j]), "v": float(V[i, j]),
+               "radius_px": float(R[i, j]), "confidence": float(C[i, j])} for i, j in zip(f, idx[f])]
+    return BallTrack(points, float(fit.sum()), _model(arc, other, T[f[0]]))
 
-    # Index detections per frame by their array index for fast inlier lookup.
-    candidates: list[list[dict]] = [list(d) for _, d in frames]
-    times: list[int] = [t for t, _ in frames]
 
-    # First pass: recover the dominant constant-acceleration arc.
-    fit_a, claimed_a = _search_best_arc(
-        candidates, times,
-        image_diagonal_px=image_diagonal_px,
-        search_radius_px=search_radius_px,
-        min_inliers=min_inliers,
-        max_seed_pairs=max_seed_pairs,
-        total_candidates=total_candidates,
-    )
-    if fit_a is None:
-        return None
-
-    # A bouncing delivery is two parabolas joined at the pitch. The pass above
-    # locks onto the dominant one, usually the longer pre-bounce descent, and
-    # rejects the other side as outliers, which is exactly why a cleanly tracked
-    # ball appears to "stop" at the bounce. Recover that second arc from the
-    # detections the first pass did not claim and stitch it on when it continues
-    # the same horizontal flight (a real bounce flips only the vertical motion).
-    best_fit = fit_a
-    fit_b, _ = _search_best_arc(
-        candidates, times,
-        image_diagonal_px=image_diagonal_px,
-        search_radius_px=search_radius_px,
-        min_inliers=max(3, min_inliers // 2),
-        max_seed_pairs=max_seed_pairs,
-        total_candidates=total_candidates,
-        exclude=claimed_a,
-    )
-    if fit_b is not None:
-        merged = _merge_bounce_arcs(fit_a, fit_b, search_radius_px=search_radius_px)
-        if merged is not None:
-            best_fit = merged
-
-    # Recover the clean detections the constant-acceleration model drops at the
-    # ends (a fast, near-axial ball accelerates in the image under perspective),
-    # so the track reaches the release and the stumps rather than stopping short
-    #, which otherwise forces a long, error-prone extrapolation downstream.
-    extended = _extend_track(best_fit.points, candidates, times, search_radius_px=search_radius_px)
-    added = len(extended) - len(best_fit.points)
-    if added > 0:
-        best_fit = TrajectoryFit(
-            points=extended,
-            inliers=len(extended),
-            candidates_total=best_fit.candidates_total,
-            rms_px=best_fit.rms_px,
-            px_per_ms_x=best_fit.px_per_ms_x,
-        )
-
-    # Final-track validation: a genuine ball traverses a meaningful fraction
-    # of the image. A track whose points span almost no distance is a static
-    # cluster that survived per-seed gating, reject it so the pipeline
-    # reports "no trajectory" rather than fabricating a decision from clutter.
-    if len(best_fit.points) >= 2:
-        xs_t = [p.x_px for p in best_fit.points]
-        ys_t = [p.y_px for p in best_fit.points]
-        span = math.hypot(max(xs_t) - min(xs_t), max(ys_t) - min(ys_t))
-        min_span = max(40.0, 0.06 * image_diagonal_px)  # ~130 px on 1080p
-        if span < min_span:
-            return None
-
-    return best_fit
+def _model(arc: _Arc, other, t_first: float) -> Trajectory:
+    """The matched flight, or both halves of the bounce, as a Trajectory from t_first."""
+    if other is None:
+        s = t_first - arc.t0
+        p = _position(arc.th[None], np.array([[s]]))[0, 0]
+        return flight_trajectory(np.concatenate([p, arc.th[3:] - np.array([0.0, 0.0, GRAVITY * s])]))
+    th, tb, vb = other[2], other[3], other[4]
+    v_pre, v_post = (th[3:], vb) if arc.post else (vb, th[3:])
+    return Trajectory(tb - t_first, float(th[0]), float(th[1]), v_pre, v_post, 0.0, True)

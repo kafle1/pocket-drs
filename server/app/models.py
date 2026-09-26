@@ -30,21 +30,10 @@ class Point2D(BaseModel):
     y: float
 
 
-class ClientInfo(BaseModel):
-    model_config = Strict
-    platform: str | None = None
-    app_version: str | None = None
-
-
-class VideoInfo(BaseModel):
-    model_config = Strict
-    rotation_deg: Literal[0, 90, 180, 270] = 0
-
-
 class Segment(BaseModel):
     model_config = Strict
-    start_ms: int = Field(ge=0)
-    end_ms: int = Field(ge=0)
+    start_ms: int = Field(ge=0, le=86_400_000)
+    end_ms: int = Field(ge=0, le=86_400_000)
 
     @model_validator(mode="after")
     def _ordered(self):
@@ -55,48 +44,36 @@ class Segment(BaseModel):
 
 class PitchDimensions(BaseModel):
     model_config = Strict
-    width: float = Field(gt=0)
-    # pin the length on a regulation pitch; leave it out on an indoor net and it is fitted from the marks
-    length: float | None = Field(default=None, gt=0)
+    width: float = Field(ge=1.0, le=5.0)
+    length: float = Field(ge=10.0, le=25.0)
 
 
 class Calibration(BaseModel):
     model_config = Strict
-    mode: Literal["taps"] = "taps"
     pitch_dimensions_m: PitchDimensions
-    # four pitch corners: striker-left, striker-right, bowler-right, bowler-left
-    pitch_corners_norm: list[Point2D] | None = None
-    pitch_corners_px: list[Point2D] | None = None
     # eight stump corners: striker TL, TR, BR, BL, then bowler TL, TR, BR, BL
     stump_quads_norm: list[Point2D] | None = None
     stump_quads_px: list[Point2D] | None = None
-    h_fov_deg: float | None = Field(default=None, gt=1, lt=179)
 
     @model_validator(mode="after")
     def _marks_present(self):
-        for name, n in (("pitch_corners", 4), ("stump_quads", 8)):
-            pts = getattr(self, f"{name}_norm") or getattr(self, f"{name}_px")
-            if pts is None or len(pts) != n:
-                raise ValueError(f"calibration.{name}_norm or {name}_px with {n} points is required")
-        for name in ("pitch_corners_norm", "stump_quads_norm"):
-            pts = getattr(self, name) or []
-            if any(not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0) for p in pts):
-                raise ValueError(f"calibration.{name} points must be in [0, 1]")
+        stumps = self.stump_quads_norm or self.stump_quads_px
+        if stumps is None or len(stumps) != 8:
+            raise ValueError("calibration.stump_quads_norm or stump_quads_px with 8 points is required")
+        if any(not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0) for p in self.stump_quads_norm or []):
+            raise ValueError("calibration.stump_quads_norm points must be in [0, 1]")
         return self
 
 
 class Tracking(BaseModel):
     model_config = Strict
     sample_fps: int = Field(default=30, ge=1, le=240)
-    max_frames: int = Field(default=180, ge=1, le=2000)
+    max_frames: int = Field(default=180, ge=1, le=300)
     ball_color: Literal["red", "pink", "white"] = "red"
-    detector: Literal["auto", "yolo", "colour"] = "auto"
 
 
 class CreateJobRequest(BaseModel):
     model_config = Strict
-    client: ClientInfo | None = None
-    video: VideoInfo = VideoInfo()
     segment: Segment
     calibration: Calibration
     tracking: Tracking = Tracking()

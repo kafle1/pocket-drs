@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import threading
 import time
 import uuid
@@ -11,13 +13,15 @@ from typing import Any
 
 from .models import ApiError, JobStatus, ProgressInfo
 
+# public API with no accounts: jobs are cleaned up by age instead of by owner
+_MAX_JOB_AGE_S = 24 * 60 * 60
+
 
 @dataclass(frozen=True)
 class JobPaths:
     job_dir: Path
     video_path: Path
     request_path: Path
-    meta_path: Path
     status_path: Path
     result_path: Path
     artifacts_dir: Path
@@ -37,7 +41,21 @@ class JobStore:
     def data_dir(self) -> Path:
         return self._data_dir
 
+    def _sweep_old_jobs(self) -> None:
+        # runs on job creation; a job dir's mtime moves whenever its status is rewritten
+        jobs_root = self._data_dir / "jobs"
+        if not jobs_root.exists():
+            return
+        cutoff = time.time() - _MAX_JOB_AGE_S
+        for job_dir in jobs_root.iterdir():
+            try:
+                if job_dir.is_dir() and job_dir.stat().st_mtime < cutoff:
+                    shutil.rmtree(job_dir, ignore_errors=True)
+            except OSError:
+                continue
+
     def create_job(self) -> tuple[str, JobPaths]:
+        self._sweep_old_jobs()
         job_id = uuid.uuid4().hex
         job_dir = self._data_dir / "jobs" / job_id
         artifacts_dir = job_dir / "artifacts"
@@ -47,7 +65,6 @@ class JobStore:
             job_dir=job_dir,
             video_path=job_dir / "input.mp4",
             request_path=job_dir / "request.json",
-            meta_path=job_dir / "meta.json",
             status_path=job_dir / "status.json",
             result_path=job_dir / "result.json",
             artifacts_dir=artifacts_dir,
@@ -67,20 +84,24 @@ class JobStore:
             job_dir=job_dir,
             video_path=job_dir / "input.mp4",
             request_path=job_dir / "request.json",
-            meta_path=job_dir / "meta.json",
             status_path=job_dir / "status.json",
             result_path=job_dir / "result.json",
             artifacts_dir=job_dir / "artifacts",
         )
 
     def exists(self, job_id: str) -> bool:
-        return (self._data_dir / "jobs" / job_id).exists()
+        # every route checks this first, so it also stops ids like ".." reaching the disk
+        if re.fullmatch(r"[0-9a-f]{32}", job_id) is None:
+            return False
+        try:
+            mtime = (self._data_dir / "jobs" / job_id).stat().st_mtime
+        except OSError:
+            return False
+        # the sweep only runs when a job is created, so a quiet server must still stop serving old results
+        return time.time() - mtime < _MAX_JOB_AGE_S
 
     def _atomic_write_text(self, path: Path, text: str) -> None:
-        """Write a file atomically to avoid readers seeing partial/empty JSON.
-
-        We write to a temp file in the same directory then replace.
-        """
+        # a poll must never read a half-written file
         tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
         tmp.write_text(text)
         os.replace(tmp, path)
@@ -91,24 +112,6 @@ class JobStore:
     def write_request(self, paths: JobPaths, request_obj: dict[str, Any]) -> None:
         with self._lock:
             self._atomic_write_json(paths.request_path, request_obj)
-
-    def write_meta(self, paths: JobPaths, meta: dict[str, Any]) -> None:
-        with self._lock:
-            self._atomic_write_json(paths.meta_path, meta)
-
-    def read_meta(self, paths: JobPaths) -> dict[str, Any]:
-        with self._lock:
-            if not paths.meta_path.exists():
-                return {}
-            raw = paths.meta_path.read_text()
-        if not raw.strip():
-            return {}
-        return json.loads(raw)
-
-    def read_owner_user_id(self, paths: JobPaths) -> str | None:
-        meta = self.read_meta(paths)
-        uid = meta.get("user_id")
-        return uid if isinstance(uid, str) and uid else None
 
     def write_status(
         self,
@@ -129,12 +132,9 @@ class JobStore:
             self._atomic_write_json(paths.status_path, payload)
 
     def read_status(self, paths: JobPaths) -> dict[str, Any]:
-        # Polling can hit while a background thread updates status; keep reads consistent.
         with self._lock:
             raw = paths.status_path.read_text()
         if not raw.strip():
-            # Extremely defensive: empty file should not happen with atomic writes, but
-            # return a helpful error rather than a JSONDecodeError.
             raise RuntimeError("Job status unavailable (empty status file)")
         return json.loads(raw)
 
@@ -150,13 +150,7 @@ class JobStore:
         return json.loads(raw)
 
     def recover_interrupted_jobs(self) -> list[str]:
-        """Mark jobs left ``queued``/``running`` by a previous process as ``failed``.
-
-        Called once at startup. The in-memory executor that owned those jobs is
-        gone after a restart, so their status would otherwise never advance and
-        clients would poll a queued/running job forever. Job dirs with a
-        missing/corrupt status.json are skipped.
-        """
+        # the worker pool that owned these died with the last process, so they'd poll as running forever
         jobs_root = self._data_dir / "jobs"
         if not jobs_root.exists():
             return []
@@ -172,13 +166,15 @@ class JobStore:
             if status not in (JobStatus.queued.value, JobStatus.running.value):
                 continue
             try:
+                # the worker that would have deleted the clip is gone
+                paths.video_path.unlink(missing_ok=True)
                 self.write_status(
                     paths,
                     status=JobStatus.failed,
                     progress=ProgressInfo(pct=100, stage="failed"),
                     error=ApiError(
                         code="INTERNAL_ERROR",
-                        message="interrupted by server restart",
+                        message="The server restarted while checking this ball, so it was lost.",
                         details=None,
                     ),
                 )

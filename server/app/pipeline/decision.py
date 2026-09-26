@@ -47,19 +47,19 @@ def decide(
     pitch_sigma: float,
     impact_y: float | None,
     impact_sigma: float,
-    stump_y: float | None,
-    stump_z: float | None,
+    stump_y: float,
+    stump_z: float,
     sigma_y: float,
     sigma_z: float,
     k: float = 1.0,
 ) -> Verdict:
     """``leg_sign`` maps world +y onto the batter's leg side (+1 or -1). Lateral quantities
     are metres from the middle-stump line; ``stump_z`` is the ball-centre height at the
-    stump plane. Any None means the quantity was not measured."""
+    stump plane. A None pitch or impact means it was not measured."""
     R = BALL_RADIUS_M
     w = STUMP_OUTER_HALF_M
     reasons: list[str] = []
-    marginal = False
+    close: list[str] = []
 
     # Law 36.1.3: a ball pitching outside the line of the leg stump cannot bring an lbw
     pitching = True
@@ -70,7 +70,7 @@ def decide(
             pitching = False
             reasons.append(f"pitched outside leg ({abs(pitch_y) * 100:.0f} cm)")
         elif state == "marginal":
-            marginal = True
+            close.append("pitching close to leg stump")
 
     # Law 36.1.4: impact outside the line of off is not out if a shot was offered. We cannot
     # see the shot, so impact outside the line on either side is treated as not in line,
@@ -84,25 +84,20 @@ def decide(
             side = "leg" if impact_y * leg_sign > 0 else "off"
             reasons.append(f"impact outside {side} ({abs(impact_y) * 100:.0f} cm)")
         elif state == "marginal":
-            marginal = True
+            close.append("impact close to the stump line")
 
     hitting = False
-    if stump_y is not None and stump_z is not None:
-        lat = _band(w - abs(stump_y), R, sigma_y, k)
-        top = _band(STUMP_HEIGHT_M - stump_z, R, sigma_z, k)
-        if lat == "out" or top == "out" or stump_z < 0.0:
-            reasons.append("missing the stumps")
-        else:
-            hitting = True
-            if lat == "marginal" or top == "marginal":
-                marginal = True
+    lat = _band(w - abs(stump_y), R, sigma_y, k)
+    top = _band(STUMP_HEIGHT_M - stump_z, R, sigma_z, k)
+    if lat == "out" or top == "out" or stump_z < 0.0:
+        reasons.append("missing the stumps")
     else:
-        reasons.append("no stump-plane prediction")
+        hitting = True
+        if lat == "marginal" or top == "marginal":
+            close.append("clipping the stumps")
 
     if pitching and impact and hitting:
-        if marginal:
-            return Verdict(UMPIRES_CALL, "umpire's call: clipping the stumps", pitching, impact, hitting)
+        if close:
+            return Verdict(UMPIRES_CALL, "umpire's call: " + ", ".join(close), pitching, impact, hitting)
         return Verdict(OUT, "hitting the stumps", pitching, impact, hitting)
-    if marginal and pitching and impact:
-        return Verdict(UMPIRES_CALL, "umpire's call: " + "; ".join(reasons), pitching, impact, hitting)
     return Verdict(NOT_OUT, "; ".join(reasons) or "not out", pitching, impact, hitting)
