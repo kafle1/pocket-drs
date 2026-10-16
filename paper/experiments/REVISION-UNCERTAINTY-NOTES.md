@@ -561,9 +561,8 @@ What it shows:
   R + kσ on the outside and kσ on the inside, which is the JCGM 106 form (acceptance limit moved
   by the guard band). Reviewer 1 (M4) asks exactly why max and not R + kσ. The text should
   describe the code.
-- **exp2 and exp3 still sit on the old geometry.** Their committed CSVs (2026-09-02) carry
-  verdicts and truth labels on the 26.4 cm wicket with the old bands, and the submitted code.
-  They wait for the retrained detector (section 11).
+- **exp2 and exp3 sat on the old geometry. Rerun.** The 2026-09-02 CSVs carried verdicts and
+  truth labels on the 26.4 cm wicket with the old bands, and the submitted code. Section 11.
 - **The tapped pose was not refined on the pixels. Fixed.** Section 14.
 - **The retrained detector fires on a large round object in test4. Filtered.** Section 14.
 
@@ -589,9 +588,8 @@ What it shows:
   for four tests) do not depend on the sample, which is why they are quoted next to it.
 - **The risk model is simple.** Flat prior, Gaussian errors, the four Law 36 tests treated as
   independent. The y and z errors at the stump plane are correlated and that is ignored.
-- **exp2 and exp3 were not rerun.** Their committed results are on the old 26.4 cm wicket and old
-  bands and the submitted code; they wait for the retrained detector (section 11). Any paper number from them is
-  on the old geometry.
+- **exp2 and exp3 use a retrained detector.** The submitted weights were lost, so the rerun numbers
+  come from a different detector than the submitted ones (section 11). main.tex says so.
 - **Reference camera only.** exp4 to exp9 use the camera behind the striker at 2.8 m. The other
   five placements were not budgeted.
 - **The Type B ranges are assumptions.** Rolling shutter ±30 ms, pitch width ±10 cm, stump
@@ -613,50 +611,46 @@ What it shows:
 
 ## 10. Prose the new numbers break
 
-Line numbers are the current `paper/main.tex`. The edit plan in section 12 handles every row marked
-"plan"; the others need the author's call.
+Line numbers are `paper/main.tex` before the section 12 changes (`git show 94d6645:paper/main.tex`).
+Rows marked "done" are changed in main.tex; the others need the author's call.
 
 | main.tex | What it says now | What the new files show | Suggested change |
 |---|---|---|---|
-| 45-46, 589 | the propagated bound is "slightly optimistic", covering \CovYOne / \CovZOne % (now 51.6 / 61.4) | On World B the app's sigma covers 53.6 / 60.8 % at 1σ; the cross-validated model term brings it to 63.9 / 85.5 % [CovBFit*One, CovBFull*One]. Over the Monte Carlo trials the pipeline sigma has a median of 27.2 mm in y against a real spread of 55.0 mm [McPipeSigmaMedY, McUY]. "Slightly" undersells it. | plan: "misses model error ... raises this to ..." |
-| 100, 388 | the real clips give "a repeatability test" | What exp3 does is re-fit the same clip on its even and odd frames. That is within-clip resampling, not repeatability in the VIM sense (JCGM 200, 2.21: same procedure, operator and system, repeated measurements on the same object). exp3 was not rerun (section 11). | "half-rate consistency" or "a split-frame check". Not in the plan, since it touches three places in the author's prose. |
-| 186-187 | Robinson's equations of a spinning sphere "under drag and lift, which the synthetic generator integrates" | Only partly. `synth.fly` integrates quadratic drag and a lateral side force before contact, and applies spin as a sideways turn at contact. It has no lift (Magnus) term. | "whose drag and side-force terms the generator integrates". Not in the plan. |
-| 214-215 | $w_o = 0.132$ m, stumps $h_s = 0.711$ m | Law 8 gives ±0.1143 m; the decision zone now reaches the bails, 0.7239 m (commits d14d948, 91e0bf8) | plan: 0.1143 and $h_b = 0.724$ m |
+| 45-46, 589 | the propagated bound is "slightly optimistic", covering \CovYOne / \CovZOne % (now 51.6 / 61.4) | On World B the app's sigma covers 53.6 / 60.8 % at 1σ; the cross-validated model term brings it to 63.9 / 85.5 % [CovBFit*One, CovBFull*One]. Over the Monte Carlo trials the pipeline sigma has a median of 27.2 mm in y against a real spread of 55.0 mm [McPipeSigmaMedY, McUY]. "Slightly" undersells it. | done: "misses model error ... raises this to ..." |
+| 100, 388 | the real clips give "a repeatability test" | What exp3 does is re-fit the same clip on its even and odd frames. That is within-clip resampling, not repeatability in the VIM sense (JCGM 200, 2.21: same procedure, operator and system, repeated measurements on the same object). | "half-rate consistency" or "a split-frame check". Left for the author, since it touches three places in the author's prose. |
+| 186-187 | Robinson's equations of a spinning sphere "under drag and lift, which the synthetic generator integrates" | Only partly. `synth.fly` integrates quadratic drag and a lateral side force before contact, and applies spin as a sideways turn at contact. It has no lift (Magnus) term. | "whose drag and side-force terms the generator integrates". Left for the author. |
+| 214-215 | $w_o = 0.132$ m, stumps $h_s = 0.711$ m | Law 8 gives ±0.1143 m; the decision zone now reaches the bails, 0.7239 m (commits d14d948, 91e0bf8) | done: 0.1143 and $h_b = 0.724$ m |
 | 312-314 | the covariance "is a first-order approximation and Section measures how far it can be trusted" | The Monte Carlo fails the JCGM 101 check by up to 84.5 mm, and the height distribution is shifted, not just wider [McDHighZ, McMeanZ]. | Still true as written; the new budget subsection answers it. Optionally add "and a Monte Carlo check shows where it fails". |
-| 336-342 | each band is widened to $\max(R, k\sigma)$ with $k = 1$ | `decision.py:_band` uses $k\sigma$ inside and $R + k\sigma$ outside (section 8). With the full sigma, $k = 1.00$ keeps every out call under 5 % specific risk and $k = 1.85$ under 1 % [RiskFullKFive, RiskFullKOne]; before the pose refine these were 1.40 and 2.15. | plan: `decision.tex` describes the code's rule |
+| 336-342 | each band is widened to $\max(R, k\sigma)$ with $k = 1$ | `decision.py:_band` uses $k\sigma$ inside and $R + k\sigma$ outside (section 8). With the full sigma, $k = 1.00$ keeps every out call under 5 % specific risk and $k = 1.85$ under 1 % [RiskFullKFive, RiskFullKOne]; before the pose refine these were 1.40 and 2.15. | done: the text describes the code's rule |
 | 350 | the generator uses drag $C_d = 0.5$ | true for exp1. exp4 to exp9 draw $C_d$ from 0.35 to 0.55 (Mehta 2005) | none for exp1; the supplement should say which experiments use which range |
-| 362 | "the estimator never receives the true camera" | This was not true before commit 81f97e0: the synthetic runs handed the solver the true focal length. Now the focal length is solved from the taps, with a 1.65 % median error [AblAppFocalErr]. | plan: add "the focal length is solved from the taps with $L$ fixed" |
-| 385-386 | frame-interval jitter "is small beside" the pixel term | On the representative delivery, jitter is 2.9 / 15.8 mm against 7.3 / 35.2 mm for ball centre and bounce split; medians 6.9 / 9.5 against 15.6 / 25.1 mm (`budget.tex`). Half the size is not small. | plan: point to the budget table instead |
-| 386-387 | rolling shutter is "the one electronic error source the stated uncertainty does not account for" | Uncorrected rolling shutter is 0.7 / 4.0 mm on the representative delivery and 3.1 / 6.7 mm median. Lateral 1σ coverage is 55.3 % with no skew and 56.8 % with 30 ms [SwRsZeroCovFitY, SwRsThirtyCovFitY]. The term the sigma misses is model error, σ_mod 11.2 / 54.0 mm [ModYSigMod, ModZSigMod]. | plan: "changes neither accuracy nor coverage measurably" |
-| 422 | "a target 26 cm wide" | Law 8 wicket is 22.86 cm | plan: 23 cm |
-| 426-428 | frame rate "has almost no effect from 30 to 240 Hz" | With true timestamps agreement goes from 92.7 % at 30 fps to 96.0 % at 240 fps, so that part holds. Coverage does not: the pipeline's 1σ covers 67 / 69 % at 30 fps and 30 / 42 % at 240 fps (exp9). At 30 fps the submitted sampler gave 88.3 % agreement and 94.4 / 156.8 mm median error. | plan: add "the stated sigma, though, shrinks with the frame count while the model error does not". The sampler bug is in the changes paragraph (`changes.tex`). |
+| 362 | "the estimator never receives the true camera" | This was not true before commit 81f97e0: the synthetic runs handed the solver the true focal length. Now the focal length is solved from the taps, with a 1.65 % median error [AblAppFocalErr]. | done: added "the focal length is solved from the taps with $L$ fixed" |
+| 385-386 | frame-interval jitter "is small beside" the pixel term | On the representative delivery, jitter is 2.9 / 15.8 mm against 7.3 / 35.2 mm for ball centre and bounce split; medians 6.9 / 9.5 against 15.6 / 25.1 mm (`tables/budget.tex`). Half the size is not small. | done: points to the budget table instead |
+| 386-387 | rolling shutter is "the one electronic error source the stated uncertainty does not account for" | Uncorrected rolling shutter is 0.7 / 4.0 mm on the representative delivery and 3.1 / 6.7 mm median. Lateral 1σ coverage is 55.3 % with no skew and 56.8 % with 30 ms [SwRsZeroCovFitY, SwRsThirtyCovFitY]. The term the sigma misses is model error, σ_mod 11.2 / 54.0 mm [ModYSigMod, ModZSigMod]. | done: "changes neither accuracy nor coverage measurably" |
+| 422 | "a target 26 cm wide" | Law 8 wicket is 22.86 cm | done: 23 cm |
+| 426-428 | frame rate "has almost no effect from 30 to 240 Hz" | With true timestamps agreement goes from 92.7 % at 30 fps to 96.0 % at 240 fps, so that part holds. Coverage does not: the pipeline's 1σ covers 67 / 69 % at 30 fps and 30 / 42 % at 240 fps (exp9). At 30 fps the submitted sampler gave 88.3 % agreement and 94.4 / 156.8 mm median error. | done: added "the stated sigma, though, shrinks with the frame count while the model error does not". The sampler bug is in the changes paragraph. |
 | 428-429 | tap error "has little effect until it is large" | exp8: 0.9 to 1.1 mm per pixel of tap error and at most 8 of 299 verdicts change (2.7 %). One goes straight from out to not out or back: random 10 px taps under the app's rule [TapRandomOneZeroPxHardFlipsFit]. | exp8 supports "little effect". But Table II gives 95.8, 96.0, 94.5 and 95.2 % at 0, 2, 8 and 12 px, so "until it is large" implies a fall the data don't show. Author's call: "has little effect across the range tested". The clause predates the rerun. A 10 px tap is five times the budget's 2 px. |
-| 433-437 | unmodelled physics moves agreement from \PhysOffAgree to \PhysOnAgree % | Now \PhysOffAgree to \PhysOnAgree = 94.5 to 96.2 %, still true for exp1's mild physics. At literature magnitudes agreement stays at 94.5 to 98.0 %, but swing Cs 0.3 moves the median lateral error from 9.9 to 43.8 mm and biases height by -52.1 mm. Combined pace effects give 26.0 / 39.2 mm and fit coverage of 51.5 / 64.0 % (exp8). | plan: the Limitations item carries the exp8 numbers |
-| 442 | disagreements "lie within a few millimetres of a band edge" | No produced file measures this. | plan: cut the clause. The alternative is to measure the margin of each disagreement in exp1 and quote it. |
-| 447-464 | camera placement table* and paragraph | agreement moved by at most 0.7 points. The low and reference cameras swapped order, so "\CamStrikerHighAgree\% to \CamStrikerLowAgree\%" at 458-459 now reads 94.8 % to 94.2 %. | plan: three sentences, the table goes to the supplement, and `cameras.tex` quotes \CamStrikerMinAgree to \CamStrikerMaxAgree |
-| 466-485 | coverage subsection, "the 55 % bound" | replaced by the budget, Monte Carlo and coverage results | plan: `budget.tex` |
-| 487-497 | k curve on exp1, "we ship $k = 1$" | replaced by the JCGM 106 risk curve | plan: `guard.tex` |
-| 566-573 | Limitations: "first-order approximation", "ignores drag, swing..." | see sections 2, 3 and 5 | plan: `limits.tex` |
+| 433-437 | unmodelled physics moves agreement from \PhysOffAgree to \PhysOnAgree % | Now \PhysOffAgree to \PhysOnAgree = 94.5 to 96.2 %, still true for exp1's mild physics. At literature magnitudes agreement stays at 94.5 to 98.0 %, but swing Cs 0.3 moves the median lateral error from 9.9 to 43.8 mm and biases height by -52.1 mm. Combined pace effects give 26.0 / 39.2 mm and fit coverage of 51.5 / 64.0 % (exp8). | done: the Limitations item carries the exp8 numbers |
+| 442 | disagreements "lie within a few millimetres of a band edge" | No produced file measures this. | done: the clause is cut. The alternative is to measure the margin of each disagreement in exp1 and quote it. |
+| 447-464 | camera placement table* and paragraph | agreement moved by at most 0.7 points. The low and reference cameras swapped order, so "\CamStrikerHighAgree\% to \CamStrikerLowAgree\%" at 458-459 now reads 94.8 % to 94.2 %. | done: three sentences, the table moves to the supplement, and the paragraph quotes \CamStrikerMinAgree to \CamStrikerMaxAgree |
+| 466-485 | coverage subsection, "the 55 % bound" | replaced by the budget, Monte Carlo and coverage results | done: the uncertainty budget subsection |
+| 487-497 | k curve on exp1, "we ship $k = 1$" | replaced by the JCGM 106 risk curve | done: the guard band subsection |
+| 566-573 | Limitations: "first-order approximation", "ignores drag, swing..." | see sections 2, 3 and 5 | done: the first two Limitations items |
 
-## 11. Waiting on the retrained detector
+## 11. exp2 and exp3 on the retrained detector
 
-**exp2 and exp3 have not been rerun.** Both run the app pipeline with the learned detector,
-which loads `server/models/cricket_ball.pt` (`process_job.py:50`). The retrained weights now
-exist but are still being finalised outside this work, so the committed raw files are still
-the 2026-09-02 runs, on the old wicket, the old bands and the submitted code. The code they
-need is ready: frame timestamps, the pose refinement and the false-detection filter are all
-committed. Once the weights are final: `$PY exp2_rendered.py`, then `$PY exp3_real.py`, then
-`$PY make_numbers.py` and `$PY verify_claims.py`. After that the Real footage paragraph
-(main.tex 540-558) and Table V must be rewritten, the two "no false outs" claims (main.tex 44
-and 589) checked against \EteFalseOut, and the edit plan rebuilt to confirm 8 pages
-(section 12).
+**Rerun on 2026-09-26 (567f905).** Both run the app pipeline with the learned detector, which
+loads `server/models/cricket_ball.pt` (`process_job.py:50`). The submitted weights were lost, so the
+detector was retrained on photos and cricket video frames (`server/models/DETECTOR.md`, sha1
+`c3cdaba4`). Both experiments ran on those weights with the Law 8 wicket, the new bands and the fixed
+code, and exp2 solves the focal length from the taps (`pin_fov: false`). The submitted runs are kept as
+`raw/exp2_*_submitted.*` and `raw/exp3_real_submitted.csv`. Rendered clips agree on \EteAgree{} of
+\EteN{} with \EteFalseOut{} false outs, so the two "no false outs" claims (main.tex 44 and 599) still
+hold. The Real footage paragraph and Table V are written on the rerun.
 
-## 12. main.tex edit plan (stays at 8 pages)
+## 12. main.tex changes (stays at 8 pages)
 
-main.tex itself is not edited. The plan lives in `paper/experiments/editplan/`: `apply_edits.py` makes
-every change below on a temporary copy of `paper/`, and `sh paper/experiments/editplan/build.sh` builds
-that copy and prints the page count. Each replacement asserts that its old text occurs exactly once, so a
-later edit to main.tex makes the script stop instead of patching the wrong place.
+Every change below is in `paper/main.tex` and `paper/refs.bib`; `git diff 94d6645 -- paper/main.tex
+paper/refs.bib` shows them. Line numbers on the left are the old main.tex.
 
 **Result with the committed `numbers.tex`: 8 pages**. No undefined references or
 citations, no BibTeX warnings, no overfull boxes. The one underfull hbox (lines 288-290) and the two
@@ -668,16 +662,16 @@ that has to be paid for with a cut.
 
 ### What replaces what
 
-| main.tex now | Replaced by | Size change |
+| old main.tex | Replaced by | Size change |
 |---|---|---|
-| 466-485, "How far the stated uncertainty can be trusted": Fig. coverage and the "55 % bound" text | `budget.tex`: Table budget (groups, representative delivery and median), Table coverage (before and after the model term), two paragraphs | one column figure out, two column tables in |
-| 487-497, "The decision band": k curve on exp1, "we ship k = 1" | `guard.tex`: Fig. risk (specific false-out risk and agreement against k) and the JCGM 106 paragraph | one column figure in |
-| 336-342, the max(R, kσ) band | `decision.tex`: the rule `decision.py` actually applies, kσ inside and R + kσ outside | about the same |
-| 447-464, "Camera placement" subsection and its table* | `cameras.tex`: one paragraph, no heading | one full-width table out |
+| 466-485, "How far the stated uncertainty can be trusted": Fig. coverage and the "55 % bound" text | Table budget (groups, representative delivery and median), Table coverage (before and after the model term), two paragraphs | one column figure out, two column tables in |
+| 487-497, "The decision band": k curve on exp1, "we ship k = 1" | Fig. risk (specific false-out risk and agreement against k) and the JCGM 106 paragraph | one column figure in |
+| 336-342, the max(R, kσ) band | The rule `decision.py` actually applies, kσ inside and R + kσ outside | about the same |
+| 447-464, "Camera placement" subsection and its table* | One paragraph, no heading | one full-width table out |
 | 501-509, Experiment 2 table* | nothing; the text already quotes its numbers | one full-width table out |
-| 566-573, the first two Limitations items | `limits.tex`: model error is outside the sigma; exp8 physics numbers | about the same |
+| 566-573, the first two Limitations items | Model error is outside the sigma; exp8 physics numbers | about the same |
 | 193-197, Related Work, "Camera pose from known points..." paragraph | nothing; the method cites the same works where it uses them | 5 source lines out |
-| 345, start of Experimental Setup | `changes.tex`: what changed in the app after submission and why (section 14) | 6 source lines in |
+| 345, start of Experimental Setup | what changed in the app after submission and why (section 14), with exp9's `FpsThirty*AtSixtyAgree` and `CalUnrefSdY` / `CalAppSdY` from `theory/out/calib_check.txt` | 6 source lines in |
 | 261, 271, 272, Method | one clause each: the pixel refine of the pose, the size test, the flight test | 3 source lines in |
 
 ### Moves to the supplement
@@ -690,162 +684,6 @@ that has to be paid for with a cut.
 - the camera placement table (`tab:cameras`) and the Experiment 2 per-length table (`tab:rendered`)
 - the old coverage figure, `figures/coverage.pdf`
 - the calibration ablation of section 0
-
-### Draft LaTeX: uncertainty budget and coverage (replaces 466-485)
-
-```latex
-\subsection{Uncertainty budget and coverage}
-\label{sec:coverage}
-
-\begin{table}[t]
-\centering
-\caption{Standard uncertainty (mm) at the stump plane by input group (JCGM 100), root sum of squares within
-a group: a representative delivery (120~km/h, 6~m, 60~Hz) and the median over \BudDistN{} deliveries.}
-\label{tab:budget}
-\scriptsize
-\setlength{\tabcolsep}{3pt}
-\input{tables/budget_short}
-\end{table}
-
-\begin{table}[t]
-\centering
-\caption{Coverage (\%) of the stated uncertainty on \CovBFitted{} World~B deliveries, which add every input
-of Table~\ref{tab:budget}. The model term is cross-validated over five held-out folds.}
-\label{tab:coverage}
-\scriptsize
-\setlength{\tabcolsep}{2pt}
-\input{tables/coverage}
-\end{table}
-
-Each input in Table~\ref{tab:budget} was propagated through the calibration solve and the anchored
-fit~\cite{jcgm100}, by numerical Jacobians for vector inputs (taps, ball centres, frame times) and by the RMS
-output change over its PDF for scalar ones, so a bias the pipeline does not correct counts in full. The
-measurement groups alone give \BudRepMeasY{} and \BudRepMeasZ~mm on the representative delivery, against a
-pipeline sigma of \BudRepPipeSigmaY{} and \BudRepPipeSigmaZ~mm: the covariance is a fair measurement-noise
-sigma. What it leaves out is the flight model, almost all of it unmodelled swing. A Monte Carlo propagation
-of the same inputs through the full solver~\cite{jcgm101} ($M = \McM$) gives a vertical 95\,\% interval of
-$[\McLowZ, \McHighZ]$~mm, shifted from the linear $[\McGumLowZ, \McGumHighZ]$~mm because swing of either sign
-leaves the fit low. The linear budget fails the JCGM~101 validation by up to \McDHighZ~mm, so it ranks the
-inputs and the Monte Carlo interval is the one to quote.
-
-Table~\ref{tab:coverage} tests the stated sigma. Rolling shutter is not the cause of the shortfall: with no
-readout skew and with 30~ms of it, lateral coverage is \SwRsZeroCovFitY\% and \SwRsThirtyCovFitY\%. The
-missing term is model error, \ModYParamOne~mm laterally and \ModZParamOne~mm per metre of bounce-to-stump
-distance vertically. Lateral coverage at 95\,\% is still \CovBFullYNinetyfive\%, with an empirical factor of
-\KEmpFullYNinetyfive{} rather than 1.96, so the decision band takes its $k$ from risk and not from a nominal
-Gaussian.
-```
-
-### Draft LaTeX: guard band (replaces 487-497)
-
-```latex
-\subsection{Choosing the guard band from false-out risk}
-\label{sec:kcurve}
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{risk.pdf}
-\caption{World~B. Left: largest specific false-out risk among OUT calls against $k$, with 1 and 5\,\%
-limits. Right: agreement (dashed) and umpire's call (solid). Vertical lines: the chosen $k$.}
-\label{fig:risk}
-\end{figure}
-
-Following JCGM~106~\cite{jcgm106}, the specific risk of an OUT call is the probability, given the estimate,
-that the true verdict is not out, $1 - \prod_i \Phi((m_i + R_i)/\sigma_i)$ over the signed margins $m_i$
-of the four limits (pitching line, impact line, stump edge, top of the bails), with $R_i = R$ except on the
-pitching line and a flat prior. Fig.~\ref{fig:risk} traces it on the \RiskN{} World~B
-deliveries, \RiskTruthOut{} of them truly out. The shipped rule, pipeline sigma and $k = 1$, makes out calls
-whose risk under the full sigma reaches \RiskShippedMaxSpecFull\%, with \RiskShippedOutsOverFive{} above
-5\,\%. With the full sigma every out call is below 5\,\% from $k = \RiskFullKFive$ and below 1\,\% from
-$k = \RiskFullKOne$; the sample-free bounds with all four limits binding at once are \RiskBoundFourFive{} and
-\RiskBoundFourOne. The price is agreement, \RiskFitKOneAgree\% as shipped against \RiskFullAgreeFive\%
-and \RiskFullAgreeOne\%, and umpire's call on \RiskFullUmpFive\% and \RiskFullUmpOne\% of deliveries,
-because \RiskFullOutToUmpFive\% of true outs come back as umpire's call at $k = \RiskFullKFive$. No setting
-has a missed out. For coaching we use the full sigma with $k = \RiskFullKFive$; officiating would want
-$k = \RiskFullKOne$.
-```
-
-### Draft LaTeX: decision rule (replaces 336-342)
-
-```latex
-The playing conditions~\cite{icc2023drs} return umpire's call when the centre is outside a stump edge by
-less than one ball radius $R$. We add a guard band on top of that rule~\cite{jcgm106,carullo2024conformity}: a
-test is passed only if the centre is at least $k\sigma$ inside its limit, and failed only if it is more than
-$R + k\sigma$ outside, with $\sigma$ the standard uncertainty of that coordinate; anything in between is
-umpire's call. Section~\ref{sec:kcurve} sets $k$ from the risk of a false out.
-```
-
-### Draft LaTeX: camera placement (replaces 447-464)
-
-```latex
-Placement matters less than which end the phone films from. Behind the striker's stumps, low, high or back,
-agreement is \CamStrikerMinAgree\% to \CamStrikerMaxAgree\%, and \CamStrikerSideAgree\% with a 1.5~m offset
-to the side. From the bowler's end it is \CamBowlerRefAgree\% and \CamBowlerSideAgree\%, with median vertical
-errors of \CamBowlerRefMedZ{} and \CamBowlerSideMedZ~cm, because the decisive post-contact arc is 15 to 20~m
-away and foreshortened. The app asks the user to film from behind the batter; the placement table is in the
-supplement.
-```
-
-### Draft LaTeX: Limitations, first two items (replaces 566-573)
-
-```latex
-\textbf{The stated uncertainty misses the flight model.} Swing, drag and pitch variation, the largest
-inputs of the budget, are outside the covariance. The model term was
-fitted on the same generator it is tested on, and the Monte Carlo interval is shifted as well as wider. With
-an ambiguous contact split the solution is also multimodal, which no Gaussian sigma represents.
-
-\textbf{The estimator ignores drag, swing, friction and spin.} Swing with a side-force coefficient of 0.3
-moves the median lateral error from \PhysBaselineMedY{} to \PhysSwingCsZeroThreeMedY~mm and biases the
-height by \PhysSwingCsZeroThreeMeanZ~mm; a pitch with restitution 0.40 biases it by
-\PhysRestitutionZeroFourZeroMeanZ~mm. The reported release speed is an average over the arc, not the speed
-at the hand.
-```
-
-### Draft LaTeX: changes since submission (new, first paragraph of Experimental Setup)
-
-The paper has to say that the app changed after submission and why. This paragraph does, with every number
-from a produced file: the 30 Hz agreement from exp9 (`FpsThirty*AtSixtyAgree`) and the calibration spread
-from `theory/out/calib_check.txt` (`CalUnrefSdY`, `CalAppSdY`, read by `make_numbers.py`).
-
-```latex
-\textbf{Changes since submission.} Three faults found in revision are fixed, and every experiment was rerun
-on the fixed code. Frames carried the requested time, not their own timestamp, which at 30~Hz cut agreement
-from \FpsThirtyFixedAtSixtyAgree\% to \FpsThirtySubmittedAtSixtyAgree\%. The pose, fitted in object space, is
-now refined on the pixels, which takes calibration's lateral spread at the stumps from \CalUnrefSdY{} to
-\CalAppSdY~cm. The size and flight tests were added after the retrained detector fired on a large round
-object in one real clip; no limit was set on the real clips.
-```
-
-The Method gets one clause for each change, so the paragraph above has something to point at:
-
-- Calibration (261): "...and keeping the lowest reprojection error, then refining that pose by least squares
-  on the pixel residuals."
-- Detection (271): "...static clutter and is suppressed, as is any candidate too large or too small for a ball
-  anywhere in the flight volume."
-- Detection (272): "An arc the flight model cannot fit to 12~px rms is discarded and the next best tried."
-
-### New references (appended to refs.bib)
-
-```bibtex
-@techreport{jcgm100,
-  author      = {{JCGM}},
-  title       = {Evaluation of Measurement Data: Guide to the Expression of Uncertainty in Measurement},
-  institution = {BIPM},
-  number      = {JCGM 100:2008}, year = {2008}
-}
-@techreport{jcgm101,
-  author      = {{JCGM}},
-  title       = {Evaluation of Measurement Data: Supplement 1 to the ``Guide to the Expression of Uncertainty in Measurement'', Propagation of Distributions Using a {Monte Carlo} Method},
-  institution = {BIPM},
-  number      = {JCGM 101:2008}, year = {2008}
-}
-@techreport{jcgm106,
-  author      = {{JCGM}},
-  title       = {Evaluation of Measurement Data: The Role of Measurement Uncertainty in Conformity Assessment},
-  institution = {BIPM},
-  number      = {JCGM 106:2012}, year = {2012}
-}
-```
 
 ### Small edits
 
@@ -865,14 +703,14 @@ The Method gets one clause for each change, so the paragraph above has something
   no produced file measures.
 - Conclusion: "slightly optimistic" becomes the model-error and guard-band wording, and the last sentence
   is shortened.
-- Setup: the changes paragraph above, and the three Method clauses.
+- Setup and Method: the changes paragraph and the three Method clauses.
 
 ### Cuts made only to fit
 
 The first full build came out at 9 pages. These brought it back to 8: dropping the Related Work pose
 paragraph, moving the Experiment 2 table, cutting the 442 clause, folding camera placement into one
-paragraph, removing a global-risk sentence from `guard.tex` and an "acceptance limit is moved" sentence
-from `decision.tex`, and shortening the Conclusion's last sentence. Shrinking the risk figure changed
+paragraph, removing a global-risk sentence from the guard band text and an "acceptance limit is moved" sentence
+from the decision rule, and shortening the Conclusion's last sentence. Shrinking the risk figure changed
 nothing, because IEEEtran stretches the page to fill it, so it stayed at column width. Only cuts late
 in the flow (Limitations, Conclusion) moved the references.
 
@@ -882,7 +720,7 @@ in the flow except the first two:
 - Detection: "This stage is not the contribution; it is the input the reconstruction is given." is cut.
 - Physics related work: the drag clause "which at 40~m/s is a deceleration comparable to $g$" is cut.
 - Limitations: the "No metric truth" item ends "A second phone at right angles would supply it."; the
-  contact item is one sentence; the calibration item is one sentence; the first `limits.tex` item opens
+  contact item is one sentence; the calibration item is one sentence; the first Limitations item opens
   with "Swing, drag and pitch variation ... are outside the covariance."
 - Conclusion: the opening two sentences become one, the restatement of the linear problems is cut, and the
   "installs nothing" sentence is dropped.
@@ -890,10 +728,10 @@ in the flow except the first two:
   every number are at ... (AGPL-3.0)."
 
 Page 8 now ends with the biography at the foot of the right column, so there is no slack at all. The Real
-footage paragraph and Table V are rewritten after exp3 (section 11), and the Experiment 2 paragraph may
-change after exp2; each rewrite must be no longer than what it replaces, and `build.sh` must be rerun.
+footage paragraph and Table V are already on the rerun (section 11). Any later change must be no longer
+than what it replaces, and the paper must be rebuilt to check it is still 8 pages.
 
-The plan leaves the rows of section 10 marked "author's call" alone (100/388 "repeatability", 186-187
+The rows of section 10 left for the author are unchanged (100/388 "repeatability", 186-187
 "which the synthetic generator integrates", 350 $C_d$ range).
 
 ## 13. Review items this covers
@@ -901,16 +739,16 @@ The plan leaves the rows of section 10 marked "author's call" alone (100/388 "re
 The items are from section C, "Ranked action list", of the mock review of TIM-26-10891. For each one:
 what it asked for, what was done, and what is still open.
 
-**1. Law 8 width, ICC bands, bails, rerun.** Done for exp1, blocked for exp2.
+**1. Law 8 width, ICC bands, bails, rerun.** Done.
 - Outer stump edge 0.1143 m (d14d948). Umpire's call is one-sided, there is no band on the pitching
   test, and the zone reaches the top of the bails at 0.7239 m, quoted from ICC Appendix D 3.4 (91e0bf8).
 - True crossing and contact positions are now in the exp1 CSV (5e36eba), as the item asked.
 - exp1 was rerun (ccce0b7), and again on the pose refine. Agreement went from 94.3 to 93.7 %, inside
   the review's "a point or two". Every macro that moved is in section 0 and Appendix A.
-- main.tex 215, 336-337 and 422 are fixed in the edit plan (section 12), not in main.tex itself.
-- **Open:** re-rendering exp2 and rerunning exp2 and exp3 wait for the retrained detector (section 11).
+- main.tex 215, 336-337 and 422 are fixed (section 12).
+- exp2 and exp3 were rerun on the retrained detector (section 11).
 
-**3. Unpin the focal length and the pitch length.** Done for exp1; exp2 is unpinned in code but not rerun.
+**3. Unpin the focal length and the pitch length.** Done for exp1 and exp2.
 - `synth.py` and `exp2_rendered.py` no longer pass the true field of view. The grid now spans 20 to
   130 deg with a continuous polish, so 90.5 deg is inside it (81f97e0).
 - The ablation in section 0 tests 70 and 90.5 deg cameras. Median focal error is 1.65 % with the app's
@@ -972,10 +810,9 @@ what it asked for, what was done, and what is still open.
 
 ## 14. App changes since submission
 
-Three faults in the submitted app were fixed during revision, and every experiment that does not
-need the detector was rerun on the fixed code (section 9 has the runtimes). The paper says so in a
-new paragraph at the start of Experimental Setup (section 12). exp2 and exp3 run once the retrained
-detector is final (section 11).
+Three faults in the submitted app were fixed during revision, and every experiment was rerun on the
+fixed code (section 9 has the runtimes, section 11 the detector runs). The paper says so in a new
+paragraph at the start of Experimental Setup (section 12).
 
 ### Frame timestamps (143d31b, modelled in 0893393)
 
@@ -993,7 +830,7 @@ At 30 Hz the submitted sampler fed every frame twice under two labels, which mor
 the error. At 60 Hz the half-frame sawtooth still added about 9 mm laterally. exp1 and exp4 to exp8
 hand the estimator every frame at its own timestamp (`uq.Effects(sampler="exact")`), so the fault
 never reached them; their numbers move because of the pose refine below. The submitted exp2 and
-exp3 results went through the faulty sampler and are rerun with the detector.
+exp3 results went through the faulty sampler; the reruns do not (section 11).
 
 ### Pose refined on the pixels (2f99c7b)
 

@@ -33,7 +33,6 @@ cd paper/experiments
 | macros and tables | `$PY make_numbers.py` | whatever raw files exist | `../numbers.tex`, `../tables/*.tex` | seconds |
 | figures | `$PY make_figures.py` | exp1, exp7 | `../figures/*.pdf` | seconds |
 | check | `$PY verify_claims.py` | all of the above | prints OK or the mismatches | seconds |
-| edit plan | `sh editplan/build.sh` | macros, tables, figures | the edited paper in a temp dir; prints the page count | 2 s |
 
 Runtimes are wall-clock from the `seconds` field each script writes to its json, measured on
 an 11-core M3 Pro at `nice -n 10` while other jobs ran, so they vary from run to run. `--quick` on exp1, exp4, exp5 and exp6 runs a small
@@ -43,8 +42,7 @@ version for a smoke check; it overwrites the raw files, so rerun the full comman
 and tables rather than failing.
 
 `../tables/budget.tex` is the per-input budget for the supplement; `../tables/budget_short.tex` groups the
-same rows for the paper. `editplan/` holds the proposed main.tex changes: `apply_edits.py` applies
-them to a copy made by `build.sh`, never to `paper/` itself (see section 12 of the notes).
+same rows for the paper.
 
 ## exp2 and exp3: the retrained detector
 
