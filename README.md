@@ -1,18 +1,20 @@
 # PocketDRS
 
-Get the Android app from the [latest release](https://github.com/kafle1/pocket-drs/releases/latest)
-(under 20 MB; [which file to pick](docs/GUIDE.md#get-the-app)). New to the app? Read the
-[user guide](docs/GUIDE.md) or the [screen-by-screen walkthrough](docs/WALKTHROUGH.md), or watch the
-[36 second app walkthrough](docs/media/app-walkthrough.mp4).
-
 Single-phone leg-before-wicket review for cricket. Put a phone on a tripod behind the bowler's
 stumps, mark the stumps once, and press Ball after each delivery. For every ball the server
 returns where it pitched, where it would have crossed the stumps, the release speed, the turn off
 the pitch, a Law 36 verdict, and how sure it is about each of those.
 
+<img src="docs/media/app-walkthrough.jpg" alt="Result screen with the verdict and the tracked ball" width="300">
+
 It is a coaching and training instrument, not an officiating one. Where the estimate cannot
 support a call at one sigma the verdict is umpire's call, and where the fit does not explain the
 pixels the job returns no verdict rather than a guess.
+
+Get the Android app from the [latest release](https://github.com/kafle1/pocket-drs/releases/latest)
+(under 20 MB; [which file to pick](docs/GUIDE.md#get-the-app)). New to the app? Read the
+[user guide](docs/GUIDE.md) or the [screen-by-screen walkthrough](docs/WALKTHROUGH.md), or watch the
+[36 second app walkthrough](docs/media/app-walkthrough.mp4).
 
 ## How it works
 
