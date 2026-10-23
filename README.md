@@ -1,48 +1,32 @@
 # PocketDRS
 
-Single-phone leg-before-wicket review for cricket. Put a phone on a tripod behind the bowler's
-stumps, mark the stumps once, and press Ball after each delivery. For every ball the server
-returns where it pitched, where it would have crossed the stumps, the release speed, the turn off
-the pitch, a Law 36 verdict, and how sure it is about each of those.
+Leg-before-wicket review for cricket with one phone. Put the phone on a tripod behind the bowler's
+stumps, mark the stumps once, and press Ball after each delivery. The server sends back where the
+ball pitched, where it would have crossed the stumps, the release speed, the turn off the pitch, a
+Law 36 verdict, and how sure it is about each.
 
 <img src="docs/media/app-walkthrough.jpg" alt="Result screen with the verdict and the tracked ball" width="300">
 
-It is a coaching and training instrument, not an officiating one. Where the estimate cannot
-support a call at one sigma the verdict is umpire's call, and where the fit does not explain the
-pixels the job returns no verdict rather than a guess.
+It is meant for coaching and practice, not for officiating. If the estimate can't support a call at
+one sigma, it says umpire's call. If the fit doesn't explain the pixels, it gives no verdict.
 
 Get the Android app from the [latest release](https://github.com/kafle1/pocket-drs/releases/latest)
-(under 20 MB; [which file to pick](docs/GUIDE.md#get-the-app)). New to the app? Read the
-[user guide](docs/GUIDE.md) or the [screen-by-screen walkthrough](docs/WALKTHROUGH.md), or watch the
+(under 20 MB; [which file to pick](docs/GUIDE.md#get-the-app)). See the [user guide](docs/GUIDE.md),
+the [screen-by-screen walkthrough](docs/WALKTHROUGH.md) or the
 [36 second app walkthrough](docs/media/app-walkthrough.mp4).
 
 ## How it works
 
-The ball flies from release to the pitch under gravity, air drag and swing, bounces once, and
-flies on to the batter under gravity and drag. One camera cannot measure depth, but the bounce
-is on a plane the calibration already knows. The contact instant is found in the image as the
-split that explains the track with two flights far better than one, and the contact pixel
-back-projects onto the ground plane to a metric point with no depth cue. From that anchor a
-ten-parameter model (contact time and point, pre-contact velocity, share of pace kept through
-the bounce, post-contact sideways velocity, restitution, swing) is refined by robust least
-squares. Its covariance, plus the spread from re-solving the calibration with jittered stump
-marks, is carried to the stump-plane crossing. When that 1-sigma miss is bigger than the stumps
-are tall, the app gives no call instead of guessing.
+The phone is calibrated from the 8 stump corners you mark. The ball is found by colour and motion,
+and RANSAC over 3-D flights picks out the delivery. One camera can't measure depth, but the bounce
+is on the ground plane, so the contact pixel gives a metric anchor. From there a drag-and-swing
+model is fitted, and its uncertainty is carried to the stump plane and into the Law 36 bands.
 
-```
-phone clip ─► calibration (PnP on 8 stump corners, pitch length pinned, lens angle swept)
-           ─► colour/motion detection ─► RANSAC over calibrated 3-D flights into one delivery
-           ─► contact split in the image ─► anchored drag-and-swing fit ─► covariance
-           ─► stump-plane prediction ± sigma ─► Law 36 with uncertainty-widened bands
-           ─► overlay, metrics, verdict
-```
+## Results
 
-Measured on 150 random synthetic deliveries per cell with exact truth: 60 Hz, 1 px detection
-noise, swing, and air drag that changes from ball to ball and that the model doesn't know. The
-detections are made up, so this checks the app's calibration, ball picking, fit and call, not
-its ball detector. A ball counts as right only when the call matches exactly (out, not out, or
-umpire's call), and a no call counts as wrong. `paper/experiments/bench_app.py` reruns it in
-about 4 minutes.
+Synthetic test: 150 random deliveries per cell at 60 Hz, 1 px detection noise, swing, and air drag
+that changes from ball to ball and that the model doesn't know. The detections are made up, so the
+ball detector isn't tested here. Only an exact call counts as right, and a no call counts as wrong. `paper/experiments/bench_app.py` reruns it in about 4 minutes.
 
 | Camera | Stump marks exact | 1 px off | 2 px off | 4 px off | Given out when it wasn't out |
 |---|---|---|---|---|---|
@@ -51,32 +35,15 @@ about 4 minutes.
 
 Of the 4 wrong outs with marks 4 px off, 3 were umpire's call and 1 was not out.
 
-The rendered clips run the whole pipeline, ball detector included, on 100 clips from each end:
-95 right from behind the bowler and 99 from behind the batter. None gave out on a not-out ball
+On rendered clips the whole pipeline runs, ball detector included. Of 100 clips from each end, 95
+were right from behind the bowler and 99 from behind the batter. None gave out on a not-out ball
 or the other way round. Every miss is one step off, umpire's call against a clear decision. From
 behind the bowler the speed is shown on 59 of the 100 balls, with a median error of 5 km/h.
 `paper/experiments/exp2_rendered.py --camera bowler_ref` (or `striker_ref`) reruns it in about
-15 minutes; point `POCKET_DRS_OUT` and `POCKET_DRS_CLIPS` at a scratch folder so the paper's
-files stay as they are.
+15 minutes. Point `POCKET_DRS_OUT` and `POCKET_DRS_CLIPS` at a scratch folder so the paper's files
+stay as they are.
 
 The paper under `paper/` describes an earlier model, and its numbers are not these.
-
-## Layout
-
-```
-server/app/pipeline/
-  calibration.py     camera model, stump-anchored PnP
-  tracking.py        colour/motion ball detector, pitch ROI
-  trajectory.py      picks the ball: RANSAC over 3-D flights that start in a bowler's hand
-  reconstruction.py  contact split, anchored drag-and-swing fit, covariance, stump-plane prediction
-  decision.py        Law 36 with the ICC review bands widened by the propagated sigma
-  overlay.py         pixel-space overlay for the client
-  process_job.py     one job end to end; the result schema is the client contract
-server/app/           FastAPI job API, job store, 3-D viewer
-app/pocket_drs/       Flutter client (Android, iOS, web)
-paper/                manuscript, experiments, raw results, figure and number generators
-docs/college-report/  the original BIT project report and slides
-```
 
 ## Run
 
@@ -91,8 +58,8 @@ page. `docs/usage-guide.md` has the request and result fields; `server/scripts/r
 builds a request for a bundled clip.
 
 To host the server yourself: `docker build -t pocket-drs-server server && docker run -p 7860:7860 pocket-drs-server`.
-The public server runs on a Mac at home: `make host` starts it at every login, and Tailscale
-Funnel gives it a public https address. When that Mac is off, the app can't check balls.
+The public server runs on a Mac at home (`make host`, behind Tailscale Funnel), so when that Mac is
+off the app can't check balls.
 
 ## Reproduce the paper
 
@@ -111,27 +78,24 @@ pdflatex main && bibtex main && pdflatex main && pdflatex main
 ../server/.venv/bin/python experiments/verify_claims.py     # fails if the manuscript is stale
 ```
 
-Every run is seeded. `experiments/synth.py` is the generator (its physics is richer than the
-estimator's model on purpose), `experiments/render.py` turns a delivery into a clip the app would
-accept.
+Every run is seeded. `experiments/synth.py` makes the deliveries and `experiments/render.py` turns
+them into clips.
 
 ## Filming
 
 Tripod behind the bowler's stumps, both sets of stumps in frame, a full-length pitch, a red or
-pink ball. `docs/usage-guide.md` has the details. A yorker leaves one or two frames after the
-bounce and will usually come back as umpire's call.
+pink ball. Yorkers usually come back as umpire's call. `docs/usage-guide.md` has the details.
 
 ## Privacy
 
-No accounts, no ads, no analytics. The server deletes each clip once it is analysed.
-`docs/privacy-policy.md` lists exactly what leaves the phone.
+No accounts, ads or analytics. The server deletes each clip after analysis, and
+`docs/privacy-policy.md` lists what leaves the phone.
 
 ## License
 
 Copyright (c) 2025-2026 Niraj Kafle.
 
-AGPL-3.0, see `LICENSE`. If you ship or host a changed copy, even only as a server, you must
-publish all of its source under AGPL-3.0 too. For a commercial licence without those terms,
-write to contact.me.kafle@gmail.com.
+AGPL-3.0, see `LICENSE`. If you ship or host a changed copy, even only as a server, its full source
+must be published under AGPL-3.0 too. For a commercial licence, write to contact.me.kafle@gmail.com.
 
 `server/app/static/three` is three.js, copied in unchanged under its own MIT licence.
