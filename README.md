@@ -96,6 +96,7 @@ Funnel gives it a public https address. When that Mac is off, the app can't chec
 
 ## Reproduce the paper
 
+The paper in `paper/` is under review at IEEE Transactions on Instrumentation and Measurement.
 The paper's numbers come from the code at the `paper-v1` tag, so check that out first.
 
 ```bash
