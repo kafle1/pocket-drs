@@ -252,8 +252,8 @@ instead of the public one. That's a developer task, not something you do from wi
 
 ## Privacy
 
-Pocket DRS has no accounts, no ads, and no analytics. The server deletes your video once it has
-finished checking it, and keeps only the numbers from the result for a day. Read the full
+You sign in with your Google account, and there are no ads. The server deletes your video once it
+has finished checking it, and keeps only the numbers from the result for a day. Read the full
 [privacy policy](privacy-policy.md) for exactly what leaves your phone.
 
 ## Screenshots

@@ -23,7 +23,7 @@ Short net? Set the real pitch length in Settings.
 Also works on clips you already have: Analyse a video, trim to the delivery, mark the stumps, send.
 
 Privacy
-No accounts, no ads, no analytics. The server deletes your video as soon as it has analysed it, and the results after a day.
+Sign in with Google. No ads. The server deletes your video as soon as it has analysed it, and the results after a day.
 
 It is a coaching tool, not an umpire. It can't tell bat from pad, so a ball that hit the bat first isn't out whatever the verdict says.
 

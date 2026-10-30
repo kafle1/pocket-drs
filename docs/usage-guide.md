@@ -51,8 +51,9 @@ of the ball were seen.
 
 `POST /v1/jobs` (multipart: `video_file` + `request_json`) starts a job; `GET /v1/jobs/{id}` polls
 `status` and `progress`; `GET /v1/jobs/{id}/result` returns the result once `status` is `succeeded`;
-`GET /v1/jobs/{id}/three-d` is the 3D view as a web page. The API is public and anonymous; the
-job id is the only access control.
+`GET /v1/jobs/{id}/three-d` is the 3D view as a web page. `POST /v1/jobs` needs a Firebase ID
+token (`Authorization: Bearer`) and an `X-Device-Id` header; after that the job id is the only access
+control.
 
 Request (unknown fields are rejected):
 

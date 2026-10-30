@@ -52,14 +52,14 @@ make setup          # backend venv + flutter pub get
 make dev            # backend on :8000 and the app on a connected phone
 ```
 
-The server API is public and anonymous: `POST /v1/jobs` (multipart: clip + request JSON),
+Starting a job needs a Google sign-in (a Firebase ID token as `Authorization: Bearer`) and an
+`X-Device-Id` header. The API: `POST /v1/jobs` (multipart: clip + request JSON),
 `GET /v1/jobs/{id}`, `GET /v1/jobs/{id}/result`, and `GET /v1/jobs/{id}/three-d` for the 3D
 page. `docs/usage-guide.md` has the request and result fields; `server/scripts/real_clip.py`
 builds a request for a bundled clip.
 
 To host the server yourself: `docker build -t pocket-drs-server server && docker run -p 7860:7860 pocket-drs-server`.
-The public server runs on a Mac at home (`make host`, behind Tailscale Funnel), so when that Mac is
-off the app can't check balls.
+The public server is a Docker container on an Azure VM (`make deploy`); `server/README.md` has the details.
 
 ## Reproduce the paper
 
@@ -88,8 +88,8 @@ pink ball. Yorkers usually come back as umpire's call. `docs/usage-guide.md` has
 
 ## Privacy
 
-No accounts, ads or analytics. The server deletes each clip after analysis, and
-`docs/privacy-policy.md` lists what leaves the phone.
+You sign in with Google, and the app sends usage events to Google Analytics for Firebase. The server
+deletes each clip after analysis, and `docs/privacy-policy.md` lists what is kept and for how long.
 
 ## License
 

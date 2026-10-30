@@ -49,7 +49,7 @@ FLUTTER_WEB_HOSTNAME ?= localhost
 
 .PHONY: help dev setup setup-app setup-server dev-app dev-server dev-app-only dev-server-only \
 	free-port dev-server-fresh phone-connect dev-app-phone pick-device \
-	apk host clean \
+	apk deploy clean \
 	logs logs-server logs-flutter logs-errors logs-job logs-pull-android logs-clean
 
 help:
@@ -67,7 +67,7 @@ help:
 		"  make logs-pull-android Pull Flutter logs from connected Android device" \
 		"  make logs-clean        Remove all files under logs/" \
 		"  make apk               Build the signed release apps, one small apk per phone chip" \
-		"  make host              Run the server and its Tailscale tunnel on this Mac at every login" \
+		"  make deploy            Copy server/ to the Azure VM, rebuild the container and wait until it answers" \
 		"  make clean             Remove generated dev artifacts"
 
 # ----- Setup -----
@@ -231,22 +231,26 @@ apk: setup-app
 	@cd "$(APP_DIR)" && flutter build apk --release --split-per-abi \
 		--target-platform android-arm,android-arm64 --split-debug-info=build/symbols
 
-# the public server runs from a copy outside Desktop, which macOS hides from login services
-HOST_DIR := $(HOME)/.pocket-drs
-AGENTS_DIR := $(HOME)/Library/LaunchAgents
-host:
-	@command -v tailscaled >/dev/null || { echo "Run brew install tailscale first"; exit 1; }
-	@mkdir -p "$(HOST_DIR)/data" "$(HOST_DIR)/tailscale" "$(AGENTS_DIR)"
-	@rsync -a --delete --exclude __pycache__ "$(SERVER_DIR)/app/" "$(HOST_DIR)/app/"
-	@test -x "$(HOST_DIR)/.venv/bin/python" || python3 -m venv "$(HOST_DIR)/.venv"
-	@"$(HOST_DIR)/.venv/bin/pip" install -q -r "$(SERVER_DIR)/requirements.txt"
-	@for job in pocketdrs pocketdrs.tailscale; do \
-		sed -e "s|HOST_DIR|$(HOST_DIR)|g" -e "s|TAILSCALED|$$(command -v tailscaled)|g" \
-			"$(SERVER_DIR)/$$job.plist" > "$(AGENTS_DIR)/io.github.kafle1.$$job.plist"; \
-		launchctl bootout gui/$$(id -u)/io.github.kafle1.$$job 2>/dev/null; \
-		for _ in $$(seq 150); do launchctl print gui/$$(id -u)/io.github.kafle1.$$job >/dev/null 2>&1 || break; sleep 0.2; done; \
-		launchctl bootstrap gui/$$(id -u) "$(AGENTS_DIR)/io.github.kafle1.$$job.plist" || { echo "$$job did not start, so run make host again"; exit 1; }; \
-	done
+# ----- Deploy -----
+
+# the public server is a docker container on an Azure VM; Caddy in front of it does HTTPS
+DEPLOY_HOST ?= azureuser@20.193.228.228
+DEPLOY_KEY ?= $(HOME)/.ssh/pocketdrs_azure
+DEPLOY_URL ?= https://pocketdrs-saarathi.centralindia.cloudapp.azure.com
+deploy:
+	@rsync -az --delete --exclude __pycache__ --exclude /.venv --exclude /data --exclude /logs --exclude /.env \
+		-e "ssh -i $(DEPLOY_KEY)" "$(SERVER_DIR)/" "$(DEPLOY_HOST):/opt/pocket-drs/server/"
+	@ssh -i "$(DEPLOY_KEY)" "$(DEPLOY_HOST)" 'sudo docker build -t pocket-drs /opt/pocket-drs/server && \
+		{ sudo docker rm -f pocket-drs || true; } && \
+		sudo docker run -d --name pocket-drs --restart unless-stopped -p 127.0.0.1:7860:7860 \
+			-v /opt/pocket-drs-data:/data -e ADMIN_EMAILS=kafleniraj@gmail.com pocket-drs'
+	@printf "%s\n" "Waiting for $(DEPLOY_URL)/healthz"
+	@END=$$(( $$(date +%s) + 120 )); \
+	while [ $$(date +%s) -lt $$END ]; do \
+		[ "$$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$(DEPLOY_URL)/healthz")" = 200 ] && { echo "Deployed, the server is up"; exit 0; }; \
+		sleep 2; \
+	done; \
+	echo "The server did not answer on /healthz within 2 minutes. Check sudo docker logs pocket-drs on the VM"; exit 1
 
 # ----- Cleanup -----
 

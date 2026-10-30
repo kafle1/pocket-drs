@@ -1,56 +1,81 @@
 # Pocket DRS privacy policy
 
-Last updated: 26 September 2026
+Last updated: 30 October 2026
 
-Pocket DRS has no accounts, no ads, and no analytics. It doesn't ask for your name, email, or
-location.
+This page explains what Pocket DRS collects, why, and how long it keeps it. Pocket DRS has no ads
+and never sells your data.
 
-## What leaves your phone
+## Signing in
 
-When you send a ball, the app sends two things to the analysis server:
+You sign in with your Google account. Google handles the sign-in through Firebase Authentication,
+so the app never sees your Google password. From your Google account we keep:
 
-- the video, without sound. In a session that is the last 4 seconds. With Analyse a video it
-  is only the part you trimmed to, plus a little before it (usually under two seconds) so the video
-  opens cleanly.
-- the eight stump marks you tapped, the batter's handedness, and the pitch length
+- your email address
+- your name
+- a link to your profile photo
+- your plan (free or premium)
+- how many reviews you have used, and when you first and last used the app
 
-The server deletes the video as soon as it has finished analysing it. The result it keeps is
-numbers only: where the ball went, the verdict, the speed. Results are deleted once they are more
-than a day old. The cleanup runs whenever the next ball is sent in.
+We keep this so you can sign in again and so we know how many free reviews you have left. It stays
+until you ask us to delete it.
 
-The server writes a log line for each request. It holds only the time and the page asked for,
-never your network address or the video. The
-default server is a computer at the developer's home, reached through Tailscale Funnel. Tailscale
-passes the encrypted connection through without being able to read it, but like any relay it
-sees your network address.
+## Your phone's identifier
 
-The 3D view opens in your web browser and loads everything, drawing code included, from the same
-server. No other site is contacted.
+Each free account gets 5 reviews, and each phone gets 5 too, so a new account on the same phone
+does not reset the count. To count them, the app sends an identifier for the phone. On Android this
+is the phone's Android ID. In a web browser it is a random code the page makes and saves in that
+browser. We use it only to count free reviews on that phone. Next to it we store how many reviews
+it has used, the last email that used it, and when.
+
+## Your videos
+
+When you send a ball, the app uploads a short clip without sound (usually a few seconds), the stump
+marks you tapped, which hand the batter bats with, and the pitch length. Our server is in Central
+India.
+
+- The clip is deleted as soon as the server has finished checking it.
+- The result is numbers only: where the ball went, the speed and the verdict. It is deleted once it
+  is more than 24 hours old, the next time anyone sends a ball.
+- We also keep a short record of each review (when it was sent, which account and phone, and
+  whether it worked) so your review count stays right.
+
+Our server log holds the time and the page asked for. It never holds your network address or your
+video.
+
+## Usage statistics
+
+The app uses Google Analytics for Firebase to count things like sign-ins, reviews started,
+finished or failed, and the verdict (out, not out, umpire's call). Your email and your videos are
+never sent in these events. Google Analytics also collects general details it gathers in every app
+that uses it, such as the phone model, the app version and a rough country.
 
 ## What stays on your phone
 
-- Clips recorded in a session sit in the app's temporary folder and are deleted when you leave the session.
+- Clips recorded in a session are deleted when you leave the session.
 - A clip filmed with Record video in Analyse a video stays in the app's folder. Turn on Settings >
   Storage > Delete recordings after analysis to remove it once you leave the result.
-- Your theme, speed unit (km/h or mph) and pitch length are saved on the phone.
-- The app keeps a small error log on the phone. It is never sent anywhere.
+- Your settings, such as theme, speed unit and pitch length.
+- A small error log, which is never sent anywhere.
 
 ## Permissions
 
-- **Camera**: to record the deliveries, in a session or with Record video. Nothing is recorded
-  at any other time.
+- **Camera**: to record deliveries. Nothing is recorded at any other time.
 - **Photos and videos**: only when you pick a clip with Analyse a video, through the phone's own
   picker. The app sees only the clip you pick.
-- **Internet**: to send the clip to the server and get the verdict back.
+- **Internet**: to sign in, send the clip and get the verdict back.
 
-The app doesn't use the microphone.
+The app doesn't use the microphone or your location.
+
+## Deleting your data
+
+Email kafleniraj@gmail.com from the address you signed in with and ask us to delete your account.
+We will remove your account details and review history.
 
 ## Children
 
-Pocket DRS doesn't knowingly collect anything from anyone, children included, beyond what is
-listed above.
+Pocket DRS is not meant for children under 13 and we don't knowingly collect their data. If you
+think a child has signed in, email us and we will delete the account.
 
-## Changes and contact
+## Changes
 
-If this policy changes, the new version goes in this file with a new date. Questions go to
-contact.me.kafle@gmail.com.
+If this policy changes, the new version goes on this page with a new date.
