@@ -21,8 +21,18 @@ Pocket DRS runs on Android 7.1.1 or newer. Download it from the
 - **pocket-drs-arm64.apk** works on most phones. Start with this one.
 - **pocket-drs-arm32.apk** is for older and budget phones. Use it if Android says the first file can't be installed.
 
-Each file is under 20 MB. Open it on your phone, and allow installs from your browser when Android
-asks. The app has no account and no sign-in, so it's ready as soon as it opens.
+Each file is about 20 MB. Open it on your phone, and allow installs from your browser when Android
+asks. When the app opens, tap **Continue with Google** to sign in.
+
+Every account gets 5 free reviews, and the home screen shows how many are left. A ball that fails
+to check doesn't use one up. When they run out, tap **Contact admin** to ask for premium access,
+which has no limit.
+
+On an iPhone, or any phone without the app, open
+[the PocketDRS website](https://pocketdrs-saarathi.centralindia.cloudapp.azure.com) in Safari or
+Chrome. Sign in there, pick a clip you've already filmed, mark the stumps and check the ball.
+Google sign-in doesn't work inside the Instagram, Facebook or Messenger browser, so open the link
+in Safari or Chrome.
 
 ## Before you film
 
@@ -183,6 +193,7 @@ If a message below appears, here is what it means and what to try.
 | Can't reach the server. Check your internet, or try again later. | Your phone could not reach the server. Either your internet is down or the server is switched off. | Check your Wi-Fi or mobile data. If they work, the server is off for now, so try again later. |
 | No reply in time. Check your internet, or try again later. | The server took too long to answer. | Check your connection. If it is fine, the server may be off, so try again later. |
 | The server is off right now. Try again later. | The server's computer is online, but the checking program on it is not running. | Try again later. |
+| You've used your 5 free reviews. Contact the admin for premium access. | Your account, or this phone, has used all its free reviews. | Tap **Contact admin** to ask for premium access. |
 | The server is busy. Try this ball again in a minute. | The public server has too many jobs running at once. | Wait a minute, then try again. |
 | Something went wrong checking this ball. Try again. | The server hit an error while checking. | Try again. If it keeps happening, the server may be down. |
 | The server no longer has this ball, maybe after a restart. Send it again. | The server restarted while checking your ball, or the ball is more than a day old. | Tap the circular arrow next to the ball to send it again. |
@@ -239,7 +250,7 @@ Open Settings from the gear icon on the home screen.
 ### Server address
 
 There is no setting in the app to change which server it talks to. The app is built to always use
-one server address, and by default that is the free public server the app ships with. This can
+one server address, and that is the PocketDRS server. This can
 only be changed by building your own copy of the app with a different address baked in.
 
 ### Running your own server
