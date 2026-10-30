@@ -36,6 +36,9 @@ function deviceId() {
   return id;
 }
 const DEVICE = deviceId();
+// google refuses sign-in inside instagram, facebook, messenger and other app browsers
+const IN_APP = /FBAN|FBAV|FB_IAB|Instagram|Messenger|Line\/|; wv\)/.test(navigator.userAgent);
+const OPEN_IN_BROWSER = "Open this page in Safari or Chrome to sign in.";
 
 let auth, fbAuth, track = () => {}, me = null;
 
@@ -63,10 +66,17 @@ async function boot() {
       }
     } catch { /* ignore */ }
   }
+  let wasIn = false;
   fbAuth.onAuthStateChanged(auth, (user) => {
+    // a fresh page is the only sure way to drop the last person's clip, result and admin lists
+    if (!user && wasIn) { location.reload(); return; }
+    wasIn = !!user;
     show("boot", false);
     if (user) { show("signin", false); show("app", true); loadMe(); }
-    else { me = null; show("app", false); show("signin", true); }
+    else {
+      me = null; show("app", false); show("signin", true);
+      if (IN_APP) { $("signin-error").textContent = OPEN_IN_BROWSER; show("signin-error", true); }
+    }
   });
 }
 
@@ -82,8 +92,8 @@ $("google").addEventListener("click", async () => {
   } catch (e) {
     const code = e && e.code;
     if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") return;
-    $("signin-error").textContent = code === "auth/popup-blocked"
-      ? "Your browser blocked the sign-in window. Allow pop-ups for this site and tap again."
+    $("signin-error").textContent = ["auth/popup-blocked", "auth/operation-not-supported-in-this-environment", "auth/web-storage-unsupported"].includes(code)
+      ? OPEN_IN_BROWSER
       : code === "auth/network-request-failed"
         ? "Can't reach Google. Check your internet and try again."
         : "Sign-in didn't work. Try again.";
@@ -159,7 +169,7 @@ function renderQuota() {
   $("used-up").querySelector("p").textContent =
     `You've used your ${me.free_limit} free reviews. Contact the admin for premium access.`;
   $("contact").href = `mailto:${me.contact_email}?subject=PocketDRS%20premium`;
-  $("go").disabled = out || marks.length !== 8;
+  $("go").disabled = out || marks.length !== 8 || !!checkMarks();
 }
 
 function usedUp() {
@@ -310,10 +320,10 @@ async function run() {
   };
   step("run");
   runText("Sending the clip", "0%", 0);
-  track("analysis_started");
   let jobId;
   try {
     jobId = await upload(req);
+    track("analysis_started");
     const result = await poll(jobId);
     showResult(jobId, result);
   } catch (err) {
@@ -330,7 +340,12 @@ async function loadMeQuiet() {
 }
 
 async function upload(req) {
-  const h = await headers();
+  let h;
+  try {
+    h = await headers();
+  } catch (e) {
+    throw new Error(e.message && e.message.startsWith("Sign in") ? e.message : "Can't reach the server. Check your internet and try again.");
+  }
   const body = JSON.stringify(req);
   if (sent.body !== body) sent = { body, key: randomId() };
   h["Idempotency-Key"] = sent.key;

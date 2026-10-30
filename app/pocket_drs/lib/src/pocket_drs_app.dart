@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -17,17 +19,23 @@ class PocketDrsApp extends StatefulWidget {
 
 class _PocketDrsAppState extends State<PocketDrsApp> {
   final _nav = GlobalKey<NavigatorState>();
+  // premium given while the app sat in the background shows up on return
+  late final AppLifecycleListener _life;
 
   @override
   void initState() {
     super.initState();
     ThemeController.instance.ensureLoaded();
     Account.instance.signedIn.addListener(_onSignedIn);
+    _life = AppLifecycleListener(
+      onResume: () => unawaited(Account.instance.refreshMe()),
+    );
   }
 
   @override
   void dispose() {
     Account.instance.signedIn.removeListener(_onSignedIn);
+    _life.dispose();
     super.dispose();
   }
 

@@ -339,7 +339,10 @@ class _SessionScreenState extends State<SessionScreen>
   Future<void> _send(_Ball b) async {
     // no upload when the server would turn it away
     if (Account.instance.me.value?.usedUp ?? false) {
-      return _fail(b, kUsedUp);
+      // they may have been given premium since, so check before refusing
+      await Account.instance.refreshMe();
+      if (!_live(b)) return;
+      if (Account.instance.me.value?.usedUp ?? false) return _fail(b, kUsedUp);
     }
     setState(
       () => b

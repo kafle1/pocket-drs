@@ -70,6 +70,7 @@ class Account {
   bool _ready = false;
   String? _deviceId;
   Future<void>? _meLoad;
+  String? _meLoadUid;
 
   void _log(String m) => AppLogger.instance.log(m);
 
@@ -162,7 +163,8 @@ class Account {
     } on GoogleSignInException catch (e) {
       _log('[AUTH] google: ${e.code} ${e.description}');
       return switch (e.code) {
-        GoogleSignInExceptionCode.canceled => null,
+        GoogleSignInExceptionCode.canceled =>
+          "Sign-in didn't finish. Tap Continue with Google to try again.",
         GoogleSignInExceptionCode.interrupted =>
           'Sign-in was interrupted. Try again.',
         _ => "Couldn't sign in with Google. Check your internet and try again.",
@@ -195,15 +197,26 @@ class Account {
   }
 
   /// Reloads the plan and free reviews left; failures keep the last known value.
-  Future<void> refreshMe() => _meLoad ??= _loadMe().whenComplete(
-    () => _meLoad = null,
-  );
+  Future<void> refreshMe() {
+    // the listener may not have set signedIn yet right after signIn(), so ask Firebase
+    final uid = kIsWeb ? null : FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return Future.value();
+    final pending = _meLoad;
+    if (pending != null && _meLoadUid == uid) return pending;
+    _meLoadUid = uid;
+    late final Future<void> load;
+    load = _loadMe(uid).whenComplete(() {
+      if (identical(_meLoad, load)) _meLoad = null;
+    });
+    return _meLoad = load;
+  }
 
-  Future<void> _loadMe() async {
-    if (!signedIn.value) return;
+  Future<void> _loadMe(String uid) async {
     final api = PocketDrsApi(baseUrl: kServerUrl);
     try {
-      me.value = await api.getMe();
+      final next = await api.getMe();
+      // a sign-out or another sign-in during the call makes this someone else's plan
+      if (FirebaseAuth.instance.currentUser?.uid == uid) me.value = next;
     } catch (e) {
       _log('[AUTH] me: $e');
     } finally {
