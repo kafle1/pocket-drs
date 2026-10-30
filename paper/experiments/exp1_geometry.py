@@ -10,8 +10,10 @@ position, and physical effects the estimator does not model (drag, swing, fricti
 Two estimators run on identical detections:
   anchored   the bounce-anchored two-parabola fit (this paper)
   parabola   the single gravity parabola with the apparent-size cue, in the line of
-             Ribnick et al. (2009), which is what a monocular method without a contact
-             constraint can do
+             Ribnick et al. (2009), fitted across the whole track, bounce included
+  unanchored the same split as anchored, but a free six-parameter parabola either side of it
+             (the side fits _anchor_candidates already makes), so the only thing missing
+             is the contact pinned to the ground plane
 
 Cells run in parallel worker processes, each with its own seed, so the output does not
 depend on the worker count. --ablation runs the calibration ablations instead (focal length
@@ -40,7 +42,8 @@ from synth import (Camera, Delivery, calibration_taps, fly, observe, random_deli
                    truth_verdict, CREASE_X)
 from app.pipeline.reconstruction import (reconstruct, predict_stump_plane, bounce_sigma, position_sigma,  # noqa: E402
                                          _linear_parabola, _fit_flight, _flight_as_trajectory,
-                                         _flight_covariance, Reconstruction)
+                                         _flight_covariance, Reconstruction, Trajectory, find_bounce_split,
+                                         _numeric_jacobian, GRAVITY, BALL_RADIUS_M, RESTITUTION_PRIOR)
 from app.pipeline.decision import decide                                                # noqa: E402
 from app.pipeline.calibration import CalibrationError                                   # noqa: E402
 
@@ -87,6 +90,65 @@ def parabola_estimate(pose, dets) -> Reconstruction | None:
         return None
     theta, cov6, rms = fit
     return Reconstruction(_flight_as_trajectory(theta), _flight_covariance(theta, cov6), rms, [])
+
+
+def _side_fit(pose, side):
+    """Free parabola on one side of the split, timed from that side's first frame so the
+    solver's bounds on the start position stay physical."""
+    if len(side) < 3:
+        return None
+    ts = side[0][0]
+    local = [(d[0] - ts, *d[1:]) for d in side]
+    th0 = _linear_parabola(pose, local)
+    fit = None if th0 is None else _fit_flight(pose, local, th0, f_scale=2.0, radius_weight=0.3)
+    return None if fit is None else (*fit, ts)
+
+
+def _unanchored_params(th12, ts_pre, ts_post, t_split):
+    """Two free parabolas (pre, post; each x0,y0,z0,vx,vy,vz at its side's first frame) in
+    the bounce parameterisation: the contact is where the post arc meets z = R, earlier root."""
+    pre, post = th12[:6], th12[6:]
+    a, b, c = -0.5 * GRAVITY, post[5], post[2] - BALL_RADIUS_M
+    disc = b * b - 4 * a * c
+    tau = min((-b + sgn * np.sqrt(disc)) / (2 * a) for sgn in (1.0, -1.0)) if disc >= 0 else t_split - ts_post
+    t_b = ts_post + tau
+    x_b, y_b = post[0] + post[3] * tau, post[1] + post[4] * tau
+    v_post = np.array([post[3], post[4], post[5] - GRAVITY * tau])
+    tp = t_b - ts_pre
+    v_pre = np.array([pre[3], pre[4], pre[5] - GRAVITY * tp])
+    e = -v_post[2] / v_pre[2] if v_pre[2] < -0.05 and v_post[2] > 0 else RESTITUTION_PRIOR
+    return np.array([t_b, x_b, y_b, *v_pre, v_post[0], v_post[1], e])
+
+
+def unanchored_estimate(pose, dets) -> Reconstruction | None:
+    """Same split as the anchored fit, no anchor. Without a usable split, too few frames
+    after it, or a fit that diverges, it falls back to the single parabola."""
+    dets = sorted(dets)
+    t0 = dets[0][0]
+    dets = [(d[0] - t0, *d[1:]) for d in dets]
+    split = find_bounce_split(dets)
+    fits = None
+    if split is not None:
+        k, t_split = split[0], split[1]
+        f_pre, f_post = _side_fit(pose, dets[:k]), _side_fit(pose, dets[k:])
+        if f_pre is not None and f_post is not None:
+            fits = (f_pre, f_post, t_split)
+    if fits is None:
+        return parabola_estimate(pose, [(d[0] + t0, *d[1:]) for d in dets])
+    (th_pre, c_pre, rms_pre, ts_pre), (th_post, c_post, rms_post, ts_post), t_split = fits
+    th12 = np.concatenate([th_pre, th_post])
+    th9 = _unanchored_params(th12, ts_pre, ts_post, t_split)
+    # a contact off the pitch or outside the track is a diverged fit; fall back, as a careful
+    # unanchored method would, rather than score it
+    if (not np.all(np.isfinite(th9)) or not (-2.0 <= th9[1] <= pose.pitch_length_m + 2.0)
+            or abs(th9[2]) > 2.0 or not (dets[0][0] <= th9[0] <= dets[-1][0])):
+        return parabola_estimate(pose, [(d[0] + t0, *d[1:]) for d in dets])
+    cov12 = np.zeros((12, 12)); cov12[:6, :6] = c_pre; cov12[6:, 6:] = c_post
+    J = _numeric_jacobian(lambda th: _unanchored_params(th, ts_pre, ts_post, t_split), th12)
+    v_pre = th9[3:6]
+    tr = Trajectory(float(th9[0]), float(th9[1]), float(th9[2]), v_pre,
+                    np.array([th9[6], th9[7], -th9[8] * v_pre[2]]), True)
+    return Reconstruction(tr, J @ cov12 @ J.T, max(rms_pre, rms_post), [])
 
 
 def evaluate(rec, truth):
@@ -159,7 +221,8 @@ def run_cell(name, cam_name, cfg, n, seed, cam=None):
                     truth_crease_y_cm=round(truth.crease[1] * 100, 3),
                     truth_contact_x_m=round(float(truth.contact[0]), 4) if np.isfinite(truth.contact[0]) else None,
                     truth_contact_y_cm=round(float(truth.contact[1]) * 100, 3) if np.isfinite(truth.contact[0]) else None)
-        for est_name, rec in (("anchored", reconstruct(pose, dets)), ("parabola", parabola_estimate(pose, dets))):
+        for est_name, rec in (("anchored", reconstruct(pose, dets)), ("parabola", parabola_estimate(pose, dets)),
+                              ("unanchored", unanchored_estimate(pose, dets))):
             r = evaluate(rec, truth)
             rows.append(dict(base, estimator=est_name, **{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}))
     return rows
@@ -214,7 +277,7 @@ def _report(cell):
     if not cell:
         return
     name, cam = cell[0]["sweep"], cell[0]["camera"]
-    for est in ("anchored", "parabola"):
+    for est in ("anchored", "parabola", "unanchored"):
         rs = [r for r in cell if r["estimator"] == est]
         ok = [r for r in rs if r["ok"]]
         agree = sum(1 for r in rs if r["verdict"] == r["truth"])

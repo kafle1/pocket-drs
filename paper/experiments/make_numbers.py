@@ -85,6 +85,7 @@ g = rows("exp1_geometry.csv")
 cfg1 = json.load(open(os.path.join(RAW, "exp1_config.json")))
 A = [r for r in g if r["estimator"] == "anchored"]
 P = [r for r in g if r["estimator"] == "parabola"]
+U = [r for r in g if r["estimator"] == "unanchored"]
 m("GeoPerCell", cfg1["n_per_cell"], "{}")
 m("GeoCells", len({r["sweep"] for r in g}), "{}")
 m("GeoTotal", len(A), "{}")
@@ -106,6 +107,30 @@ m("GeoMedYAllParabola", med([r["y_err_cm"] for r in okP])); m("GeoMedZAllParabol
 m("GeoMedSpeedErr", med([r["speed_err_kmh"] for r in okA])); m("GeoMedContactX", med([r["contact_x_err_cm"] for r in okA]))
 m("GeoMedContactY", med([r["contact_y_err_cm"] for r in okA]))
 
+# unanchored two-parabola baseline: same split, no anchor
+okU = [r for r in U if r["ok"]]
+m("GeoAgreeAllUnanch", agree(U)); m("GeoFalseOutUnanch", false_out(U), "{}"); m("GeoMissedOutUnanch", missed_out(U), "{}")
+m("GeoOutCalledOutUnanch", sum(1 for r in U if r["truth"] == "out" and r["verdict"] == "out"), "{}")
+m("GeoNoVerdictUnanch", sum(1 for r in U if r["verdict"] == "no_verdict"), "{}")
+m("GeoUmpCallsAll", ump(A), "{}"); m("GeoUmpCallsUnanch", ump(U), "{}")
+m("GeoMedYAllUnanch", med([r["y_err_cm"] for r in okU])); m("GeoMedZAllUnanch", med([r["z_err_cm"] for r in okU]))
+m("GeoUnanchFallback", sum(1 for r in U if r["bounce_observed"] is not True), "{}")
+SHORT_M = 4.0   # pitched this close to the batter the post-contact arc is short
+m("GeoShortLength", SHORT_M, "{:.0f}")
+short = lambda rs, s_: [r for r in rs if (r["length_m"] < SHORT_M) == s_]
+m("GeoUnanchFallbackShortPct", 100.0 * sum(1 for r in short(U, True) if r["bounce_observed"] is not True) / len(short(U, True)), "{:.0f}")
+m("GeoUnanchFallbackLongPct", 100.0 * sum(1 for r in short(U, False) if r["bounce_observed"] is not True) / len(short(U, False)), "{:.0f}")
+m("GeoAnchFallbackShortPct", 100.0 * sum(1 for r in short(A, True) if r["bounce_observed"] is not True) / len(short(A, True)), "{:.0f}")
+# paired, on deliveries where both used the split, so the only difference is the anchor
+keyA = {(r["sweep"], r["i"]): r for r in A if r["ok"] and r["bounce_observed"] is True}
+pairs = [(keyA[(r["sweep"], r["i"])], r) for r in U if r["ok"] and r["bounce_observed"] is True and (r["sweep"], r["i"]) in keyA]
+m("GeoPairN", len(pairs), "{}")
+m("GeoPairMedYA", med([a["y_err_cm"] for a, _ in pairs])); m("GeoPairMedZA", med([a["z_err_cm"] for a, _ in pairs]))
+m("GeoPairMedYU", med([u["y_err_cm"] for _, u in pairs])); m("GeoPairMedZU", med([u["z_err_cm"] for _, u in pairs]))
+m("GeoPairPNineZeroYA", p90([a["y_err_cm"] for a, _ in pairs])); m("GeoPairPNineZeroYU", p90([u["y_err_cm"] for _, u in pairs]))
+m("GeoPairPNineZeroZA", p90([a["z_err_cm"] for a, _ in pairs])); m("GeoPairPNineZeroZU", p90([u["z_err_cm"] for _, u in pairs]))
+m("GeoPairAgreeA", agree([a for a, _ in pairs])); m("GeoPairAgreeU", agree([u for _, u in pairs]))
+
 # sweep table: one row per cell, both estimators
 def cell_stats(rs):
     ok = [r for r in rs if r["ok"]]
@@ -119,27 +144,31 @@ order = ["noise_px=0.0", "noise_px=1.0", "noise_px=2.0", "noise_px=3.0", "noise_
          "dropout=0.0", "dropout=0.25", "dropout=0.4", "physics=False", "physics=True"]
 names = {"noise_px": "Pixel noise $\\sigma$ (px)", "fps": "Frame rate (Hz)", "tap_px": "Tap noise $\\sigma$ (px)",
          "dropout": "Dropped frames", "physics": "Unmodelled physics"}
-L = [r"\begin{tabular}{llcccccccc}", r"\toprule",
-     r"& & \multicolumn{4}{c}{Anchored (this paper)} & \multicolumn{4}{c}{Single parabola} \\",
-     r"\cmidrule(lr){3-6}\cmidrule(lr){7-10}",
-     r"Factor & Value & Agree (\%) & False out & Median $y$ / $z$ (cm) & 90th $y$ / $z$ (cm) & Agree (\%) & False out & Median $y$ / $z$ (cm) & 90th $y$ / $z$ (cm) \\", r"\midrule"]
+L = [r"\begin{tabular}{llcccccccccc}", r"\toprule",
+     r"& & \multicolumn{4}{c}{Anchored (this paper)} & \multicolumn{4}{c}{Two parabolas, no anchor} & \multicolumn{2}{c}{One parabola, whole track} \\",
+     r"\cmidrule(lr){3-6}\cmidrule(lr){7-10}\cmidrule(lr){11-12}",
+     r"Factor & Value & Agree (\%) & False out & Median $y$ / $z$ & 90th $y$ / $z$ & Agree (\%) & False out & Median $y$ / $z$ & 90th $y$ / $z$ & Agree (\%) & Median $y$ / $z$ \\", r"\midrule"]
 last = None
 for sw in order:
     key, val = sw.split("=")
     a = cell_stats([r for r in A if r["sweep"] == sw]); p = cell_stats([r for r in P if r["sweep"] == sw])
+    u = cell_stats([r for r in U if r["sweep"] == sw])
     if key != last and last is not None:
         L.append(r"\midrule")
     fac = names[key] if key != last else ""
     last = key
     v = {"False": "off", "True": "on"}.get(val, val.rstrip("0").rstrip(".") if "." in val else val)
     L.append(f"{fac} & {v} & {a['agree']:.1f} & {a['fo']} & {a['y']:.1f} / {a['z']:.1f} & {a['y90']:.1f} / {a['z90']:.1f} & "
-             f"{p['agree']:.1f} & {p['fo']} & {p['y']:.1f} / {p['z']:.1f} & {p['y90']:.1f} / {p['z90']:.1f} \\\\")
+             f"{u['agree']:.1f} & {u['fo']} & {u['y']:.1f} / {u['z']:.1f} & {u['y90']:.1f} / {u['z90']:.1f} & "
+             f"{p['agree']:.1f} & {p['y']:.1f} / {p['z']:.1f} \\\\")
 L += [r"\bottomrule", r"\end{tabular}"]
 write_table("sweeps.tex", L)
 
 ref = cell_stats([r for r in A if r["sweep"] == "noise_px=1.0"])
 refp = cell_stats([r for r in P if r["sweep"] == "noise_px=1.0"])
 m("RefAgree", ref["agree"]); m("RefMedY", ref["y"]); m("RefMedZ", ref["z"]); m("RefP90Y", ref["y90"]); m("RefP90Z", ref["z90"])
+refu = cell_stats([r for r in U if r["sweep"] == "noise_px=1.0"])
+m("RefAgreeUnanch", refu["agree"]); m("RefMedYUnanch", refu["y"]); m("RefMedZUnanch", refu["z"])
 m("RefAgreeParabola", refp["agree"]); m("RefMedYParabola", refp["y"]); m("RefMedZParabola", refp["z"])
 for sw, tag in (("noise_px=0.0", "NoiseZero"), ("noise_px=2.0", "NoiseTwo"), ("noise_px=3.0", "NoiseThree"), ("noise_px=5.0", "NoiseFive"),
                 ("fps=30.0", "FpsThirty"), ("fps=240.0", "FpsTwoForty"), ("tap_px=12.0", "TapTwelve"), ("tap_px=8.0", "TapEight"),
@@ -151,6 +180,8 @@ sw_worst = min(order, key=lambda s: cell_stats([r for r in A if r["sweep"] == s]
 m("SweepAgreeMin", cell_stats([r for r in A if r["sweep"] == sw_worst])["agree"]); m("SweepAgreeMax", cell_stats([r for r in A if r["sweep"] == sw_best])["agree"])
 m("SweepAgreeMinParabola", min(cell_stats([r for r in P if r["sweep"] == s])["agree"] for s in order))
 m("SweepAgreeMaxParabola", max(cell_stats([r for r in P if r["sweep"] == s])["agree"] for s in order))
+m("SweepAgreeMinUnanch", min(cell_stats([r for r in U if r["sweep"] == s])["agree"] for s in order))
+m("SweepAgreeMaxUnanch", max(cell_stats([r for r in U if r["sweep"] == s])["agree"] for s in order))
 m("SweepFalseOutMax", max(cell_stats([r for r in A if r["sweep"] == s])["fo"] for s in order), "{}")
 m("SweepFalseOutParabolaMax", max(cell_stats([r for r in P if r["sweep"] == s])["fo"] for s in order), "{}")
 
