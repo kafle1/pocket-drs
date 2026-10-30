@@ -192,6 +192,10 @@ class Accounts:
             return row["job_id"]
         return None
 
+    def forget_key(self, email: str, key: str) -> None:
+        with closing(self._db()) as db:
+            db.execute("UPDATE jobs SET idem_key=NULL WHERE email=? AND idem_key=?", (email, key))
+
     def take_use(self, ident: dict[str, Any], device_id: str, job_id: str, key: str | None = None) -> str | None:
         """Record the job and take one free use if needed. Returns the job id to answer with (an earlier
         one for a repeated retry key), or None when no free use is left."""
@@ -276,6 +280,9 @@ class Accounts:
                 db.execute("UPDATE users SET plan=? WHERE email=?", (plan, email))
             if reset_used:
                 db.execute("UPDATE users SET used=0 WHERE email=?", (email,))
+                # their phones count too, or the person stays blocked after a reset
+                db.execute("UPDATE devices SET used=0 WHERE device_id IN (SELECT device_id FROM jobs WHERE email=?)",
+                           (email,))
         return next(u for u in self.list_users(email) if u["email"] == email)
 
     def list_devices(self, q: str = "") -> list[dict[str, Any]]:

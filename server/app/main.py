@@ -347,6 +347,9 @@ async def create_job(request: Request):
     earlier = await run_in_threadpool(_accounts.find_keyed, ident["email"], key)
     if earlier and _store.exists(earlier):
         return await _drain(request, _earlier_job(earlier))
+    if earlier:
+        # a redeploy wiped that job's files, so the key would only ever answer "not found"
+        await run_in_threadpool(_accounts.forget_key, ident["email"], key)
     if not await run_in_threadpool(_accounts.can_start, ident["email"], device_id):
         return await _drain(request, _used_up())
 
@@ -369,7 +372,7 @@ async def create_job(request: Request):
                 detail=f"Server busy: {_MAX_JOBS} jobs already queued or running, try again shortly",
             )
 
-        submitted, taken, paths = False, False, None
+        submitted, paths = False, None
         try:
             job_id, paths = _store.create_job()
             # the real check: one sqlite write lock, so two uploads at once can't both take the last use
@@ -379,7 +382,6 @@ async def create_job(request: Request):
             if got != job_id:
                 # the same clip raced in twice; the other upload already owns the job
                 return _earlier_job(got)
-            taken = True
             _store.write_request(paths, req_dict)
             with paths.video_path.open("wb") as f:
                 await run_in_threadpool(shutil.copyfileobj, video_file.file, f, 1 << 20)
@@ -392,7 +394,9 @@ async def create_job(request: Request):
         finally:
             if not submitted:
                 _job_slots.release()
-                if taken:
+                # no row (refused, or the other upload owns it) makes this a no-op; a cut-off
+                # request may have taken the use without reaching the next line, so always give it back
+                if paths is not None:
                     _finish_safe(job_id, "failed")
                 # no worker will ever delete a half-saved clip
                 if paths is not None:
