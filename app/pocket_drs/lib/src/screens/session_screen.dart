@@ -8,11 +8,13 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../analysis/frame_decoder.dart';
+import '../account/account.dart';
 import '../api/analysis_result.dart';
 import '../api/pocket_drs_api.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../utils/app_settings.dart';
+import '../widgets/account_widgets.dart';
 import '../widgets/image_marker.dart';
 import 'analyze_screen.dart';
 
@@ -48,6 +50,8 @@ class _Ball {
   String? error;
   bool canRetry = false;
   String? jobId;
+  // reused on every retry of this ball, so a lost reply can't spend a second review
+  String idem = newIdempotencyKey();
   AnalysisResult? result;
 }
 
@@ -333,6 +337,10 @@ class _SessionScreenState extends State<SessionScreen>
   }
 
   Future<void> _send(_Ball b) async {
+    // no upload when the server would turn it away
+    if (Account.instance.me.value?.usedUp ?? false) {
+      return _fail(b, kUsedUp);
+    }
     setState(
       () => b
         ..state = _BallState.uploading
@@ -340,6 +348,7 @@ class _SessionScreenState extends State<SessionScreen>
     );
     try {
       b.jobId = await _api.createJob(
+        idempotencyKey: b.idem,
         videoBytes: await File(b.clip!).readAsBytes(),
         videoFilename: 'ball_${b.number}.mp4',
         requestJson: jobRequest(
@@ -352,7 +361,16 @@ class _SessionScreenState extends State<SessionScreen>
         ),
       );
     } catch (e) {
-      _fail(b, _describe(e), retry: true);
+      final kind = e is ApiException ? e.kind : null;
+      if (kind == ApiErrorKind.usedUp && mounted && _balls.contains(b)) {
+        unawaited(Account.instance.refreshMe());
+        showUsedUp(context);
+      }
+      _fail(
+        b,
+        _describe(e),
+        retry: kind != ApiErrorKind.usedUp && kind != ApiErrorKind.signIn,
+      );
       return;
     }
     if (!_live(b)) return;
@@ -395,7 +413,13 @@ class _SessionScreenState extends State<SessionScreen>
       if (!_live(b)) return;
       // the job is gone server-side, so there is nothing left to resume
       final dead = e is ApiException && e.statusCode == 404;
-      if (dead) return _send(b);
+      if (dead) {
+        // the old key would hand back the expired job
+        b
+          ..jobId = null
+          ..idem = newIdempotencyKey();
+        return _send(b);
+      }
       _fail(b, _describe(e), retry: e is ApiException);
     }
   }
@@ -433,6 +457,8 @@ class _SessionScreenState extends State<SessionScreen>
       PlatformException e => e.message ?? e.code,
       StateError e => e.message,
       ApiException e => e.message,
+      JobFailedException e => e.message,
+      FileSystemException _ => "Couldn't read this ball's clip. Bowl it again.",
       FormatException _ => 'Got an unexpected reply. Try again in a minute.',
       TimeoutException _ =>
         'The camera did not start. Close any other app using it, then try '
@@ -617,6 +643,8 @@ class _SessionScreenState extends State<SessionScreen>
             ButtonSegment(value: 'left', label: Text('Left-handed')),
           ],
           selected: {_hand},
+          // the tick pushes "Right-handed" past its half on a 320 wide phone
+          showSelectedIcon: false,
           onSelectionChanged: (s) => setState(() => _hand = s.first),
         ),
         const SizedBox(height: AppSpacing.md),
@@ -630,6 +658,8 @@ class _SessionScreenState extends State<SessionScreen>
             ),
           ),
         ),
+        const SizedBox(height: AppSpacing.md),
+        const PlanStatus(),
         const SizedBox(height: AppSpacing.md),
         SizedBox(
           width: double.infinity,

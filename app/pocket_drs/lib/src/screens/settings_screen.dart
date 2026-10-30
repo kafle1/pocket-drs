@@ -6,7 +6,7 @@ import '../theme/app_spacing.dart';
 import '../theme/theme_controller.dart';
 import '../utils/app_settings.dart';
 
-const _version = '2.0.0';
+const _version = '2.1.0';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});

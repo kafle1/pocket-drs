@@ -13,7 +13,7 @@ from typing import Any
 
 from .models import ApiError, JobStatus, ProgressInfo
 
-# public API with no accounts: jobs are cleaned up by age instead of by owner
+# jobs are cleaned up by age; job ids are unguessable, so no owner check on reads
 _MAX_JOB_AGE_S = 24 * 60 * 60
 
 

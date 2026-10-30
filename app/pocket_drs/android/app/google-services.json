@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "1066030241714",
+    "project_id": "pocket-drs-app",
+    "storage_bucket": "pocket-drs-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1066030241714:android:1f0275072195f04b1e76ab",
+        "android_client_info": {
+          "package_name": "com.pocketdrs.pocket_drs"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1066030241714-a7jfik408ab7tev7c2h6a6g4140jbbg3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.pocketdrs.pocket_drs",
+            "certificate_hash": "0da0976a973ea364d4835aad7f4a3ef4ce38e7b3"
+          }
+        },
+        {
+          "client_id": "1066030241714-cai2q4o1v2vj4bsmph3i9adu7k3hvhav.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.pocketdrs.pocket_drs",
+            "certificate_hash": "f1ca3620f67dacf7399201198b1c6dfa0e643693"
+          }
+        },
+        {
+          "client_id": "1066030241714-71e0qme8c5jmsq9dbd3pc15m9tjl6u5g.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyANCPz-UOyG0IONdZJijCUUqkdmHLAKx7c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1066030241714-71e0qme8c5jmsq9dbd3pc15m9tjl6u5g.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

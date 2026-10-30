@@ -8,6 +8,7 @@ import android.media.MediaMuxer
 import android.os.Handler
 import android.os.Looper
 import android.os.StatFs
+import android.provider.Settings
 import android.view.KeyEvent
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -50,6 +51,8 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "freeBytes" -> result.success(StatFs(cacheDir.path).availableBytes)
+                    // survives a reinstall, so free reviews count per phone
+                    "deviceId" -> result.success(Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID))
                     else -> result.notImplemented()
                 }
             }

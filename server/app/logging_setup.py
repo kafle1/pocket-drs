@@ -24,7 +24,7 @@ def build_uvicorn_log_config(*, log_level: str = "info") -> dict[str, Any]:
     """Return a uvicorn-compatible logging config.
 
     Everything goes to stdout, and whatever runs the server decides where it
-    ends up: the container log, or ~/.pocket-drs/server.log under make host.
+    ends up, which in production is the docker container log.
     """
     level = (log_level or "info").upper()
     fmt = "%(asctime)s [%(levelname)s] %(name)s req=%(req_id)s: %(message)s"

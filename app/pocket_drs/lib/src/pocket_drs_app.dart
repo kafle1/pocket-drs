@@ -1,10 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'account/account.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
 import 'screens/analyze_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/sign_in_screen.dart';
 
 class PocketDrsApp extends StatefulWidget {
   const PocketDrsApp({super.key});
@@ -14,10 +16,26 @@ class PocketDrsApp extends StatefulWidget {
 }
 
 class _PocketDrsAppState extends State<PocketDrsApp> {
+  final _nav = GlobalKey<NavigatorState>();
+
   @override
   void initState() {
     super.initState();
     ThemeController.instance.ensureLoaded();
+    Account.instance.signedIn.addListener(_onSignedIn);
+  }
+
+  @override
+  void dispose() {
+    Account.instance.signedIn.removeListener(_onSignedIn);
+    super.dispose();
+  }
+
+  // signing out mid-flow drops every open screen back to the sign-in gate
+  void _onSignedIn() {
+    if (!Account.instance.signedIn.value) {
+      _nav.currentState?.popUntil((r) => r.isFirst);
+    }
   }
 
   @override
@@ -27,6 +45,7 @@ class _PocketDrsAppState extends State<PocketDrsApp> {
       builder: (context, mode, _) {
         return MaterialApp(
           title: 'Pocket DRS',
+          navigatorKey: _nav,
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
@@ -42,7 +61,13 @@ class _PocketDrsAppState extends State<PocketDrsApp> {
             );
           },
           // no live camera session in a browser, so web keeps the upload flow only
-          home: kIsWeb ? const AnalyzeScreen() : const HomeScreen(),
+          home: kIsWeb
+              ? const AnalyzeScreen()
+              : ValueListenableBuilder<bool>(
+                  valueListenable: Account.instance.signedIn,
+                  builder: (context, signedIn, _) =>
+                      signedIn ? const HomeScreen() : const SignInScreen(),
+                ),
         );
       },
     );

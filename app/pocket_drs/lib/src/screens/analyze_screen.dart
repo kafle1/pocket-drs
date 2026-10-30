@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' show min;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../analysis/frame_decoder.dart';
+import '../account/account.dart';
 import '../api/analysis_result.dart';
 import '../api/pocket_drs_api.dart';
 import '../theme/app_colors.dart';
@@ -15,6 +17,7 @@ import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../utils/app_logger.dart';
 import '../utils/app_settings.dart';
+import '../widgets/account_widgets.dart';
 import '../widgets/image_marker.dart';
 import '../widgets/trajectory_video_view.dart';
 import '../widgets/video_frame_selector.dart';
@@ -74,6 +77,10 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   int _run = 0;
   // closed on cancel, so a dropped analysis stops uploading
   PocketDrsApi? _api;
+  // a job the server already took, so trying again polls it instead of uploading a second copy
+  ({String key, String jobId, String? cutPath})? _resume;
+  // one key per clip and settings, so a retry after a lost reply gets the same job back
+  ({String key, String id})? _idem;
 
   void _log(String m) => AppLogger.instance.log(m);
 
@@ -100,7 +107,16 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         _segmentEndMs = 600000;
         _step = _Step.trim;
       });
-    } catch (_) {
+    } on PlatformException catch (e) {
+      _log('[PICK] ${e.code}: ${e.message}');
+      _showError(switch (e.code) {
+        'camera_access_denied' => 'Camera access is off. Allow it for Pocket DRS in your phone settings, then try again.',
+        'photo_access_denied' || 'storage_access_denied' => 'Access to your videos is off. Allow it for Pocket DRS in your phone settings, then try again.',
+        'no_available_camera' => 'No camera found on this phone.',
+        _ => "Couldn't open this video. Try another clip.",
+      });
+    } catch (e) {
+      _log('[PICK] $e');
       _showError("Couldn't open this video. Try another clip.");
     }
   }
@@ -147,6 +163,16 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     final video = _video;
     final stumps = _stumps;
     if (video == null || stumps == null) return;
+    // check before cutting and uploading a clip the server would turn away
+    if (Account.instance.me.value?.usedUp ?? false) {
+      await Account.instance.refreshMe();
+      if (!mounted) return;
+      if (Account.instance.me.value?.usedUp ?? false) {
+        Account.instance.logEvent('trials_used_up');
+        showUsedUp(context);
+        return;
+      }
+    }
     final run = ++_run;
     bool stale() => !mounted || run != _run;
 
@@ -160,58 +186,94 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
 
     final api = _api = PocketDrsApi(baseUrl: kServerUrl);
     String? cutPath;
+    String? jobId;
+    String? key;
     try {
       _log('[ANALYZE] server=$kServerUrl');
-      var startMs = _segmentStartMs;
-      var endMs = _segmentEndMs;
-      final Uint8List bytes;
-      if (kIsWeb) {
-        bytes = await video.readAsBytes();
-      } else {
-        // upload only the marked segment, not the whole recording
-        cutPath =
-            '${Directory.systemTemp.path}/pocket_drs_cut_'
-            '${DateTime.now().microsecondsSinceEpoch}.mp4';
-        // the cut starts at a keyframe, so the chosen part sits at span[0] inside it
-        final List<int>? span;
-        try {
-          span = await _native.invokeListMethod<int>('trim', {
-            'input': video.path,
-            'output': cutPath,
-            'startMs': startMs,
-            'endMs': endMs,
-          });
-        } catch (e) {
-          final msg = e is PlatformException ? (e.message ?? e.code) : '$e';
-          throw StateError('Could not cut the clip: $msg');
-        }
-        startMs = span![0];
-        endMs = span[1];
-        bytes = await File(cutPath).readAsBytes();
+      final pitchLengthM = await AppSettings.getPitchLength();
+      key =
+          '${video.path}|$_segmentStartMs|$_segmentEndMs|'
+          '$_batsmanHandedness|$pitchLengthM|${stumps.join(',')}';
+      final resume = _resume;
+      _resume = null;
+      if (resume != null && resume.key == key) {
+        jobId = resume.jobId;
+        cutPath = resume.cutPath;
+      } else if (resume?.cutPath case final old?) {
+        File(old).delete().ignore();
       }
-      final jobId = await api.createJob(
-        videoBytes: bytes,
-        videoFilename: video.name,
-        requestJson: jobRequest(
-          stumps: stumps,
-          handedness: _batsmanHandedness,
-          startMs: startMs,
-          endMs: endMs,
-          maxFrames: 240,
-          pitchLengthM: await AppSettings.getPitchLength(),
-        ),
-      );
-      _log('[ANALYZE] job=$jobId');
+      AnalysisResult? analysis;
+      if (jobId != null) {
+        _log('[ANALYZE] resuming job=$jobId');
+        try {
+          analysis = await api.waitForResult(
+            jobId,
+            cancelled: stale,
+            onStatus: _onStatus,
+          );
+        } on ApiException catch (e) {
+          // the server dropped it, so this is the one case that sends the clip again
+          if (e.statusCode != 404) rethrow;
+          jobId = null;
+          // the old key would hand back the expired job
+          _idem = null;
+          if (cutPath != null) File(cutPath).delete().ignore();
+          cutPath = null;
+        }
+      }
+      if (analysis == null) {
+        var startMs = _segmentStartMs;
+        var endMs = _segmentEndMs;
+        final Uint8List bytes;
+        if (kIsWeb) {
+          bytes = await video.readAsBytes();
+        } else {
+          // upload only the marked segment, not the whole recording
+          cutPath =
+              '${Directory.systemTemp.path}/pocket_drs_cut_'
+              '${DateTime.now().microsecondsSinceEpoch}.mp4';
+          // the cut starts at a keyframe, so the chosen part sits at span[0] inside it
+          final List<int>? span;
+          try {
+            span = await _native.invokeListMethod<int>('trim', {
+              'input': video.path,
+              'output': cutPath,
+              'startMs': startMs,
+              'endMs': endMs,
+            });
+          } catch (e) {
+            final msg = e is PlatformException ? (e.message ?? e.code) : '$e';
+            throw StateError('Could not cut the clip: $msg');
+          }
+          startMs = span![0];
+          endMs = span[1];
+          bytes = await File(cutPath).readAsBytes();
+        }
+        if (stale()) throw StateError('Cancelled');
+        final idem = _idem?.key == key
+            ? _idem!
+            : (_idem = (key: key, id: newIdempotencyKey()));
+        jobId = await api.createJob(
+          idempotencyKey: idem.id,
+          videoBytes: bytes,
+          videoFilename: video.name,
+          requestJson: jobRequest(
+            stumps: stumps,
+            handedness: _batsmanHandedness,
+            startMs: startMs,
+            endMs: endMs,
+            maxFrames: 240,
+            pitchLengthM: pitchLengthM,
+          ),
+        );
+        _log('[ANALYZE] job=$jobId');
 
-      final analysis = await api.waitForResult(
-        jobId,
-        cancelled: stale,
-        onStatus: (status) => setState(() {
-          _progressPct = status.pct;
-          _progressStage = status.stage ?? status.status;
-          _progressError = status.errorMessage;
-        }),
-      );
+        analysis = await api.waitForResult(
+          jobId,
+          cancelled: stale,
+          onStatus: _onStatus,
+        );
+      }
       if (stale()) return;
       setState(() {
         _analysis = analysis;
@@ -221,22 +283,57 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       });
     } catch (e) {
       _log('[ANALYZE] error: $e');
+      // the server has this job and may still finish it, so keep it for the next try
+      final resumable =
+          jobId != null &&
+          key != null &&
+          mounted &&
+          (stale() || (e is ApiException && e.statusCode != 404));
+      if (resumable) _resume = (key: key, jobId: jobId, cutPath: cutPath);
       if (stale()) return;
       // Most failures are calibration (re-mark stumps), drop back to the stump
       // step so the user can adjust and retry without restarting.
       setState(() => _step = _Step.stumps);
-      _showError(switch (e) {
+      if (e is ApiException && e.kind == ApiErrorKind.usedUp) {
+        unawaited(Account.instance.refreshMe());
+        if (mounted) showUsedUp(context);
+        return;
+      }
+      // the sign-in screen takes over, so there is nothing to say here
+      if (e is ApiException && e.kind == ApiErrorKind.signIn) return;
+      final msg = switch (e) {
         ApiException e => e.message,
+        JobFailedException e => e.message,
         StateError e => e.message,
+        FileSystemException _ =>
+          "Couldn't read the clip from your phone. Pick it again.",
         _ => 'Analysis failed. Try again.',
-      });
+      };
+      _showError(resumable ? '$msg Tap Continue to check it again.' : msg);
     } finally {
       api.close();
       if (_api == api) _api = null;
-      if (cutPath != null && cutPath != _cutPath) {
+      if (cutPath != null &&
+          cutPath != _cutPath &&
+          cutPath != _resume?.cutPath) {
         File(cutPath).delete().ignore();
       }
     }
+  }
+
+  void _onStatus(JobStatus status) {
+    if (!mounted) return;
+    setState(() {
+      _progressPct = status.pct;
+      _progressStage = status.stage ?? status.status;
+      _progressError = status.errorMessage;
+    });
+  }
+
+  void _dropResume() {
+    final cut = _resume?.cutPath;
+    _resume = null;
+    if (cut != null) File(cut).delete().ignore();
   }
 
   void _dropCut() {
@@ -264,6 +361,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     _api?.close();
     _deleteRecordedSource();
     _dropCut();
+    _dropResume();
     super.dispose();
   }
 
@@ -271,6 +369,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     _deleteRecordedSource();
     setState(() {
       _dropCut();
+      _dropResume();
       _step = _Step.upload;
       _video = null;
       _videoFromCamera = false;
@@ -497,6 +596,8 @@ class _UploadStep extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
+                const PlanStatus(),
+                const SizedBox(height: AppSpacing.lg),
                 Text(
                   'Batter',
                   style: theme.textTheme.labelLarge?.copyWith(
@@ -508,6 +609,8 @@ class _UploadStep extends StatelessWidget {
                   width: double.infinity,
                   child: SegmentedButton<String>(
                     expandedInsets: EdgeInsets.zero,
+                    // the tick pushes "Right-handed" past its half on a 320 wide phone
+                    showSelectedIcon: false,
                     segments: const [
                       ButtonSegment(
                         value: 'right',
@@ -585,16 +688,15 @@ class _ProcessingView extends StatelessWidget {
     final help = _stageHelp[stageKey] ?? 'Processing your delivery';
     final hasError = error != null;
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               '$p%',
-              style: AppTheme.tabular(
-                theme.textTheme.displayMedium,
-              )?.copyWith(color: hasError ? scheme.error : scheme.primary),
+              style: AppTheme.tabular(theme.textTheme.displayMedium)
+                  ?.copyWith(color: hasError ? scheme.error : scheme.primary),
             ),
             const SizedBox(height: AppSpacing.md),
             Text(stageName, style: theme.textTheme.titleMedium),
@@ -667,7 +769,9 @@ class ResultsView extends StatelessWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Could not open the 3D view. Is a web browser installed?'),
+            content: Text(
+              'Could not open the 3D view. Is a web browser installed?',
+            ),
           ),
         );
       }
@@ -691,11 +795,14 @@ class ResultsView extends StatelessWidget {
     final panel = _ResultPanel(
       wide: wide,
       decision: lbw?.decision,
-      // the server's warnings explain a missing call or a missing number
-      reason: [if (lbw != null) lbw.reason, ...result.warnings]
-          .where((l) => l.isNotEmpty)
-          .map((l) => l[0].toUpperCase() + l.substring(1))
-          .join('\n'),
+      // the server's warnings explain a missing call or a missing number; with no call the first one is the reason
+      reason: lbw == null
+          ? (result.warnings.firstOrNull ??
+                "The ball's path couldn't be worked out well enough to make a call.")
+          : [lbw.reason, ...result.warnings]
+                .where((l) => l.isNotEmpty)
+                .map((l) => l[0].toUpperCase() + l.substring(1))
+                .join('\n'),
       // the 3D page needs the fitted path, which only comes with a call
       onOpen3D: lbw == null ? null : () => _open3D(context),
       action: action,
@@ -704,7 +811,10 @@ class ResultsView extends StatelessWidget {
     return wide
         ? Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [video, SizedBox(width: 360, child: panel)],
+            children: [
+              video,
+              SizedBox(width: min(360, size.width * 0.55), child: panel),
+            ],
           )
         : Column(
             children: [
@@ -743,7 +853,14 @@ class _ResultPanel extends StatelessWidget {
       LbwDecisionKey.out => 'Out',
       LbwDecisionKey.notOut => 'Not out',
       LbwDecisionKey.umpiresCall => "Umpire's call",
-      null => 'No call',
+      null => 'No decision',
+    };
+    final verdictNote = switch (decision) {
+      LbwDecisionKey.umpiresCall =>
+        "Too close to call, so the on-field umpire's decision stands.",
+      null =>
+        "The app couldn't make a call on this ball. This is not a not out.",
+      _ => null,
     };
     final verdictColor = switch (decision) {
       LbwDecisionKey.out => AppColors.out(Brightness.light),
@@ -763,9 +880,7 @@ class _ResultPanel extends StatelessWidget {
               ? const BorderRadius.horizontal(
                   left: Radius.circular(AppRadius.xl),
                 )
-              : const BorderRadius.vertical(
-                  top: Radius.circular(AppRadius.xl),
-                ),
+              : const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
         ),
         child: SafeArea(
           top: wide,
@@ -799,6 +914,16 @@ class _ResultPanel extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (verdictNote != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    verdictNote,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.md),
                 if (reason.isNotEmpty) ...[
                   Text(reason, style: theme.textTheme.bodyLarge),

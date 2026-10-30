@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_spacing.dart';
+import '../widgets/account_widgets.dart';
 import 'analyze_screen.dart';
 import 'session_screen.dart';
 import 'settings_screen.dart';
@@ -22,6 +23,11 @@ class HomeScreen extends StatelessWidget {
           SliverAppBar.large(
             title: const Text('Pocket DRS'),
             actions: [
+              IconButton(
+                tooltip: 'Account',
+                onPressed: () => showAccountSheet(context),
+                icon: const Icon(Icons.account_circle_outlined),
+              ),
               IconButton(
                 tooltip: 'Settings',
                 onPressed: () => _open(context, const SettingsScreen()),
@@ -45,6 +51,8 @@ class HomeScreen extends StatelessWidget {
                     color: scheme.onSurfaceVariant,
                   ),
                 ),
+                const SizedBox(height: AppSpacing.md),
+                const PlanStatus(),
                 const SizedBox(height: AppSpacing.xl),
                 _ActionCard(
                   filled: true,

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14532d">
+<title>PocketDRS</title>
+<meta name="description" content="Check an LBW call from one phone clip.">
+<link rel="stylesheet" href="/web/style.css">
+<script type="module" src="/web/app.js"></script>
+</head>
+<body>
+<main id="root">
+  <p id="boot" class="muted center">Loading...</p>
+
+  <section id="signin" hidden>
+    <h1>PocketDRS</h1>
+    <p class="lead">Check an LBW call from one phone clip.</p>
+    <button id="google" class="primary">Continue with Google</button>
+    <p id="signin-error" class="error" hidden></p>
+  </section>
+
+  <section id="app" hidden>
+    <header class="bar">
+      <a href="/" class="brand">PocketDRS</a>
+      <span class="grow"></span>
+      <a id="admin-link" href="/admin" hidden>Admin</a>
+      <button id="signout" class="link">Sign out</button>
+    </header>
+    <p id="who" class="muted small"></p>
+
+    <div id="review">
+      <div id="quota" class="quota"></div>
+      <div id="used-up" class="notice" hidden>
+        <p>You've used your 5 free reviews. Contact the admin for premium access.</p>
+        <a id="contact" class="button primary" href="mailto:kafleniraj@gmail.com?subject=PocketDRS%20premium">Contact admin</a>
+      </div>
+
+      <div id="step-pick" class="card">
+        <h2>Pick a delivery</h2>
+        <p class="muted">Record or choose one clip of the delivery. Film from behind the bowler's stumps with the phone held still.</p>
+        <div class="seg" role="group" aria-label="Batter">
+          <button data-hand="right" class="on">Right-handed</button>
+          <button data-hand="left">Left-handed</button>
+        </div>
+        <label class="field">Pitch length in metres
+          <input id="pitch" type="number" inputmode="decimal" min="10" max="25" step="0.01" value="20.12">
+        </label>
+        <div class="row">
+          <label class="button primary">Record video<input id="rec" type="file" accept="video/*" capture="environment" hidden></label>
+          <label class="button">Choose from phone<input id="pick" type="file" accept="video/*" hidden></label>
+        </div>
+      </div>
+
+      <div id="step-mark" class="card" hidden>
+        <h2>Trim and mark the stumps</h2>
+        <p class="muted small">Slide to the delivery and set where it starts and ends. Then tap the 8 stump corners on a clear frame.</p>
+        <div class="zoom-wrap" id="zoom-wrap">
+          <div class="stage" id="stage">
+            <video id="video" playsinline muted preload="auto"></video>
+            <div id="marks" class="marks"></div>
+          </div>
+        </div>
+        <input id="scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Position in the clip">
+        <div class="row tight">
+          <button id="back" aria-label="Back one frame">&#8249; Frame</button>
+          <span id="time" class="muted small grow center">0.00 s</span>
+          <button id="fwd" aria-label="Forward one frame">Frame &#8250;</button>
+        </div>
+        <div class="row tight">
+          <button id="set-start">Start here</button>
+          <button id="set-end">End here</button>
+        </div>
+        <p id="segment" class="muted small">Whole clip</p>
+        <div class="row tight">
+          <span class="small">Zoom</span>
+          <div class="seg small-seg" id="zoom">
+            <button data-z="1" class="on">1x</button><button data-z="2">2x</button><button data-z="3">3x</button>
+          </div>
+        </div>
+        <p id="next-tap" class="tap-hint"></p>
+        <div class="row tight">
+          <button id="undo">Undo</button>
+          <button id="clear">Clear marks</button>
+        </div>
+        <p id="mark-error" class="error" hidden></p>
+        <div class="row">
+          <button id="go" class="primary" disabled>Check this ball</button>
+          <button id="change">Pick another clip</button>
+        </div>
+      </div>
+
+      <div id="step-run" class="card" hidden>
+        <h2 id="run-title">Sending the clip</h2>
+        <div class="progress"><div id="bar"></div></div>
+        <p id="run-text" class="muted">0%</p>
+      </div>
+
+      <div id="step-result" class="card" hidden>
+        <div id="verdict" class="verdict"></div>
+        <p id="verdict-note"></p>
+        <p id="reason" class="muted"></p>
+        <ul id="checks" class="checks"></ul>
+        <div class="row">
+          <a id="three-d" class="button" target="_blank" rel="noopener">View in 3D</a>
+          <button id="again" class="primary">Check another ball</button>
+        </div>
+      </div>
+      <p id="error" class="error" hidden></p>
+    </div>
+
+    <div id="admin" hidden>
+      <h2>Admin</h2>
+      <p id="stats" class="muted"></p>
+      <input id="q" type="search" placeholder="Search by email" aria-label="Search by email">
+      <form id="add" class="row tight">
+        <input id="add-email" type="email" placeholder="Email to give premium" aria-label="Email to give premium" required class="grow">
+        <button class="primary">Give premium</button>
+      </form>
+      <p id="admin-msg" class="muted small" hidden></p>
+      <h3>People</h3>
+      <ul id="users" class="list"></ul>
+      <h3>Phones</h3>
+      <ul id="devices" class="list"></ul>
+    </div>
+    <p id="not-admin" class="notice" hidden>This page is only for the admin. <a href="/">Go back</a></p>
+  </section>
+</main>
+</body>
+</html>

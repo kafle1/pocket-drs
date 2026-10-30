@@ -15,11 +15,14 @@ from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import UploadFile as FormFile
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from . import accounts as acc
 
 from .jobs import JobPaths, JobStore, default_job_store
 from .logging_setup import configure_logging, request_id_ctx
@@ -46,6 +49,9 @@ async def _lifespan(app: FastAPI):
     dropped = _store.drop_interrupted_jobs()
     if dropped:
         _log.warning("Dropped %d interrupted job(s) on startup: %s", len(dropped), ", ".join(dropped))
+    refunded = _accounts.fail_unfinished()
+    if refunded:
+        _log.warning("Gave back the free use of %d unfinished job(s)", refunded)
     yield
 
 
@@ -87,7 +93,7 @@ _UPLOAD_DEADLINE_S = 600    # the app gives up on an upload after 10 minutes too
 @app.middleware("http")
 async def _cap_upload(request: Request, call_next):
     # starlette spools the whole multipart body to disk before create_job runs, so cap it by header
-    if request.method != "POST":
+    if request.method != "POST" or request.url.path != "/v1/jobs":
         return await call_next(request)
     size = request.headers.get("content-length", "")
     if not size.isdigit():
@@ -109,7 +115,7 @@ async def _cap_upload(request: Request, call_next):
 
 app.add_middleware(RequestLoggingMiddleware)
 
-# public, anonymous API: any origin may call it, and there are no cookies to guard
+# auth rides in a bearer header, not cookies, so any origin may call it
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -121,6 +127,7 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 _store: JobStore = default_job_store()
+_accounts = acc.default_accounts()
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="job-worker")
 
 # the ball detector pins every CPU, so one job runs at a time and a burst past the cap gets a 503
@@ -144,10 +151,130 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-# what people see when they open the hosted server's page
-@app.get("/", response_class=PlainTextResponse)
-def root() -> str:
-    return "Pocket DRS analysis server is running. Get the app at https://github.com/kafle1/pocket-drs"
+_WEB = Path(__file__).parent / "web"
+app.mount("/web", StaticFiles(directory=_WEB), name="web")
+
+
+# the website for phones without the Android app; /admin is the same page showing the admin panel
+@app.get("/", include_in_schema=False)
+@app.get("/admin", include_in_schema=False)
+def website() -> FileResponse:
+    return FileResponse(_WEB / "index.html", headers={"Cache-Control": "no-cache"})
+
+
+_FIREBASE_KEYS = ("apiKey", "authDomain", "projectId", "appId", "messagingSenderId", "storageBucket", "measurementId")
+
+
+@app.get("/config.json", include_in_schema=False)
+def web_config() -> JSONResponse:
+    # the firebase web config is public by design but kept out of the repo
+    try:
+        raw = json.loads(Path(os.environ.get("FIREBASE_WEB_CONFIG", "/data/firebase-web.json")).read_text())
+    except (OSError, ValueError):
+        return JSONResponse({"error": "not_configured"}, status_code=503)
+    cfg = {k: raw[k] for k in _FIREBASE_KEYS if isinstance(raw.get(k), str) and raw[k]}
+    if os.environ.get("FIREBASE_MEASUREMENT_ID"):
+        cfg["measurementId"] = os.environ["FIREBASE_MEASUREMENT_ID"]
+    return JSONResponse(cfg, headers={"Cache-Control": "no-cache"})
+
+
+def _err(status: int, error: str, **extra: Any) -> JSONResponse:
+    return JSONResponse({"error": error, **extra}, status_code=status)
+
+
+def _identify(request: Request, need_device: bool) -> tuple[dict[str, Any], str | None] | JSONResponse:
+    """The signed-in person and their device id, or the error response to send instead."""
+    try:
+        ident = acc.verify_token(request.headers.get("authorization"))
+    except acc.AuthError as e:
+        _log.info("sign-in refused: %s", str(e)[:200])
+        return _err(401, "sign_in_required")
+    device_id = request.headers.get("x-device-id", "").strip() or None
+    if device_id is not None and not acc.valid_device(device_id):
+        return _err(400, "device_id_required")
+    if need_device and device_id is None:
+        return _err(400, "device_id_required")
+    return ident, device_id
+
+
+def _used_up() -> JSONResponse:
+    return _err(402, "trials_used_up",
+                message=f"You've used your {acc.FREE_ANALYSES} free reviews. Contact the admin for premium access.",
+                contact_email=acc.CONTACT_EMAIL)
+
+
+@app.get("/v1/me")
+def me(request: Request):
+    who = _identify(request, need_device=True)
+    if isinstance(who, JSONResponse):
+        return who
+    return _accounts.me(*who)
+
+
+def _admin(request: Request) -> JSONResponse | None:
+    who = _identify(request, need_device=False)
+    if isinstance(who, JSONResponse):
+        return who
+    if who[0]["email"] not in acc.admin_emails():
+        return _err(403, "admin_only")
+    return None
+
+
+@app.get("/v1/admin/users")
+def admin_users(request: Request, q: str = ""):
+    return _admin(request) or {"users": _accounts.list_users(q)}
+
+
+@app.put("/v1/admin/users/{email}")
+async def admin_update_user(email: str, request: Request):
+    denied = await run_in_threadpool(_admin, request)
+    if denied:
+        return denied
+    target = acc.clean_email(email)
+    if target is None:
+        return _err(400, "bad_email")
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return _err(400, "bad_request")
+    plan, reset = body.get("plan"), body.get("reset_used", False)
+    if plan not in (None, "free", "premium") or not isinstance(reset, bool):
+        return _err(400, "bad_request")
+    if plan is not None and target in acc.admin_emails():
+        return _err(400, "admin_plan_locked")
+    return await run_in_threadpool(_accounts.update_user, target, plan, reset)
+
+
+@app.get("/v1/admin/devices")
+def admin_devices(request: Request, q: str = ""):
+    return _admin(request) or {"devices": _accounts.list_devices(q)}
+
+
+@app.post("/v1/admin/devices/{device_id}/reset")
+def admin_reset_device(device_id: str, request: Request):
+    denied = _admin(request)
+    if denied:
+        return denied
+    if not acc.valid_device(device_id):
+        return _err(400, "device_id_required")
+    if not _accounts.reset_device(device_id):
+        return _err(404, "not_found")
+    return {"device_id": device_id, "used": 0}
+
+
+@app.get("/v1/admin/stats")
+def admin_stats(request: Request):
+    return _admin(request) or _accounts.stats()
+
+
+def _finish_safe(job_id: str, status: str) -> None:
+    # a database hiccup must not stop the job's own status from being written
+    try:
+        _accounts.finish(job_id, status)
+    except Exception:  # noqa: BLE001
+        _log.exception("could not record how job %s ended", job_id)
 
 
 # the worker's future is never awaited, so a failure here would otherwise leave the job running forever
@@ -177,54 +304,101 @@ def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], ar
         _store.write_status(paths, status=JobStatus.succeeded, progress=ProgressInfo(pct=100, stage="succeeded"),
                             error=None)
         _log.info("job %s done with %d warnings", job_id, len(out.warnings))
+        _finish_safe(job_id, "succeeded")
     except Exception as e:  # noqa: BLE001
         _log.exception("job %s failed", job_id)
         _write_failed_status_safe(paths, map_exception_to_api_error(e))
+        _finish_safe(job_id, "failed")
     finally:
         _job_slots.release()
         # nothing serves the clip back, so it goes as soon as the analysis ends
         video_path.unlink(missing_ok=True)
 
 
+def _earlier_job(job_id: str) -> CreateJobResponse:
+    try:
+        status = JobStatus(_store.read_status(_store.job_paths(job_id))["status"])
+    except Exception:  # noqa: BLE001 - the poll that follows reports what happened
+        status = JobStatus.queued
+    return CreateJobResponse(job_id=job_id, status=status)
+
+
+async def _drain(request: Request, response: JSONResponse) -> JSONResponse:
+    # a refusal sent mid-upload resets the socket and the phone shows "can't connect", so read the clip out first
+    try:
+        async for _ in request.stream():
+            pass
+    except Exception:  # noqa: BLE001 - the phone gave up, nothing left to tell it
+        pass
+    return response
+
+
 @app.post("/v1/jobs", response_model=CreateJobResponse)
-async def create_job(
-    video_file: UploadFile = File(...),
-    request_json: str = Form(...),
-) -> CreateJobResponse:
-    req_dict = _load_json(request_json)
+async def create_job(request: Request):
+    # who and how many uses are left is checked before the body is read, so a refused phone uploads nothing
+    who = await run_in_threadpool(_identify, request, True)
+    if isinstance(who, JSONResponse):
+        return await _drain(request, who)
+    ident, device_id = who
+    key = request.headers.get("idempotency-key", "").strip() or None
+    if key is not None and not acc.valid_device(key):
+        return await _drain(request, _err(400, "bad_request"))
+    # a retry of a clip that already went through gets that job back, before the used-up check can refuse it
+    earlier = await run_in_threadpool(_accounts.find_keyed, ident["email"], key)
+    if earlier and _store.exists(earlier):
+        return await _drain(request, _earlier_job(earlier))
+    if not await run_in_threadpool(_accounts.can_start, ident["email"], device_id):
+        return await _drain(request, _used_up())
 
+    form = await request.form()
     try:
-        CreateJobRequest.model_validate(req_dict)
-    except Exception as e:  # noqa: BLE001
-        # full validation detail goes to the log only; the client gets one plain sentence
-        _log.warning("Invalid job request: %s", str(e))
-        raise HTTPException(status_code=400, detail="The app sent an invalid request. Update the app and try again.")
+        video_file, request_json = form.get("video_file"), form.get("request_json")
+        if not isinstance(video_file, FormFile) or not isinstance(request_json, str):
+            raise HTTPException(status_code=400, detail="The app sent an invalid request. Update the app and try again.")
+        req_dict = _load_json(request_json)
+        try:
+            CreateJobRequest.model_validate(req_dict)
+        except Exception as e:  # noqa: BLE001
+            # full validation detail goes to the log only; the client gets one plain sentence
+            _log.warning("Invalid job request: %s", str(e))
+            raise HTTPException(status_code=400, detail="The app sent an invalid request. Update the app and try again.")
 
-    if not _job_slots.acquire(blocking=False):
-        raise HTTPException(
-            status_code=503,
-            detail=f"Server busy: {_MAX_JOBS} jobs already queued or running, try again shortly",
-        )
+        if not _job_slots.acquire(blocking=False):
+            raise HTTPException(
+                status_code=503,
+                detail=f"Server busy: {_MAX_JOBS} jobs already queued or running, try again shortly",
+            )
 
-    submitted, paths = False, None
-    try:
-        job_id, paths = _store.create_job()
-        _store.write_request(paths, req_dict)
-        with paths.video_path.open("wb") as f:
-            await run_in_threadpool(shutil.copyfileobj, video_file.file, f, 1 << 20)
+        submitted, taken, paths = False, False, None
+        try:
+            job_id, paths = _store.create_job()
+            # the real check: one sqlite write lock, so two uploads at once can't both take the last use
+            got = await run_in_threadpool(_accounts.take_use, ident, device_id, job_id, key)
+            if got is None:
+                return _used_up()
+            if got != job_id:
+                # the same clip raced in twice; the other upload already owns the job
+                return _earlier_job(got)
+            taken = True
+            _store.write_request(paths, req_dict)
+            with paths.video_path.open("wb") as f:
+                await run_in_threadpool(shutil.copyfileobj, video_file.file, f, 1 << 20)
 
-        _executor.submit(_process_job, job_id, paths.video_path, req_dict, paths.artifacts_dir)
-        submitted = True
-    except Exception:
-        _log.exception("Failed to save the uploaded video")
-        raise HTTPException(status_code=500, detail="The server couldn't save the video. Try again.")
+            _executor.submit(_process_job, job_id, paths.video_path, req_dict, paths.artifacts_dir)
+            submitted = True
+        except Exception:
+            _log.exception("Failed to save the uploaded video")
+            raise HTTPException(status_code=500, detail="The server couldn't save the video. Try again.")
+        finally:
+            if not submitted:
+                _job_slots.release()
+                if taken:
+                    _finish_safe(job_id, "failed")
+                # no worker will ever delete a half-saved clip
+                if paths is not None:
+                    shutil.rmtree(paths.job_dir, ignore_errors=True)
     finally:
-        if not submitted:
-            _job_slots.release()
-            # no worker will ever delete a half-saved clip
-            if paths is not None:
-                shutil.rmtree(paths.job_dir, ignore_errors=True)
-        await video_file.close()
+        await form.close()
 
     return CreateJobResponse(job_id=job_id, status=JobStatus.queued)
 
