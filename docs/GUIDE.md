@@ -24,8 +24,9 @@ Pocket DRS runs on Android 7.1.1 or newer. Download it from the
 Each file is about 20 MB. Open it on your phone, and allow installs from your browser when Android
 asks. When the app opens, tap **Continue with Google** to sign in.
 
-Every account gets 5 free reviews, and the home screen shows how many are left. A ball that fails
-to check doesn't use one up. When they run out, tap **Contact admin** to ask for premium access,
+Every account gets 5 free reviews, and the home screen shows how many are left. Each phone also
+gets 5, so a phone shared by several people runs out after 5 reviews in total. A ball that fails
+to check doesn't use one up, but a ball that is checked and gets no call does. When they run out, tap **Contact admin** to ask for premium access,
 which has no limit.
 
 On an iPhone, or any phone without the app, open
@@ -59,9 +60,9 @@ pitch makes that harder.
 **Frames a second.** The app checks up to 60 frames of video for every second of the delivery.
 When you record inside the app with **Start a session**, it sets your phone's camera to 60 frames
 a second for you, so you don't need to change anything. If you record with your phone's own camera
-app instead, for use with **Analyse a video**, set that app to its highest frame rate, ideally 60
-frames a second or higher, if your phone offers it. More frames a second make a fast ball easier
-to track.
+app instead, for **Analyse a video** or the website, set it to 60 frames a second first. Most
+phones film at 30 by default, and at 30 the app usually can't make a call. On an iPhone, open
+Settings, then Camera, then Record Video, and pick 1080p at 60 fps.
 
 Watch the short filming guide, made from a real delivery checked by the app:
 
@@ -190,10 +191,10 @@ If a message below appears, here is what it means and what to try.
 
 | Message you see | What it means | What to do |
 |---|---|---|
-| Can't reach the server. Check your internet, or try again later. | Your phone could not reach the server. Either your internet is down or the server is switched off. | Check your Wi-Fi or mobile data. If they work, the server is off for now, so try again later. |
-| No reply in time. Check your internet, or try again later. | The server took too long to answer. | Check your connection. If it is fine, the server may be off, so try again later. |
+| Can't reach the server. Check your internet, or try again later. | Your phone could not reach the server. Your internet is probably down. | Check your Wi-Fi or mobile data, then try again. |
+| No reply in time. Check your internet, or try again later. | The server took too long to answer. | Check your connection, then try again. |
 | The server is off right now. Try again later. | The server's computer is online, but the checking program on it is not running. | Try again later. |
-| You've used your 5 free reviews. Contact the admin for premium access. | Your account, or this phone, has used all its free reviews. | Tap **Contact admin** to ask for premium access. |
+| No free reviews left on this account or this phone. Contact the admin for premium access. | Your account, or this phone, has used all its free reviews. | Tap **Contact admin** to ask for premium access. |
 | The server is busy. Try this ball again in a minute. | The public server has too many jobs running at once. | Wait a minute, then try again. |
 | Something went wrong checking this ball. Try again. | The server hit an error while checking. | Try again. If it keeps happening, the server may be down. |
 | The server no longer has this ball, maybe after a restart. Send it again. | The server restarted while checking your ball, or the ball is more than a day old. | Tap the circular arrow next to the ball to send it again. |
@@ -231,6 +232,7 @@ not always see every one of these even when it applies.
 | the ball's path is too unsure to call; re-mark the stumps or try a clearer clip | The estimated path has too much uncertainty for a safe verdict. | Re-mark the stumps, or try a clearer, steadier clip. |
 | speed not shown, as the ball was seen too briefly to time it; keep the bowler's hand in view | The ball was visible for too short a stretch to time it. | Keep the bowler's hand and the start of the delivery in view. |
 | speed not shown, as the stump marks leave it unsure; zoom in and re-mark the corners | Small errors in the stump marks change the speed more than the ball's path does. | Zoom in and tap the stump corners again. |
+| filmed at about 30 frames a second, too few to follow the ball; set the camera to 60 frames a second for a call | The clip has too few pictures a second to follow a fast ball. | Set your camera to 60 frames a second and film again. |
 | only the first X.X s were checked; trim the clip to just the delivery | The clip was longer than the app checks in one go. | Trim the clip down to just the delivery before sending it. |
 
 ## Settings

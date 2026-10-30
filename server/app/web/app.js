@@ -37,7 +37,9 @@ function deviceId() {
 }
 const DEVICE = deviceId();
 // google refuses sign-in inside instagram, facebook, messenger and other app browsers
-const IN_APP = /FBAN|FBAV|FB_IAB|Instagram|Messenger|Line\/|; wv\)/.test(navigator.userAgent);
+const UA = navigator.userAgent;
+// an iphone browser without "Safari/" in its name is a chat app's built-in view (gmail, viber, telegram)
+const IN_APP = /FBAN|FBAV|FB_IAB|Instagram|Messenger|Line\/|; wv\)/.test(UA) || (/iPhone|iPad|iPod/.test(UA) && !/Safari\//.test(UA));
 const OPEN_IN_BROWSER = "Open this page in Safari or Chrome to sign in.";
 
 let auth, fbAuth, track = () => {}, me = null;
@@ -167,7 +169,7 @@ function renderQuota() {
   const out = left === 0;
   show("used-up", out);
   $("used-up").querySelector("p").textContent =
-    `You've used your ${me.free_limit} free reviews. Contact the admin for premium access.`;
+    "No free reviews left on this account or this phone. Contact the admin for premium access.";
   $("contact").href = `mailto:${me.contact_email}?subject=PocketDRS%20premium`;
   $("go").disabled = out || marks.length !== 8 || !!checkMarks();
 }
@@ -414,7 +416,11 @@ function showResult(jobId, result) {
   $("verdict").textContent = { out: "Out", not_out: "Not out", umpires_call: "Umpire's call" }[d] || "No decision";
   $("verdict-note").textContent = d === "umpires_call" ? "Too close to call, so the on-field umpire's decision stands."
     : d ? "" : "The app couldn't make a call on this ball. This is not a not out.";
-  $("reason").textContent = (lbw && lbw.reason) || "";
+  // like the app: with no call the server's first warning is the reason, with a call they follow it
+  const warn = (result && result.diagnostics && result.diagnostics.warnings) || [];
+  const lines = (d ? [lbw.reason, ...warn] : [warn[0] || "The ball's path couldn't be worked out well enough to make a call."])
+    .filter(Boolean).map((l) => l[0].toUpperCase() + l.slice(1));
+  $("reason").textContent = lines.join(". ");
   const c = (lbw && lbw.checks) || null;
   $("checks").replaceChildren(...(c ? [
     ["Pitched in line", c.pitching_in_line], ["Hit the pad in line", c.impact_in_line], ["Going on to hit the stumps", c.wickets_hitting],

@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import UploadFile as FormFile
+from google.auth.exceptions import TransportError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import accounts as acc
@@ -189,6 +190,10 @@ def _identify(request: Request, need_device: bool) -> tuple[dict[str, Any], str 
     except acc.AuthError as e:
         _log.info("sign-in refused: %s", str(e)[:200])
         return _err(401, "sign_in_required")
+    except TransportError as e:
+        # google's signing keys couldn't be fetched; a 401 here would sign everyone out in a loop
+        _log.warning("sign-in check unavailable: %s", str(e)[:200])
+        return _err(503, "server_busy")
     device_id = request.headers.get("x-device-id", "").strip() or None
     if device_id is not None and not acc.valid_device(device_id):
         return _err(400, "device_id_required")
@@ -199,7 +204,7 @@ def _identify(request: Request, need_device: bool) -> tuple[dict[str, Any], str 
 
 def _used_up() -> JSONResponse:
     return _err(402, "trials_used_up",
-                message=f"You've used your {acc.FREE_ANALYSES} free reviews. Contact the admin for premium access.",
+                message="No free reviews left on this account or this phone. Contact the admin for premium access.",
                 contact_email=acc.CONTACT_EMAIL)
 
 

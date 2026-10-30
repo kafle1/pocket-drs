@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import google.auth.transport.requests
+from google.auth.exceptions import TransportError
 from google.oauth2 import id_token
 
 FREE_ANALYSES = 5
@@ -79,7 +80,9 @@ def verify_token(auth_header: str | None) -> dict[str, Any]:
     try:
         claims = id_token.verify_firebase_token(parts[1].strip(), _request, audience=FIREBASE_PROJECT,
                                                 clock_skew_in_seconds=10)
-    except Exception as e:  # noqa: BLE001 - expired, bad signature, wrong project, google unreachable
+    except TransportError:
+        raise
+    except Exception as e:  # noqa: BLE001 - expired, bad signature, wrong project
         raise AuthError(f"bad token: {e}") from e
     if not claims or claims.get("iss") != f"https://securetoken.google.com/{FIREBASE_PROJECT}":
         raise AuthError("wrong issuer")

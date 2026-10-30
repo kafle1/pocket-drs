@@ -63,7 +63,7 @@ const _oddReply =
     'Got an unexpected reply from the server. Try again in a minute.';
 const kSignInAgain = 'Please sign in again to keep going.';
 const kUsedUp =
-    "You've used your 5 free reviews. Contact the admin for premium access.";
+    'No free reviews left on this account or this phone. Contact the admin for premium access.';
 
 class ApiException implements Exception {
   final ApiErrorKind kind;

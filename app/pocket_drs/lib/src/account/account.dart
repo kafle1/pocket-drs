@@ -167,7 +167,10 @@ class Account {
           "Sign-in didn't finish. Tap Continue with Google to try again.",
         GoogleSignInExceptionCode.interrupted =>
           'Sign-in was interrupted. Try again.',
-        _ => "Couldn't sign in with Google. Check your internet and try again.",
+        // phones without google play (newer huawei and honor) land here every time
+        _ =>
+          "Couldn't sign in with Google. Check your internet and try again. "
+              'If it keeps failing, use the website: $kServerUrl',
       };
     } on FirebaseAuthException catch (e) {
       _log('[AUTH] firebase: ${e.code}');
