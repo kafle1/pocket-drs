@@ -46,7 +46,8 @@ frame. The app checks this when you mark the stumps: if the marks show the phone
 pitch instead of behind it, the app asks you to move back and re-mark.
 
 **Height.** Set the tripod at about chest height. This keeps both sets of stumps clearly apart in
-the frame, without tilting the phone down too far.
+the frame, without tilting the phone down too far. Use the main camera lens, not the ultra-wide.
+Don't move the tripod during a session. If it gets knocked, start a new session and mark again.
 
 **Framing.** Keep the phone in portrait, the tall way up, with the full pitch running from the
 bottom of the frame to the top. Leave a little space around both sets of stumps so a stump is
@@ -249,19 +250,18 @@ Open Settings from the gear icon on the home screen.
 - **About.** Shows the app version, a **Source code** link to the free, open source code on
   GitHub, and a **Privacy policy** link.
 
-### Server address
+## Admin panel
 
-There is no setting in the app to change which server it talks to. The app is built to always use
-one server address, and that is the PocketDRS server. This can
-only be changed by building your own copy of the app with a different address baked in.
+Admins see an **Admin** item in their account menu in the app, and can open `/admin` on the
+website. Both show the same things:
 
-### Running your own server
-
-If you want to run your own copy of the server, for privacy or to avoid the shared public server,
-the project's main README explains how to set it up and run it, and the `server/Dockerfile` shows
-how it's packaged to run as a container. You would then build your own copy of the app with
-`--dart-define=POCKET_DRS_SERVER_URL=https://your-server-address`, so it points at your server
-instead of the public one. That's a developer task, not something you do from within the app.
+- **Stats**: how many people and premium people there are, and how many reviews ran and failed
+  today.
+- **People**: search by email, make someone premium or free, or reset their free reviews. You can
+  also add an email as premium before that person has signed in.
+- **Phones**: reset a phone's free reviews.
+- **Recent reviews**: the latest reviews and how each one ended (a verdict, no call, or failed),
+  so you can help someone at the ground.
 
 ## Privacy
 

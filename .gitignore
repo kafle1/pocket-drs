@@ -64,3 +64,14 @@ paper/experiments/__pycache__/
 
 # downloaded third-party clips used for real-video checks
 bench/
+
+# LaTeX build output
+*.aux
+*.out
+*.toc
+*.lof
+*.lot
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz

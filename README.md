@@ -11,8 +11,10 @@ It is meant for coaching and practice, not for officiating. If the estimate can'
 one sigma, it says umpire's call. If the fit doesn't explain the pixels, it gives no verdict.
 
 Get the Android app from the [latest release](https://github.com/kafle1/pocket-drs/releases/latest)
-(under 20 MB; [which file to pick](docs/GUIDE.md#get-the-app)). See the [user guide](docs/GUIDE.md),
-the [screen-by-screen walkthrough](docs/WALKTHROUGH.md) or the
+(under 20 MB; [which file to pick](docs/GUIDE.md#get-the-app)), or use the
+[website](https://pocketdrs-saarathi.centralindia.cloudapp.azure.com) on any phone, iPhone included.
+Both need a Google sign-in. Every account and every phone gets 5 free reviews, then **Contact admin**
+asks for premium. See the [user guide](docs/GUIDE.md) or the
 [36 second app walkthrough](docs/media/app-walkthrough.mp4).
 
 ## How it works
@@ -48,18 +50,59 @@ The paper under `paper/` describes an earlier model, and its numbers are not the
 ## Run
 
 ```bash
-make setup          # backend venv + flutter pub get
-make dev            # backend on :8000 and the app on a connected phone
+make setup     # server venv + flutter pub get
+make dev       # the app on a connected phone, against the public server
+make server    # the server locally on :8000 (make dev SERVER_URL=http://<your-ip>:8000 to use it)
+make apk       # release apks, one per phone chip
+make deploy    # copy server/ to the Azure VM, rebuild the Docker container behind Caddy
+make logs      # follow the live server's log
 ```
 
-Starting a job needs a Google sign-in (a Firebase ID token as `Authorization: Bearer`) and an
-`X-Device-Id` header. The API: `POST /v1/jobs` (multipart: clip + request JSON),
-`GET /v1/jobs/{id}`, `GET /v1/jobs/{id}/result`, and `GET /v1/jobs/{id}/three-d` for the 3D
-page. `docs/usage-guide.md` has the request and result fields; `server/scripts/real_clip.py`
-builds a request for a bundled clip.
+The server is FastAPI. It serves the website at `/` and the admin page at `/admin`, keeps accounts
+in SQLite under `/data`, and gives admin rights to the emails in `ADMIN_EMAILS`. `server/README.md`
+has the details.
 
-To host the server yourself: `docker build -t pocket-drs-server server && docker run -p 7860:7860 pocket-drs-server`.
-The public server is a Docker container on an Azure VM (`make deploy`); `server/README.md` has the details.
+### API
+
+Starting a job needs a Firebase ID token (`Authorization: Bearer`) and an `X-Device-Id` header.
+After that the job id is the only access control.
+
+- `POST /v1/jobs`, multipart `video_file` + `request_json`, starts a job
+- `GET /v1/jobs/{id}` gives `status` and `progress`
+- `GET /v1/jobs/{id}/result` gives the result once `status` is `succeeded`
+- `GET /v1/jobs/{id}/three-d` is the 3D view as a web page
+
+Request (unknown fields are rejected):
+
+```json
+{
+  "segment": {"start_ms": 0, "end_ms": 4000},
+  "tracking": {"sample_fps": 60, "max_frames": 240},
+  "calibration": {
+    "pitch_dimensions_m": {"width": 3.05, "length": 20.12},
+    "stump_quads_norm": [8 points: striker TL, TR, BR, BL, then bowler TL, TR, BR, BL]
+  },
+  "batsman_handedness": "right"
+}
+```
+
+`stump_quads_px` takes the same points in pixels. The lens angle is not an input: the server works
+it out from how big the far stumps look next to the near ones.
+
+| Result field | Meaning |
+|---|---|
+| `lbw.decision`, `lbw.reason`, `lbw.checks` | `out`, `not_out` or `umpires_call`, why, and the three Law 36 tests |
+| `lbw.prediction` | where the ball crosses the stump plane, with one-sigma bounds |
+| `events.bounce`, `events.impact` | the pitching point (null with no bounce seen) and where the track ended |
+| `metrics` | speed (null when its one-sigma spread is over 8 km/h), swing in cm, spin in degrees |
+| `overlay.*` | pixel paths for drawing on the clip |
+| `diagnostics.warnings` | anything worth knowing, including why a verdict was declined |
+
+Each Law 36 test is compared with the ICC review band (one ball radius), widened to the one-sigma
+bound when that is larger. A verdict is only decisive when every test clears its band.
+
+`server/scripts/real_clip.py test3` runs a bundled clip in process and draws the overlay under
+`dump/validation/test3/`.
 
 ## Reproduce the paper
 
@@ -83,8 +126,9 @@ them into clips.
 
 ## Filming
 
-Tripod behind the bowler's stumps, both sets of stumps in frame, a full-length pitch, a red or
-pink ball. Yorkers usually come back as umpire's call. `docs/usage-guide.md` has the details.
+Tripod behind the bowler's stumps, both sets of stumps in frame, a red or pink ball, 60 frames a
+second (in-app recording sets it; on an iPhone use Settings, Camera, Record Video, 1080p at 60 fps).
+Yorkers usually come back as umpire's call. The [user guide](docs/GUIDE.md) has the details.
 
 ## Privacy
 

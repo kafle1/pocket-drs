@@ -1,6 +1,6 @@
 # Pocket DRS privacy policy
 
-Last updated: 30 October 2026
+Last updated: 31 October 2026
 
 This page explains what Pocket DRS collects, why, and how long it keeps it. Pocket DRS has no ads
 and never sells your data.
@@ -44,10 +44,10 @@ video.
 
 ## Usage statistics
 
-The app uses Google Analytics for Firebase to count things like sign-ins, reviews started,
-finished or failed, and the verdict (out, not out, umpire's call). Your email and your videos are
+The app and the website use Google Analytics for Firebase to count things like sign-ins, reviews
+started, finished or failed, and the verdict (out, not out, umpire's call). Your email and your videos are
 never sent in these events. Google Analytics also collects general details it gathers in every app
-that uses it, such as the phone model, the app version and a rough country.
+that uses it, such as the phone or browser model, the app version and a rough country.
 
 ## What stays on your phone
 
