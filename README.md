@@ -5,7 +5,7 @@ stumps, mark the stumps once, and press Ball after each delivery. The server sen
 ball pitched, where it would have crossed the stumps, the release speed, the turn off the pitch, a
 Law 36 verdict, and how sure it is about each.
 
-<img src="docs/media/app-walkthrough.jpg" alt="Result screen with the verdict and the tracked ball" width="300">
+<img src="docs/media/website.jpg" alt="The website with a real net clip and the tracked ball" width="300"> <img src="server/app/web/img/three-d.jpg" alt="The 3D replay with pitching, impact and wickets" width="300">
 
 It is meant for coaching and practice, not for officiating. If the estimate can't support a call at
 one sigma, it says umpire's call. If the fit doesn't explain the pixels, it gives no verdict.

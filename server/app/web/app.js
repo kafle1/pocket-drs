@@ -501,7 +501,7 @@ function when(s) {
     ? "today " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : d.toLocaleDateString([], { day: "numeric", month: "short" });
 }
-const phone = (id) => "Phone " + id.slice(0, 8);
+const phone = (id) => (id.startsWith("web-") ? "Browser " + id.slice(4, 12) : "Phone " + id.slice(0, 8));
 function fill(id, items, empty, render) {
   $(id).replaceChildren(...(items.length ? items.map(render) : [el("li", empty, "muted")]));
 }

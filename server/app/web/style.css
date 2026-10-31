@@ -89,9 +89,36 @@ a { color: var(--accent); text-underline-offset: 3px; }
 
 /* boot + sign in */
 #boot { padding-top: 30vh; }
-#signin { padding-top: 14vh; display: flex; flex-direction: column; }
-.mark-logo { width: 48px; height: 48px; color: var(--accent); margin-bottom: 24px; }
-#signin .primary { width: 100%; min-height: 56px; font-size: 1.0625rem; }
+
+/* landing, what a signed-out visitor sees */
+main:has(#signin:not([hidden])) { max-width: 1040px; }
+.hero { display: grid; gap: 32px; padding: 24px 0 56px; align-items: center; }
+.hero h1 { font-size: clamp(2.25rem, 7vw, 3.5rem); line-height: 1.05; letter-spacing: -0.035em; margin: 0 0 16px; max-width: 14ch; }
+.hero .lead { margin-bottom: 24px; }
+.cta { display: grid; gap: 8px; margin-bottom: 12px; }
+.cta > * { min-height: 56px; font-size: 1.0625rem; }
+.shot { position: relative; margin: 0; border-radius: var(--r); overflow: hidden; background: var(--stage); box-shadow: var(--shadow); }
+.shot img { display: block; width: 100%; height: auto; }
+.shot .verdict { position: absolute; left: 12px; top: 12px; margin: 0; min-height: 0; padding: 8px 14px; font-size: 1.125rem; border-radius: var(--r-sm); }
+.how, .drs { padding: 40px 0; border-top: 1px solid var(--line); }
+.how ol { margin: 16px 0 0; padding-left: 1.4em; display: grid; gap: 12px; max-width: 60ch; }
+.how li::marker { color: var(--accent); font-weight: 750; }
+.drs { display: grid; gap: 32px; align-items: center; }
+.rows { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 24px 0 0; }
+.rows div { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 10px; min-width: 0; }
+.rows dt { font-size: 0.875rem; color: var(--muted); margin-bottom: 8px; }
+.rows dd { margin: 0; padding: 6px 4px; border-radius: 8px; font-size: 0.875rem; font-weight: 700; text-align: center; white-space: nowrap; color: var(--verdict-ink); }
+.tone.out { background: var(--out); }
+.tone.not_out { background: var(--notout); }
+.three-d { display: block; width: min(100%, 320px); height: auto; justify-self: center; border-radius: var(--r); box-shadow: var(--shadow); }
+.foot { padding: 32px 0 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; }
+.foot a { margin-right: 16px; display: inline-block; min-height: var(--tap); line-height: var(--tap); }
+@media (min-width: 860px) {
+  .hero { grid-template-columns: 1.1fr 0.9fr; gap: 56px; padding-top: 48px; }
+  .cta { grid-template-columns: 1fr 1fr; max-width: 520px; }
+  .drs { grid-template-columns: 1.3fr 0.7fr; gap: 56px; }
+  .three-d { width: 260px; }
+}
 
 /* header */
 .bar { display: flex; align-items: center; gap: 4px; min-height: var(--tap); }

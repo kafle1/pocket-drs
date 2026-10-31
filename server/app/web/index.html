@@ -15,15 +15,57 @@
   <p id="boot" class="muted center">Loading...</p>
 
   <section id="signin" hidden>
-    <svg class="mark-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M7 7v14M12 7v14M17 7v14M6 4h5M13 4h5"/></svg>
-    <h1>Pocket DRS</h1>
-    <p class="lead">Check leg before wicket calls from one phone video.</p>
-    <div id="in-app" class="notice" hidden>
-      <p>Google sign-in doesn't work inside this app. Open this page in Safari or Chrome.</p>
-      <button id="copy-link" class="button">Copy link</button>
+    <header class="bar">
+      <span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M7 7v14M12 7v14M17 7v14M6 4h5M13 4h5"/></svg>Pocket DRS</span>
+    </header>
+
+    <div class="hero">
+      <div class="pitch">
+        <h1>Was it out? Check the LBW from your phone.</h1>
+        <p class="lead">Film one ball from behind the bowler's stumps. Pocket DRS tracks the ball and gives the call, with its path drawn on your own clip.</p>
+        <div id="in-app" class="notice" hidden>
+          <p>Google sign-in doesn't work inside this app. Open this page in Safari or Chrome.</p>
+          <button id="copy-link" class="button">Copy link</button>
+        </div>
+        <div class="cta">
+          <button id="google" class="primary">Continue with Google</button>
+          <a class="button" href="https://github.com/kafle1/pocket-drs/releases/latest/download/pocket-drs-arm64.apk">Download for Android</a>
+        </div>
+        <p id="signin-error" class="error" hidden></p>
+        <p class="muted small">5 free reviews when you sign in. On iPhone, carry on right here in Safari.</p>
+      </div>
+      <figure class="shot">
+        <img src="/web/img/replay.jpg" width="720" height="828" alt="A real net session clip with the tracked ball drawn from the bowler's hand to where it pitched and hit the pad">
+        <figcaption class="verdict not_out">Not out</figcaption>
+      </figure>
     </div>
-    <button id="google" class="primary">Continue with Google</button>
-    <p id="signin-error" class="error" hidden></p>
+
+    <section class="how">
+      <h2>Three steps, about half a minute</h2>
+      <ol>
+        <li><strong>Film the ball.</strong> Phone still, behind the bowler's stumps, camera at 60 frames a second.</li>
+        <li><strong>Mark the stumps.</strong> Tap the four corners of each set of stumps once.</li>
+        <li><strong>Get the call.</strong> Out, not out or umpire's call, with the speed and a 3D replay.</li>
+      </ol>
+    </section>
+
+    <section class="drs">
+      <div>
+        <h2>The same three checks as TV DRS</h2>
+        <p class="muted">Where it pitched, where it hit the pad, and whether it was going on to hit the stumps. Too close to tell is umpire's call, like on TV. A clip that can't support a call gets no call, never a guess.</p>
+        <dl class="rows">
+          <div><dt>Pitching</dt><dd class="tone out">In line</dd></div>
+          <div><dt>Impact</dt><dd class="tone not_out">Outside leg</dd></div>
+          <div><dt>Wickets</dt><dd class="tone not_out">Missing</dd></div>
+        </dl>
+      </div>
+      <img class="three-d" src="/web/img/three-d.jpg" width="375" height="812" loading="lazy" alt="The 3D replay with the ball's path to the stumps and the pitching, impact and wickets panel">
+    </section>
+
+    <footer class="foot">
+      <p>For coaching and practice, not match officiating.</p>
+      <p><a href="https://github.com/kafle1/pocket-drs/blob/main/docs/GUIDE.md">User guide</a> <a href="https://github.com/kafle1/pocket-drs/blob/main/docs/privacy-policy.md">Privacy</a> <a href="https://github.com/kafle1/pocket-drs">Source code</a></p>
+    </footer>
   </section>
 
   <section id="app" hidden>
