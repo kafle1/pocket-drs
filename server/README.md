@@ -21,9 +21,7 @@ image, restarts the container and waits for `/healthz` to answer.
 | `ADMIN_EMAILS` | `kafleniraj@gmail.com` | Comma-separated emails that get admin rights and unlimited reviews |
 | `POCKET_DRS_DB` | `/data/pocketdrs.db` | SQLite file for accounts, devices and review counts |
 | `FIREBASE_WEB_CONFIG` | `/data/firebase-web.json` | Firebase web config served at `/config.json` for the browser app |
-| `FIREBASE_MEASUREMENT_ID` | unset | Overrides the Google Analytics measurement id in that config |
 | `POCKET_DRS_DATA_DIR` | `/app/data` in the image | Where job folders (clip, status, result) are written |
 | `POCKET_DRS_LOG_LEVEL` | `info` | Log level |
 
-`run.py`, which `make dev` uses on your own machine, also reads `POCKET_DRS_HOST` (default
-`0.0.0.0`), `POCKET_DRS_PORT` (default `8000`) and `POCKET_DRS_RELOAD` (default `0`).
+`make server` runs it on your own machine at port 8000.

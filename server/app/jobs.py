@@ -37,10 +37,6 @@ class JobStore:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
 
-    @property
-    def data_dir(self) -> Path:
-        return self._data_dir
-
     def _sweep_old_jobs(self) -> None:
         # runs on job creation; a job dir's mtime moves whenever its status is rewritten
         jobs_root = self._data_dir / "jobs"
@@ -57,25 +53,9 @@ class JobStore:
     def create_job(self) -> tuple[str, JobPaths]:
         self._sweep_old_jobs()
         job_id = uuid.uuid4().hex
-        job_dir = self._data_dir / "jobs" / job_id
-        artifacts_dir = job_dir / "artifacts"
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-        paths = JobPaths(
-            job_dir=job_dir,
-            video_path=job_dir / "input.mp4",
-            request_path=job_dir / "request.json",
-            status_path=job_dir / "status.json",
-            result_path=job_dir / "result.json",
-            artifacts_dir=artifacts_dir,
-        )
-
-        self.write_status(
-            paths,
-            status=JobStatus.queued,
-            progress=ProgressInfo(pct=0, stage="queued"),
-            error=None,
-        )
+        paths = self.job_paths(job_id)
+        paths.artifacts_dir.mkdir(parents=True)
+        self.write_status(paths, status=JobStatus.queued, progress=ProgressInfo(pct=0, stage="queued"), error=None)
         return job_id, paths
 
     def job_paths(self, job_id: str) -> JobPaths:
@@ -100,14 +80,11 @@ class JobStore:
         # the sweep only runs when a job is created, so a quiet server must still stop serving old results
         return time.time() - mtime < _MAX_JOB_AGE_S
 
-    def _atomic_write_text(self, path: Path, text: str) -> None:
+    def _atomic_write_json(self, path: Path, payload: dict[str, Any]) -> None:
         # a poll must never read a half-written file
         tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-        tmp.write_text(text)
+        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True))
         os.replace(tmp, path)
-
-    def _atomic_write_json(self, path: Path, payload: dict[str, Any]) -> None:
-        self._atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True))
 
     def write_request(self, paths: JobPaths, request_obj: dict[str, Any]) -> None:
         with self._lock:
@@ -169,9 +146,4 @@ class JobStore:
 
 
 def default_job_store() -> JobStore:
-    base = os.environ.get("POCKET_DRS_DATA_DIR")
-    if base:
-        data_dir = Path(base)
-    else:
-        data_dir = Path(__file__).resolve().parents[2] / "data"
-    return JobStore(data_dir=data_dir)
+    return JobStore(Path(os.environ.get("POCKET_DRS_DATA_DIR") or Path(__file__).resolve().parents[2] / "data"))

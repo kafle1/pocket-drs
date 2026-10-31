@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -13,18 +14,17 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
-from starlette.datastructures import UploadFile as FormFile
 from google.auth.exceptions import TransportError
+from starlette.datastructures import UploadFile as FormFile
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import accounts as acc
-
 from .jobs import JobPaths, JobStore, default_job_store
 from .logging_setup import configure_logging, request_id_ctx
 from .models import (
@@ -65,8 +65,8 @@ app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), na
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
-        incoming = request.headers.get("x-request-id", "").strip()
-        req_id = incoming if incoming else uuid.uuid4().hex[:12]
+        incoming = request.headers.get("x-request-id", "")
+        req_id = incoming if re.fullmatch(r"[A-Za-z0-9-]{1,64}", incoming) else uuid.uuid4().hex[:12]
         token = request_id_ctx.set(req_id)
 
         start = time.perf_counter()
@@ -87,7 +87,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             request_id_ctx.reset(token)
 
 
-_MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+_MAX_UPLOAD_BYTES = 201 * 1024 * 1024    # a 200 MB clip plus the form around it
+_BAD_REQUEST = "The clip couldn't be sent. Pick it again and retry."
 _UPLOAD_DEADLINE_S = 600    # the app gives up on an upload after 10 minutes too
 
 
@@ -100,11 +101,11 @@ async def _cap_upload(request: Request, call_next):
     if not size.isdigit():
         return JSONResponse({"detail": "Content-Length header required"}, status_code=411)
     if int(size) > _MAX_UPLOAD_BYTES:
-        return JSONResponse({"detail": f"Video exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit"},
+        return JSONResponse({"detail": "Video exceeds the 200 MB limit"},
                             status_code=413)
     # the job queue only says busy after the body is on disk, so parallel uploads could still fill it
     if _uploads.locked():
-        return JSONResponse({"detail": "Server busy: too many uploads at once, try again shortly"}, status_code=503)
+        return await _drain(request, _err(503, "server_busy"))
     async with _uploads:
         # a phone that drops off the network mid-upload leaves a half-open socket that would hold its slot forever
         try:
@@ -140,10 +141,10 @@ _uploads = asyncio.Semaphore(_MAX_JOBS)
 def _load_json(s: str) -> dict[str, Any]:
     try:
         v = json.loads(s)
-    except (ValueError, RecursionError) as e:
-        raise HTTPException(status_code=400, detail=f"Invalid request_json: {e}")
+    except (ValueError, RecursionError):
+        raise HTTPException(status_code=400, detail=_BAD_REQUEST)
     if not isinstance(v, dict):
-        raise HTTPException(status_code=400, detail="request_json must be a JSON object")
+        raise HTTPException(status_code=400, detail=_BAD_REQUEST)
     return v
 
 
@@ -154,6 +155,15 @@ def healthz() -> dict[str, str]:
 
 _WEB = Path(__file__).parent / "web"
 app.mount("/web", StaticFiles(directory=_WEB), name="web")
+
+
+@app.middleware("http")
+async def _revalidate_web(request: Request, call_next):
+    # phones must not keep an old app.js next to a new index.html after a deploy; etags keep it a cheap 304
+    response = await call_next(request)
+    if request.url.path.startswith("/web/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 # the website for phones without the Android app; /admin is the same page showing the admin panel
@@ -174,8 +184,6 @@ def web_config() -> JSONResponse:
     except (OSError, ValueError):
         return JSONResponse({"error": "not_configured"}, status_code=503)
     cfg = {k: raw[k] for k in _FIREBASE_KEYS if isinstance(raw.get(k), str) and raw[k]}
-    if os.environ.get("FIREBASE_MEASUREMENT_ID"):
-        cfg["measurementId"] = os.environ["FIREBASE_MEASUREMENT_ID"]
     return JSONResponse(cfg, headers={"Cache-Control": "no-cache"})
 
 
@@ -195,17 +203,13 @@ def _identify(request: Request, need_device: bool) -> tuple[dict[str, Any], str 
         _log.warning("sign-in check unavailable: %s", str(e)[:200])
         return _err(503, "server_busy")
     device_id = request.headers.get("x-device-id", "").strip() or None
-    if device_id is not None and not acc.valid_device(device_id):
-        return _err(400, "device_id_required")
-    if need_device and device_id is None:
+    if (device_id is None and need_device) or (device_id is not None and not acc.valid_device(device_id)):
         return _err(400, "device_id_required")
     return ident, device_id
 
 
 def _used_up() -> JSONResponse:
-    return _err(402, "trials_used_up",
-                message="No free reviews left on this account or this phone. Contact the admin for premium access.",
-                contact_email=acc.CONTACT_EMAIL)
+    return _err(402, "trials_used_up")
 
 
 @app.get("/v1/me")
@@ -274,10 +278,15 @@ def admin_stats(request: Request):
     return _admin(request) or _accounts.stats()
 
 
-def _finish_safe(job_id: str, status: str) -> None:
+@app.get("/v1/admin/jobs")
+def admin_jobs(request: Request, email: str = ""):
+    return _admin(request) or {"jobs": _accounts.list_jobs(email.strip().lower())}
+
+
+def _record_safe(job_id: str, status: str, decision: str | None = None) -> None:
     # a database hiccup must not stop the job's own status from being written
     try:
-        _accounts.finish(job_id, status)
+        _accounts.record(job_id, status, decision)
     except Exception:  # noqa: BLE001
         _log.exception("could not record how job %s ended", job_id)
 
@@ -302,6 +311,7 @@ def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], ar
             last = (pct, stage)
 
     try:
+        _record_safe(job_id, "running")
         progress(1, "starting")
         out = run_pipeline(video_path=video_path, request_json=request_json, artifacts_dir=artifacts_dir,
                            progress=progress)
@@ -309,11 +319,11 @@ def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], ar
         _store.write_status(paths, status=JobStatus.succeeded, progress=ProgressInfo(pct=100, stage="succeeded"),
                             error=None)
         _log.info("job %s done with %d warnings", job_id, len(out.warnings))
-        _finish_safe(job_id, "succeeded")
+        _record_safe(job_id, "succeeded", (out.result.get("lbw") or {}).get("decision") or "none")
     except Exception as e:  # noqa: BLE001
         _log.exception("job %s failed", job_id)
         _write_failed_status_safe(paths, map_exception_to_api_error(e))
-        _finish_safe(job_id, "failed")
+        _record_safe(job_id, "failed")
     finally:
         _job_slots.release()
         # nothing serves the clip back, so it goes as soon as the analysis ends
@@ -329,18 +339,21 @@ def _earlier_job(job_id: str) -> CreateJobResponse:
 
 
 async def _drain(request: Request, response: JSONResponse) -> JSONResponse:
-    # a refusal sent mid-upload resets the socket and the phone shows "can't connect", so read the clip out first
-    try:
+    # a refusal sent mid-upload resets the socket and the phone shows "can't connect", so read the clip out first,
+    # but only briefly, or a stranger trickling bytes would hold an upload slot for the whole deadline
+    async def read_out() -> None:
         async for _ in request.stream():
             pass
-    except Exception:  # noqa: BLE001 - the phone gave up, nothing left to tell it
+    try:
+        await asyncio.wait_for(read_out(), 15)
+    except Exception:  # noqa: BLE001 - the phone gave up or was too slow, nothing left to tell it
         pass
     return response
 
 
 @app.post("/v1/jobs", response_model=CreateJobResponse)
 async def create_job(request: Request):
-    # who and how many uses are left is checked before the body is read, so a refused phone uploads nothing
+    # checked before the body is spooled, so a stranger can't fill the disk
     who = await run_in_threadpool(_identify, request, True)
     if isinstance(who, JSONResponse):
         return await _drain(request, who)
@@ -348,28 +361,19 @@ async def create_job(request: Request):
     key = request.headers.get("idempotency-key", "").strip() or None
     if key is not None and not acc.valid_device(key):
         return await _drain(request, _err(400, "bad_request"))
-    # a retry of a clip that already went through gets that job back, before the used-up check can refuse it
-    earlier = await run_in_threadpool(_accounts.find_keyed, ident["email"], key)
-    if earlier and _store.exists(earlier):
-        return await _drain(request, _earlier_job(earlier))
-    if earlier:
-        # a redeploy wiped that job's files, so the key would only ever answer "not found"
-        await run_in_threadpool(_accounts.forget_key, ident["email"], key)
-    if not await run_in_threadpool(_accounts.can_start, ident["email"], device_id):
-        return await _drain(request, _used_up())
 
     form = await request.form()
     try:
         video_file, request_json = form.get("video_file"), form.get("request_json")
         if not isinstance(video_file, FormFile) or not isinstance(request_json, str):
-            raise HTTPException(status_code=400, detail="The app sent an invalid request. Update the app and try again.")
+            raise HTTPException(status_code=400, detail=_BAD_REQUEST)
         req_dict = _load_json(request_json)
         try:
             CreateJobRequest.model_validate(req_dict)
         except Exception as e:  # noqa: BLE001
             # full validation detail goes to the log only; the client gets one plain sentence
             _log.warning("Invalid job request: %s", str(e))
-            raise HTTPException(status_code=400, detail="The app sent an invalid request. Update the app and try again.")
+            raise HTTPException(status_code=400, detail=_BAD_REQUEST)
 
         if not _job_slots.acquire(blocking=False):
             raise HTTPException(
@@ -380,12 +384,12 @@ async def create_job(request: Request):
         submitted, paths = False, None
         try:
             job_id, paths = _store.create_job()
-            # the real check: one sqlite write lock, so two uploads at once can't both take the last use
-            got = await run_in_threadpool(_accounts.take_use, ident, device_id, job_id, key)
+            # one sqlite write lock, so two uploads at once can't both take the last use
+            got = await run_in_threadpool(_accounts.take_use, ident, device_id, job_id, key, _store.exists)
             if got is None:
                 return _used_up()
             if got != job_id:
-                # the same clip raced in twice; the other upload already owns the job
+                # a retry of a clip that already went through gets that job back
                 return _earlier_job(got)
             _store.write_request(paths, req_dict)
             with paths.video_path.open("wb") as f:
@@ -399,12 +403,9 @@ async def create_job(request: Request):
         finally:
             if not submitted:
                 _job_slots.release()
-                # no row (refused, or the other upload owns it) makes this a no-op; a cut-off
-                # request may have taken the use without reaching the next line, so always give it back
                 if paths is not None:
-                    _finish_safe(job_id, "failed")
-                # no worker will ever delete a half-saved clip
-                if paths is not None:
+                    # a no-op without a row; a cut-off save already took the use, so give it back
+                    _record_safe(job_id, "failed")
                     shutil.rmtree(paths.job_dir, ignore_errors=True)
     finally:
         await form.close()
