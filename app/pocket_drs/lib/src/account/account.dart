@@ -119,12 +119,17 @@ class Account {
       try {
         token = await user.getIdToken(refresh);
       } on FirebaseAuthException catch (e) {
-        if (e.code == 'network-request-failed') {
-          throw ApiException(ApiErrorKind.network, kCantConnect);
+        // only a removed account or a dead token signs out; anything else is worth a retry
+        if (const {
+          'user-token-expired',
+          'user-disabled',
+          'user-not-found',
+          'invalid-user-token',
+        }.contains(e.code)) {
+          await signOut();
+          throw ApiException(ApiErrorKind.signIn, kSignInAgain);
         }
-        // the account was removed or its sign-in ran out, so ask again
-        await signOut();
-        throw ApiException(ApiErrorKind.signIn, kSignInAgain);
+        throw ApiException(ApiErrorKind.network, kCantConnect);
       }
     }
     return {

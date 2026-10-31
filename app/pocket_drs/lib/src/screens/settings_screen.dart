@@ -67,8 +67,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await AppSettings.setPitchLength(v);
   }
 
-  Future<void> _open(String url) =>
-      launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  Future<void> _open(String url) async {
+    var ok = false;
+    try {
+      ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (_) {}
+    if (ok || !mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text("Couldn't open $url")));
+  }
 
   @override
   Widget build(BuildContext context) {

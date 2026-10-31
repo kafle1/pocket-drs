@@ -33,6 +33,7 @@ class _ImageMarkerState extends State<ImageMarker> {
   final List<Offset> _markers = [];
   Size? _imageSize;
   bool _loading = true;
+  bool _failed = false;
 
   final TransformationController _transform = TransformationController();
   bool _didInitTransform = false;
@@ -57,8 +58,14 @@ class _ImageMarkerState extends State<ImageMarker> {
   }
 
   Future<void> _loadImage() async {
-    final codec = await ui.instantiateImageCodec(widget.imageBytes);
-    final frame = await codec.getNextFrame();
+    final ui.FrameInfo frame;
+    try {
+      final codec = await ui.instantiateImageCodec(widget.imageBytes);
+      frame = await codec.getNextFrame();
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+      return;
+    }
     if (mounted) {
       setState(() {
         _imageSize = Size(
@@ -219,13 +226,31 @@ class _ImageMarkerState extends State<ImageMarker> {
           ),
         ),
         Expanded(
-          child: _loading
+          child: _failed
+              ? ColoredBox(
+                  color: AppColors.video,
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.xl),
+                      child: Text(
+                        "This frame can't be shown. Go back and pick another one.",
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: AppColors.onVideo,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+              : _loading
               ? const Center(child: CircularProgressIndicator())
               : LayoutBuilder(
                   builder: (context, box) {
                     final viewport = Size(box.maxWidth, box.maxHeight);
+                    // turning the phone changes the viewport, so fit the frame again
+                    final resized = viewport != _lastViewport;
                     _lastViewport = viewport;
-                    if (!_didInitTransform) {
+                    if (!_didInitTransform || resized) {
                       _didInitTransform = true;
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         if (!mounted) return;

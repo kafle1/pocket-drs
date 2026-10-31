@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' show Random;
+import 'dart:math' show Random, min;
 import 'dart:typed_data';
 import 'dart:ui' show Offset;
 
@@ -144,11 +144,13 @@ class PocketDrsApi {
 
   /// Sends with the sign-in headers. A 401 gets one fresh token; a second one signs the person out.
   Future<(int, String)> _send(
-    http.BaseRequest Function() build,
+    http.BaseRequest Function(Future<void> abort) build,
     Duration timeout,
   ) async {
     Future<(int, String)> once(Map<String, String> headers) async {
-      final req = build()..headers.addAll(headers);
+      // a timeout alone leaves the upload running, so a retry would send the clip twice
+      final abort = Completer<void>();
+      final req = build(abort.future)..headers.addAll(headers);
       try {
         final res = await _client.send(req).timeout(timeout);
         final body = await res.stream.bytesToString().timeout(
@@ -160,6 +162,7 @@ class PocketDrsApi {
       } on http.ClientException {
         throw ApiException(ApiErrorKind.network, kCantConnect);
       } on TimeoutException {
+        abort.complete();
         throw ApiException(ApiErrorKind.timeout, _noReply);
       }
     }
@@ -177,7 +180,7 @@ class PocketDrsApi {
     bool jobGone = false,
   }) async {
     final (code, body) = await _send(
-      () => http.Request('GET', _u(path)),
+      (abort) => http.AbortableRequest('GET', _u(path), abortTrigger: abort),
       Duration(seconds: seconds),
     );
     _throwForStatus(code, jobGone: jobGone);
@@ -185,8 +188,8 @@ class PocketDrsApi {
   }
 
   Future<String> _json(String method, String path, [Object? payload]) async {
-    final (code, body) = await _send(() {
-      final req = http.Request(method, _u(path));
+    final (code, body) = await _send((abort) {
+      final req = http.AbortableRequest(method, _u(path), abortTrigger: abort);
       if (payload != null) {
         req.headers['Content-Type'] = 'application/json';
         req.body = jsonEncode(payload);
@@ -224,14 +227,16 @@ class PocketDrsApi {
     required Map<String, Object?> requestJson,
     required String idempotencyKey,
   }) async {
-    // Scale the upload timeout with file size so a large clip on a slow
-    // connection doesn't get killed mid-upload; capped at 10 minutes.
-    final extraSeconds = (videoBytes.length / (100 * 1024)).ceil();
-    final uploadSeconds = 60 + extraSeconds > 600 ? 600 : 60 + extraSeconds;
+    // the server's deadline is min(1800, 60 + bytes/25000) s; 30 s more lets its own "took too long" reply land first
+    final uploadSeconds = min(1830, 90 + (videoBytes.length / 25000).ceil());
 
     // a 401 means the server refused it, so the one resend can't make a second job
     final (code, body) = await _send(
-      () => http.MultipartRequest('POST', _u('/v1/jobs'))
+      (abort) => http.AbortableMultipartRequest(
+        'POST',
+        _u('/v1/jobs'),
+        abortTrigger: abort,
+      )
         ..headers['Idempotency-Key'] = idempotencyKey
         ..fields['request_json'] = jsonEncode(requestJson)
         ..files.add(

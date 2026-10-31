@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:math' show min;
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -30,6 +31,9 @@ class VideoTrimSelector extends StatefulWidget {
   @override
   State<VideoTrimSelector> createState() => _VideoTrimSelectorState();
 }
+
+// the server reads 240 frames, 4 s at 60 a second
+const _maxSegmentMs = 4000.0;
 
 class _VideoTrimSelectorState extends State<VideoTrimSelector> {
   VideoPlayerController? _controller;
@@ -69,7 +73,7 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
     _controller = controller;
     controller.addListener(_onUpdate);
     final dur = controller.value.duration.inMilliseconds.toDouble();
-    _range = RangeValues(0.0, dur);
+    _range = RangeValues(0.0, min(dur, _maxSegmentMs));
     setState(() => _ready = true);
   }
 
@@ -241,6 +245,12 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
                       // tracks the user's drag.
                       final movedStart = (v.start != range.start);
                       final target = movedStart ? v.start : v.end;
+                      // past 4 s the other handle follows, so the window slides instead of widening
+                      if (v.end - v.start > _maxSegmentMs) {
+                        v = movedStart
+                            ? RangeValues(v.start, v.start + _maxSegmentMs)
+                            : RangeValues(v.end - _maxSegmentMs, v.end);
+                      }
                       setState(() {
                         _range = v;
                       });
@@ -249,7 +259,7 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   Text(
-                    'Drag the handles to the start and end of the delivery. Only this part is checked.',
+                    'Drag the handles to the start and end of the delivery, up to 4 s. Only this part is checked.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,

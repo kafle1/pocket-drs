@@ -79,20 +79,44 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
 
   void _log(String m) => debugPrint(m);
 
+  @override
+  void initState() {
+    super.initState();
+    _recoverLostVideo();
+  }
+
+  // android can kill the app while the camera records, so the clip comes back here
+  Future<void> _recoverLostVideo() async {
+    try {
+      final lost = await _picker.retrieveLostData();
+      final video = lost.file;
+      if (video == null || lost.type != RetrieveType.video) return;
+      if (!mounted || _step != _Step.upload) return;
+      // it could be a gallery pick too, so never auto-delete it
+      _useVideo(video, fromCamera: false);
+    } catch (e) {
+      _log('[PICK] lost data: $e');
+    }
+  }
+
+  void _useVideo(XFile video, {required bool fromCamera}) {
+    setState(() {
+      _video = video;
+      _videoFromCamera = fromCamera;
+      _frameBytes = null;
+      _stumps = null;
+      _segmentStartMs = 0;
+      _segmentEndMs = 600000;
+      _step = _Step.trim;
+    });
+  }
+
   // ---------------------------------------------------------------- step 1: video
   Future<void> _pickVideo(ImageSource source) async {
     try {
       final video = await _picker.pickVideo(source: source);
       if (video == null || !mounted) return;
-      setState(() {
-        _video = video;
-        _videoFromCamera = source == ImageSource.camera;
-        _frameBytes = null;
-        _stumps = null;
-        _segmentStartMs = 0;
-        _segmentEndMs = 600000;
-        _step = _Step.trim;
-      });
+      _useVideo(video, fromCamera: source == ImageSource.camera);
     } on PlatformException catch (e) {
       _log('[PICK] ${e.code}: ${e.message}');
       _showError(switch (e.code) {
@@ -230,6 +254,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         final endMs = span[1];
         final bytes = await File(cutPath).readAsBytes();
         if (stale()) throw StateError('Cancelled');
+        setState(() => _progressStage = 'uploading');
         final idem = _idem?.key == key
             ? _idem!
             : (_idem = (key: key, id: newIdempotencyKey()));
@@ -360,7 +385,28 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     });
   }
 
-  void _back() {
+  Future<void> _back() async {
+    // a slip of the back button shouldn't throw away an upload
+    if (_step == _Step.processing) {
+      final stop = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Stop checking this ball?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Keep going'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Stop'),
+            ),
+          ],
+        ),
+      );
+      // it may have finished while the dialog was up
+      if (stop != true || !mounted || _step != _Step.processing) return;
+    }
     setState(() {
       switch (_step) {
         case _Step.trim:
@@ -614,6 +660,7 @@ class _ProcessingView extends StatelessWidget {
 
   // same words as the website
   static const Map<String, String> _stageHelp = {
+    'uploading': 'Sending your clip',
     'queued': 'Waiting in line',
     'starting': 'Loading the video',
     'decode': 'Reading frames from your clip',
@@ -725,17 +772,17 @@ class ResultsView extends StatelessWidget {
         ),
       ),
     );
+    // the server's warnings explain a missing call or a missing number; with no call the reason comes first, then the rest
+    final reason = [if (lbw != null) lbw.reason, ...result.warnings]
+        .where((l) => l.isNotEmpty)
+        .map((l) => l[0].toUpperCase() + l.substring(1))
+        .join('\n');
     final panel = _ResultPanel(
       wide: wide,
       decision: lbw?.decision,
-      // the server's warnings explain a missing call or a missing number; with no call the first one is the reason
-      reason: lbw == null
-          ? (result.warnings.firstOrNull ??
-                "The ball's path couldn't be worked out well enough to make a call.")
-          : [lbw.reason, ...result.warnings]
-                .where((l) => l.isNotEmpty)
-                .map((l) => l[0].toUpperCase() + l.substring(1))
-                .join('\n'),
+      reason: reason.isEmpty && lbw == null
+          ? "The ball's path couldn't be worked out well enough to make a call."
+          : reason,
       // the 3D page needs the fitted path, which only comes with a call
       onOpen3D: lbw == null ? null : () => _open3D(context),
       action: action,
