@@ -30,7 +30,7 @@ gets a call uses one up; a ball that fails or gets no call gives it back. When t
 **Contact admin** to ask for premium access, which has no limit.
 
 On an iPhone, or any phone without the app, open
-[the PocketDRS website](https://pocketdrs-saarathi.centralindia.cloudapp.azure.com) in Safari or
+[the PocketDRS website](https://pocket-drs-app.web.app) in Safari or
 Chrome. Sign in there, pick a clip you've already filmed, mark the stumps and check the ball.
 Google sign-in doesn't work inside the Instagram, Facebook or Messenger browser, so open the link
 in Safari or Chrome.

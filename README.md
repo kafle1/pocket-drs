@@ -12,7 +12,7 @@ one sigma, it says umpire's call. If the fit doesn't explain the pixels, it give
 
 Get the Android app from the [latest release](https://github.com/kafle1/pocket-drs/releases/latest)
 (under 20 MB; [which file to pick](docs/GUIDE.md#get-the-app)), or use the
-[website](https://pocketdrs-saarathi.centralindia.cloudapp.azure.com) on any phone, iPhone included.
+[website](https://pocket-drs-app.web.app) on any phone, iPhone included.
 Both need a Google sign-in. Every account and every phone gets 5 free reviews, then **Contact admin**
 asks for premium. See the [user guide](docs/GUIDE.md) or the
 [36 second app walkthrough](docs/media/app-walkthrough.mp4).

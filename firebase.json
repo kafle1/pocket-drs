@@ -1,0 +1,14 @@
+{
+  "hosting": {
+    "public": "hosting",
+    "rewrites": [
+      { "source": "/", "destination": "/web/index.html" },
+      { "source": "/admin", "destination": "/web/index.html" }
+    ],
+    "headers": [
+      { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/admin", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "**/*.@(html|js|css)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    ]
+  }
+}

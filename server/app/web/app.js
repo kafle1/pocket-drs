@@ -2,6 +2,8 @@
 import { drawReplay } from "./replay.js";
 
 const FB = "https://www.gstatic.com/firebasejs/11.0.2/";
+// the page is also served from firebase hosting, so every server call names the server
+const API = "https://pocketdrs-saarathi.centralindia.cloudapp.azure.com";
 const $ = (id) => document.getElementById(id);
 const show = (id, on) => { $(id).hidden = !on; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -59,7 +61,7 @@ const IN_APP = /FBAN|FBAV|FB_IAB|Instagram|Messenger|Line\/|; wv\)/.test(UA) || 
 let auth, fa, me = null, track = () => {};
 
 async function boot() {
-  const r = await fetch("/config.json", { cache: "no-store" });
+  const r = await fetch(API + "/config.json", { cache: "no-store" });
   if (!r.ok) { $("boot").textContent = "Sign-in isn't set up on this server yet. Try again later."; return; }
   const cfg = await r.json();
   const [fbApp, fbAuth] = await Promise.all([import(FB + "firebase-app.js"), import(FB + "firebase-auth.js")]);
@@ -136,7 +138,7 @@ function refuse(status, body) {
 async function api(path, opts = {}) {
   const h = await authHeaders();
   let r;
-  try { r = await fetch(path, { ...opts, headers: { ...opts.headers, ...h } }); } catch { throw offline(); }
+  try { r = await fetch(API + path, { ...opts, headers: { ...opts.headers, ...h } }); } catch { throw offline(); }
   const body = await r.json().catch(() => null);
   if (r.ok) return body;
   refuse(r.status, body);
@@ -402,7 +404,7 @@ async function send(body, key) {
   form.append("video_file", file, file.name || "clip.mp4");
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    x.open("POST", "/v1/jobs");
+    x.open("POST", API + "/v1/jobs");
     for (const k in h) x.setRequestHeader(k, h[k]);
     x.timeout = 600000;
     x.upload.onprogress = (ev) => {
@@ -472,7 +474,7 @@ function showResult(jobId, result) {
     return li;
   }) : []));
   show("three-d", !!(result && result.world_trajectory && (result.world_trajectory.points_m || []).length));
-  $("three-d").href = `/v1/jobs/${jobId}/three-d`;
+  $("three-d").href = `${API}/v1/jobs/${jobId}/three-d`;
   // after a reload the clip is gone, so the replay only shows for a ball picked in this tab
   if (replay) replay.destroy();
   const v = $("replay-video"), on = !!(videoUrl && result && result.overlay && (result.overlay.path_px || []).length);

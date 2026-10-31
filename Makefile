@@ -3,7 +3,8 @@
 #   make dev      run the app on a connected phone, against the public server
 #   make server   run the server locally on :8000
 #   make apk      build the release apks
-#   make deploy   copy server/ to the Azure VM, rebuild the container, wait until it answers
+#   make deploy   copy server/ to the Azure VM, rebuild the container, wait until it answers,
+#                 then publish the website to https://pocket-drs-app.web.app
 #   make logs     follow the live server's log
 #   make clean    remove the venv and build output
 
@@ -62,6 +63,7 @@ deploy:
 		sleep 2; \
 	done; \
 	echo "The server did not answer on /healthz within 2 minutes. Check make logs"; exit 1
+	cd "$(ROOT_DIR)" && firebase deploy --only hosting --project pocket-drs-app
 
 logs:
 	ssh -i "$(DEPLOY_KEY)" "$(DEPLOY_HOST)" 'sudo docker logs -f --tail 200 pocket-drs'

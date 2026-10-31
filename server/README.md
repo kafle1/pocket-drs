@@ -11,6 +11,10 @@ Central India. Caddy on the VM handles HTTPS and passes requests to a Docker con
 `/data` and holds the SQLite database (`pocketdrs.db`) and `firebase-web.json`, so both survive a
 rebuild. Uploaded clips and job results live inside the container and go when it is replaced.
 
+The website itself is published to https://pocket-drs-app.web.app by Firebase Hosting, from the same
+`server/app/web` folder (`hosting/web` links to it), and talks to this server for everything else.
+`make deploy` updates both. The server still serves the same page at its own address.
+
 To ship a change, run `make deploy` from the repo root. It copies `server/` to the VM, rebuilds the
 image, restarts the container and waits for `/healthz` to answer.
 
