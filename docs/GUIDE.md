@@ -43,7 +43,8 @@ grips a tripod works well. Handheld footage moves too much for the app to track 
 **Where to put the tripod.** Stand the tripod behind the bowler's stumps, looking straight down
 the pitch towards the batter. Both sets of stumps, the bowler's and the batter's, must be in
 frame. The app checks this when you mark the stumps: if the marks show the phone standing on the
-pitch instead of behind it, the app asks you to move back and re-mark.
+pitch instead of behind it, the app asks you to move back and re-mark. Stay close: a few metres back with
+the zoom off. From more than 10 m back the app can't judge distance down the pitch and gives no call.
 
 **Height.** Set the tripod at about chest height. This keeps both sets of stumps clearly apart in
 the frame, without tilting the phone down too far. Use the main camera lens, not the ultra-wide.
@@ -226,6 +227,8 @@ not always see every one of these even when it applies.
 | the stump marks are a little off; re-marking them gives a surer call | The app gave a verdict, but your stump marks were not very precise. | Re-mark the stumps more carefully next time for a surer call. |
 | no ball found; use a red or pink ball in good light, with the whole pitch in view | The app never spotted the ball moving through the frame. | Use a red or pink ball, film in good light, with the whole pitch in view. |
 | no call, as the ball was still in flight where the check stopped; trim the clip to just the delivery | The clip or the frame limit ran out while the ball was still moving. | Trim the clip closer to just the delivery, from release to the batter. |
+| no call, as the phone was about X m behind the stumps; stand right behind the bowler's stumps with the zoom off | From far back, zoomed in, the picture squashes the pitch so the app can't tell how far the ball has travelled. | Film again from right behind the bowler's stumps, with the zoom off. |
+| no call, as the ball was lost before it reached the batter; film against a plain background with the ball in view up to the pad | The app stopped seeing the ball well before it got to the batter, so where it last saw it isn't the impact. | Film against a plain background and keep the ball in view all the way to the pad. |
 | the ball's path doesn't match the stump marks; re-mark the stumps or try a clearer clip | The ball's tracked path and your stump marks don't agree well enough. | Re-mark the stumps, or try a sharper, steadier clip. |
 | no bounce seen, so the ball was treated as a full toss | The app didn't see the ball pitch, so it assumed it reached the batter without bouncing. | If the ball did bounce, try a clip where the bounce is clearly visible. |
 | the ball's path couldn't be carried on to the stumps; try a clip where the ball stays in view up to the batter | The ball went out of frame too early to predict its path to the stumps. | Film so the ball stays in view up to the batter. |

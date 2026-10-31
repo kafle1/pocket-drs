@@ -52,6 +52,8 @@ _log = logging.getLogger("pocket_drs.pipeline")
 CALIB_REJECT_PX, CALIB_REJECT_FRAC = 25.0, 0.03
 # above this pixel residual the 3-D model does not explain the track and no verdict is given
 MAX_FIT_RMS_PX = 12.0
+MAX_IMPACT_X_M = 3.0      # in front of the batter's stumps; a long stride puts the front pad about 2.5 m out
+MAX_BEHIND_M = 10.0       # further back, zoomed in, the picture flattens the pitch and can't tell 2 m from 10 m
 UNCERTAINTY_K = 1.0
 # a speed known no better than this is left out rather than shown wrong
 MAX_SPEED_SIGMA_KMH = 8.0
@@ -169,6 +171,11 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
         (artifacts_dir / "result_debug.json").write_text(json.dumps(clean, indent=2))
         return PipelineOutput(clean, warnings)
 
+    if behind > MAX_BEHIND_M:
+        warnings.append(f"no call, as the phone was about {behind:.0f} m behind the stumps; stand right behind the "
+                        "bowler's stumps with the zoom off")
+        return finish()
+
     # ---- detect and associate ------------------------------------------------
     report(40, "tracking")
     mask = corridor_mask(frames[0].shape, pose)
@@ -233,6 +240,11 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
         warnings.append("the ball's path is too unsure to call; re-mark the stumps or try a clearer clip")
         return finish()
     impact = tr.position(np.array([t_last]))[0]
+    # the track ends where the ball was last seen; well short of the batter that's a lost ball, not the pad
+    if impact[0] > MAX_IMPACT_X_M:
+        warnings.append("no call, as the ball was lost before it reached the batter; film against a plain "
+                        "background with the ball in view up to the pad")
+        return finish()
     verdict = decide(leg_sign=leg_sign,
                      pitch_y=float(tr.y_b) if tr.bounce_observed else None, pitch_sigma=sig_by,
                      impact_y=float(impact[1]), impact_sigma=sig_impact,
