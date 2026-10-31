@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 import cv2
 import numpy as np
+from scipy.optimize import least_squares
 
 STUMP_HEIGHT_M = 0.711
 STUMP_OUTER_HALF_M = 0.1143       # Law 8.1: the wicket is 22.86 cm wide across the outer edges
@@ -113,6 +114,32 @@ def _pnp(obj: np.ndarray, img: np.ndarray, K: np.ndarray):
     return err, R, t
 
 
+def _refine(obj: np.ndarray, img: np.ndarray, width: int, height: int, err: float, R: np.ndarray, t: np.ndarray,
+            K: np.ndarray, fov: float):
+    """Pose and focal length moved to the least pixel error. SQPNP plus the stepped sweep reads
+    the focal length long on noisy taps (5% at 2 px), pushing the phone back and the speed up."""
+    rvec, _ = cv2.Rodrigues(R)
+    cx, cy = width / 2.0, height / 2.0
+
+    def residuals(x):
+        f = math.exp(x[6])
+        proj, _ = cv2.projectPoints(obj, x[:3], x[3:6], np.array([[f, 0.0, cx], [0.0, f, cy], [0.0, 0.0, 1.0]]), None)
+        return (proj.reshape(-1, 2) - img).ravel()
+
+    try:
+        sol = least_squares(residuals, np.r_[rvec.ravel(), t, math.log(K[0, 0])], method="lm")
+    except (ValueError, cv2.error):
+        return err, R, t, K, fov
+    R2, _ = cv2.Rodrigues(sol.x[:3])
+    t2, f2 = sol.x[3:6].copy(), math.exp(sol.x[6])
+    err2 = float(np.sqrt(np.mean(np.sum(sol.fun.reshape(-1, 2) ** 2, axis=1))))
+    fov2 = math.degrees(2.0 * math.atan((max(width, height) / 2.0) / f2))
+    # keep the sweep's answer if the refine wandered off, went under the ground or out of a phone's zoom range
+    if not (math.isfinite(err2) and err2 <= err and float((-R2.T @ t2)[2]) > 0.0 and 1.0 < fov2 < 179.0):
+        return err, R, t, K, fov
+    return err2, R2, t2, intrinsics(width, height, fov2), fov2
+
+
 def _upright(quad: np.ndarray) -> np.ndarray:
     """One set's corners as the image's TL, TR, BR, BL, whatever order they were tapped in."""
     by_y = quad[np.argsort(quad[:, 1])]
@@ -147,5 +174,6 @@ def solve_camera_pose(
     if best is None:
         raise CalibrationError("The stump marks don't look like two sets of stumps. Re-mark the corners of both.")
     err, R, t, K, fov = best
+    err, R, t, K, fov = _refine(obj, img, width, height, err, R, t, K, fov)
     return CameraPose(K=K, R=R, t=t, reproj_error_px=err, fov_deg=fov,
                       pitch_length_m=pitch_length_m, pitch_width_m=pitch_width_m)
