@@ -75,3 +75,6 @@ bench/
 *.fls
 *.fdb_latexmk
 *.synctex.gz
+
+# firebase deploy cache
+.firebase/
