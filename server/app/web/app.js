@@ -464,10 +464,11 @@ function showResult(jobId, result) {
   $("reason").textContent = lines.filter(Boolean).map((l) => l[0].toUpperCase() + l.slice(1)).join(". ");
   const c = lbw && lbw.checks;
   $("checks").replaceChildren(...(c ? [
-    ["Pitched in line", c.pitching_in_line], ["Hit the pad in line", c.impact_in_line], ["Going on to hit the stumps", c.wickets_hitting],
-  ].map(([t, ok]) => {
+    // pitching_in_line means "not outside leg": outside off still counts, as on the 3D page
+    ["Pitched outside leg", !c.pitching_in_line], ["Hit the pad in line", c.impact_in_line], ["Going on to hit the stumps", c.wickets_hitting],
+  ].map(([t, yes]) => {
     const li = el("li");
-    li.append(el("span", t), el("span", ok ? "yes" : "no", "check " + (ok ? "yes" : "no")));
+    li.append(el("span", t), el("span", yes ? "yes" : "no", "check " + (yes ? "yes" : "no")));
     return li;
   }) : []));
   show("three-d", !!(result && result.world_trajectory && (result.world_trajectory.points_m || []).length));
