@@ -213,7 +213,8 @@ def _arcs(pose: CameraPose, T, U, V, R) -> list[_Arc]:
             if (grown == idx).all():
                 break
             idx = grown
-        arcs.append(_Arc(th[0], t0, fit[0], idx[0], post))
+        if (idx[0] >= 0).any():                  # a seed that matched no frame isn't a flight
+            arcs.append(_Arc(th[0], t0, fit[0], idx[0], post))
     return arcs
 
 
