@@ -25,6 +25,15 @@ class Verdict:
     impact_in_line: bool
     wickets_hitting: bool
 
+    @property
+    def tones(self) -> dict[str, str]:
+        """Each DRS row's colour: out goes against the batter, not_out saves him, umpires_call is the close one."""
+        def tone(ok: bool, close: str) -> str:
+            return NOT_OUT if not ok else UMPIRES_CALL if self.decision == UMPIRES_CALL and close in self.reason else OUT
+        return {"pitching": tone(self.pitching_in_line, "pitching close"),
+                "impact": tone(self.impact_in_line, "impact close"),
+                "wickets": tone(self.wickets_hitting, "clipping")}
+
 
 def _band(value: float, edge: float, sigma: float, k: float) -> str:
     """Classify a signed distance to a boundary. Positive = inside.

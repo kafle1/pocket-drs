@@ -2,378 +2,531 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Pocket DRS 3D ball path</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0c110f" />
+<title>Pocket DRS ball tracking</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden;
-    background: linear-gradient(180deg, #244f74 0%, #163a55 32%, #0d2336 60%, #07121d 100%);
-    color: #eef3f8; font: 13px/1.4 -apple-system, "Segoe UI", system-ui, sans-serif; }
-  #scene { position: absolute; inset: 0; }
-  /* css sizes the canvas, so a stale width mid-rotation can't make chrome zoom the page out */
-  #scene canvas { display: block; width: 100%; height: 100%; }
-
-  #panels { position: absolute; top: 20px; left: 20px; display: flex;
-            flex-direction: column; gap: 13px; opacity: 0; transition: opacity .8s ease .5s; }
-  .pan { width: 152px; border-radius: 5px; overflow: hidden;
-         box-shadow: 0 6px 18px rgba(0,0,0,.5); }
-  .ph { background: #16335c; color: #fff; font-weight: 800; letter-spacing: .7px;
-        font-size: 11px; padding: 7px 11px; }
-  .pv { color: #fff; font-weight: 800; letter-spacing: .7px; font-size: 12px;
-        padding: 7px 11px; transition: background .4s ease; }
-
-  #metrics { position: absolute; top: 20px; right: 20px; display: flex;
-             flex-direction: column; gap: 11px; align-items: flex-end;
-             opacity: 0; transition: opacity .8s ease .5s; }
-  .mc { background: rgba(10,18,28,.72); border: 1px solid rgba(255,255,255,.13);
-        border-radius: 12px; padding: 9px 14px; min-width: 98px; text-align: right;
-        backdrop-filter: blur(6px); box-shadow: 0 6px 18px rgba(0,0,0,.35); }
-  .mc span { display: block; font-size: 9px; letter-spacing: 1.5px; color: #8fa3b8;
-             font-weight: 700; }
-  .mc b { font-size: 22px; font-weight: 800; }
-  .mc i { font-style: normal; font-size: 11px; color: #aebccb; font-weight: 600; }
-
-  #brand { position: absolute; bottom: 16px; left: 22px; font-size: 12px;
-           letter-spacing: 2px; color: #6f87a0; font-weight: 700; opacity: 0;
-           transition: opacity 1s ease 1s; }
-  #brand b { color: #e9f0f7; letter-spacing: 1px; }
-  #help { position: absolute; bottom: 16px; right: 20px; color: #51647a; font-size: 11px; }
-  @media (max-width: 520px) { #help { left: 22px; right: auto; bottom: 38px; } }
-  /* phones get compact cards; a tall screen has no room for side columns, so they run in rows across the top */
-  @media (orientation: portrait), (max-height: 480px) {
-    #panels { top: 12px; left: 12px; gap: 6px; }
-    #metrics { top: 12px; right: 12px; gap: 6px; }
-    .pan { width: 104px; }
-    .ph, .pv { padding: 5px 8px; letter-spacing: .4px; white-space: nowrap; overflow: hidden; }
-    .ph { font-size: 9px; } .pv { font-size: 10px; }
-    .mc { min-width: 76px; padding: 6px 10px; }
-    .mc b { font-size: 18px; }
+  /* hex, not oklch: iOS 15 Safari has no oklch. Same palette as the app, oklch in the comments */
+  :root {
+    --bg: #0c110f;          /* oklch(0.17 0.008 155) */
+    --panel: #121815;       /* oklch(0.20 0.010 155) */
+    --raise: #1b231f;       /* oklch(0.24 0.012 155) */
+    --line: #26302b;        /* oklch(0.29 0.012 155) */
+    --ink: #f7f9f7;         /* oklch(0.98 0.004 150) */
+    --muted: #9aa59f;       /* oklch(0.71 0.015 155) */
+    --accent: #007e46;      /* oklch(0.52 0.13 155) */
+    --out: #c9302d;         /* oklch(0.55 0.19 27) */
+    --not-out: #1c8742;     /* oklch(0.55 0.14 150) */
+    --call: #d0901e;        /* oklch(0.70 0.14 75) */
+    --call-ink: #23190a;    /* oklch(0.22 0.03 75) */
+    --ease: cubic-bezier(.22, 1, .36, 1);
   }
-  @media (orientation: portrait) {
-    #panels { right: 12px; flex-direction: row; }
-    .pan { width: auto; flex: 1; min-width: 0; }
-    .ph, .pv { padding: 5px 6px; }
-    #metrics { top: 70px; left: 12px; flex-direction: row; }
-    .mc { flex: 1; min-width: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; overflow: hidden; }
+  button { font: inherit; color: inherit; border: 0; cursor: pointer; }
+
+  #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+  #stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  #metrics { position: absolute; top: calc(12px + env(safe-area-inset-top)); left: 16px; right: 16px;
+    display: flex; gap: 6px; pointer-events: none; }
+  .metric { background: rgba(12, 17, 15, .78); border-radius: 10px; padding: 6px 10px; }
+  .metric span { display: block; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .metric b { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .metric i { font-style: normal; font-size: 11px; color: var(--muted); margin-left: 2px; }
+  #hint { position: absolute; right: 16px; top: calc(70px + env(safe-area-inset-top)); font-size: 12px; color: var(--muted);
+    pointer-events: none; transition: opacity .6s ease; }
+
+  #controls { position: absolute; left: 16px; right: 16px; bottom: 12px; display: flex; gap: 8px;
+    justify-content: center; align-items: center; }
+  #views { display: flex; padding: 3px; gap: 2px; background: rgba(12, 17, 15, .82); border-radius: 12px; }
+  #views button { background: transparent; padding: 9px 12px; border-radius: 9px; font-size: 13px; font-weight: 600;
+    color: var(--muted); transition: background-color .25s var(--ease), color .25s var(--ease); }
+  #views button[aria-pressed="true"] { background: var(--accent); color: var(--ink); }
+  #play { width: 44px; height: 44px; border-radius: 12px; background: var(--ink); color: var(--bg);
+    display: grid; place-items: center; flex: none; transition: transform .2s var(--ease); }
+  #play:active, #views button:active { transform: scale(.96); }
+  #play svg { width: 20px; height: 20px; }
+
+  #panel { flex: none; background: var(--panel); border-top: 1px solid var(--line);
+    padding: 12px 16px calc(14px + env(safe-area-inset-bottom)); }
+  .kicker { margin: 0 0 8px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .kicker b { color: var(--ink); letter-spacing: .02em; }
+  #rows { list-style: none; margin: 0 0 8px; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  #rows li { background: var(--raise); border-radius: 10px; padding: 7px 8px 8px; min-width: 0; }
+  #rows span { display: block; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+  .chip { display: block; border-radius: 7px; padding: 6px 4px; text-align: center; font-size: 13px; font-weight: 700;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--line); color: var(--muted);
+    transition: background-color .45s var(--ease), color .45s var(--ease), transform .45s var(--ease); }
+  .chip.pending { transform: scale(.94); }
+  .t-out { background: var(--out); color: var(--ink); }
+  .t-not_out { background: var(--not-out); color: var(--ink); }
+  .t-umpires_call { background: var(--call); color: var(--call-ink); }
+  .t-none { background: var(--line); color: var(--ink); }
+  #call { border-radius: 12px; padding: 10px 12px; text-align: center; font-size: 20px; font-weight: 800; letter-spacing: .06em;
+    transition: background-color .5s var(--ease), color .5s var(--ease), transform .5s var(--ease); }
+  #call.pending { transform: scale(.97); background: var(--raise); color: var(--muted); }
+  #reason { margin: 8px 0 0; font-size: 13px; color: var(--muted); min-height: 18px; }
+
+  /* wide screens put the decision beside the replay, the way a broadcast does */
+  @media (min-aspect-ratio: 1/1) {
+    #app { flex-direction: row; }
+    #panel { width: 300px; border-top: 0; border-left: 1px solid var(--line); overflow-y: auto;
+      padding: calc(20px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) 20px 20px;
+      display: flex; flex-direction: column; justify-content: center; }
+    #rows { grid-template-columns: 1fr; gap: 8px; margin-bottom: 10px; }
+    #rows li { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 12px; }
+    #rows span { margin: 0; font-size: 11px; }
+    .chip { min-width: 128px; font-size: 14px; padding: 8px 10px; }
+    #call { font-size: 24px; padding: 14px; }
   }
-  .show { opacity: 1 !important; }
+  @media (min-aspect-ratio: 1/1) and (max-height: 500px) {
+    #panel { width: 250px; padding-top: calc(10px + env(safe-area-inset-top)); padding-bottom: 10px; }
+    .kicker { margin-bottom: 6px; }
+    #rows { gap: 5px; margin-bottom: 6px; }
+    #rows li { padding: 5px 5px 5px 10px; }
+    .chip { min-width: 108px; padding: 5px 8px; font-size: 13px; }
+    #call { font-size: 18px; padding: 8px; }
+    #reason { font-size: 12px; margin-top: 6px; }
+    #hint { display: none; }
+  }
+  @media (max-width: 360px) { #views button { padding: 9px 9px; } }
 </style>
 </head>
 <body>
-<div id="scene"></div>
-
-<div id="panels">
-  <div class="pan"><div class="ph">PITCHING</div><div class="pv" id="p-pitch"></div></div>
-  <div class="pan"><div class="ph">IMPACT</div><div class="pv" id="p-impact"></div></div>
-  <div class="pan"><div class="ph">WICKETS</div><div class="pv" id="p-wickets"></div></div>
-  <div class="pan"><div class="ph">DECISION</div><div class="pv" id="p-decision"></div></div>
+<div id="app">
+  <div id="stage">
+    <div id="metrics">
+      <div class="metric"><span>Speed</span><b id="m-speed">–</b><i>km/h</i></div>
+      <div class="metric"><span>Swing</span><b id="m-swing">–</b><i>cm</i></div>
+      <div class="metric"><span>Spin</span><b id="m-spin">–</b><i>deg</i></div>
+    </div>
+    <div id="hint">Drag to turn, pinch to zoom</div>
+    <div id="controls">
+      <button id="play" type="button" aria-label="Replay"></button>
+      <div id="views" role="group" aria-label="Camera">
+        <button type="button" data-view="umpire">Umpire</button>
+        <button type="button" data-view="side">Side</button>
+        <button type="button" data-view="top">Top</button>
+        <button type="button" data-view="batter">Batter</button>
+      </div>
+    </div>
+  </div>
+  <aside id="panel" aria-live="polite">
+    <p class="kicker"><b>Pocket DRS</b> &middot; Ball tracking</p>
+    <ol id="rows"></ol>
+    <div id="call" class="pending">&nbsp;</div>
+    <p id="reason"></p>
+  </aside>
 </div>
 
-<div id="metrics">
-  <div class="mc"><span>SPEED</span><b id="m-speed">–</b> <i>km/h</i></div>
-  <div class="mc"><span>SWING</span><b id="m-swing">–</b> <i>cm</i></div>
-  <div class="mc"><span>SPIN</span><b id="m-spin">–</b> <i>deg</i></div>
-</div>
-
-<div id="brand"><b>Pocket DRS</b> · 3D BALL PATH</div>
-<div id="help">drag to orbit · pinch or scroll to zoom</div>
-
-<script type="importmap">
-{ "imports": {
-    "three": "/static/three/build/three.module.min.js",
-    "three/addons/": "/static/three/examples/jsm/"
-} }
-</script>
-
+<!-- no import map: iOS 15 Safari can't read one, so three.js loads by its path -->
 <script type="module">
-import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import * as THREE from "/static/three/build/three.module.min.js";
 
-const PAYLOAD = __PAYLOAD__;
-
-const L = PAYLOAD.pitch_length_m;
-const PW = PAYLOAD.pitch_width_m;
-const halfW = PW / 2;
-const STUMP_H = 0.711, STUMP_DX = 0.114, CORR_HALF = STUMP_DX + 0.036;
-const TARGET_X = 0;                          // striker wicket, the judged end
-let W = window.innerWidth, H = window.innerHeight;
+const P = __PAYLOAD__;
+const L = P.pitch_length_m, PW = P.pitch_width_m;
+const STUMP_H = 0.711, STUMP_HALF = 0.1143, STUMP_R = 0.0175, BALL_R = 0.036;
+const POP = 1.22, RETURN_Y = 1.32, POP_HALF = 1.83;
+const TONE = { out: 0xc9302d, not_out: 0x1c8742, umpires_call: 0xd0901e, none: 0x9aa59f };
+const BALL = 0xd8322b, BALL_HEAD = 0xff7a6b, BG = 0x0c110f;
+const $ = id => document.getElementById(id);
+const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // ---------------------------------------------------------------- renderer
+const stage = $("stage");
 let renderer;
 try {
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer = new THREE.WebGLRenderer({ antialias: true });
 } catch (e) {
-  // a browser with WebGL off or blocklisted would otherwise show a blank page that looks like a broken link
-  document.body.innerHTML = '<p style="margin:40vh 24px 0;text-align:center;font-size:16px">This phone\'s browser ' +
-    "can't draw the 3D view. The verdict in the app is not affected.</p>";
+  // webgl off or blocklisted would otherwise leave a blank page that looks like a broken link
+  stage.innerHTML = '<p style="margin:30vh 24px 0;text-align:center;color:#9aa59f">This browser can\'t draw the 3D view. The verdict is not affected.</p>';
   throw e;
 }
-renderer.setSize(W, H, false);
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.12;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-document.getElementById("scene").appendChild(renderer.domElement);
-
+stage.prepend(renderer.domElement);
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x0b1a2a, L + 8, L + 30);
-// bloom drops the canvas alpha, so the sky has to be painted inside the scene
-const sky = document.createElement("canvas"); sky.width = 1; sky.height = 256;
-const skyCtx = sky.getContext("2d"), skyGrad = skyCtx.createLinearGradient(0, 0, 0, 256);
-[[0, "#244f74"], [0.32, "#163a55"], [0.6, "#0d2336"], [1, "#07121d"]].forEach(([o, c]) => skyGrad.addColorStop(o, c));
-skyCtx.fillStyle = skyGrad; skyCtx.fillRect(0, 0, 1, 256);
-scene.background = new THREE.CanvasTexture(sky);
-scene.background.colorSpace = THREE.SRGBColorSpace;
-
-const camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 200);
+scene.background = new THREE.Color(BG);
+scene.fog = new THREE.Fog(BG, 38, 75);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
 camera.up.set(0, 0, 1);
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(L * 0.30, 0, 0.42);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
-controls.minDistance = 2.5;
-controls.maxDistance = 50;
-controls.maxPolarAngle = Math.PI * 0.49;
-controls.autoRotate = false;   // the user controls the view manually
+scene.add(new THREE.HemisphereLight(0xe6efe9, 0x26362a, 1.25));
+const sun = new THREE.DirectionalLight(0xfff6ea, 1.7);
+sun.position.set(L * 0.7, -7, 12);
+scene.add(sun);
 
-// ---------------------------------------------------------------- lighting
-scene.add(new THREE.AmbientLight(0xffffff, 0.42));
-scene.add(new THREE.HemisphereLight(0xbcd6ff, 0x223a26, 0.55));
-const sun = new THREE.DirectionalLight(0xfff4e6, 1.45);
-sun.position.set(L * 0.6 + 5, 6, 9);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.near = 1; sun.shadow.camera.far = 40;
-sun.shadow.camera.left = -3; sun.shadow.camera.right = L + 3;
-sun.shadow.camera.top = 4; sun.shadow.camera.bottom = -4;
-sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
-sun.target.position.set(L * 0.4, 0, 0); scene.add(sun.target); scene.add(sun);
+// ---------------------------------------------------------------- ground
+function canvasTexture(w, h, draw) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  draw(c.getContext("2d"), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+{
+  const grass = canvasTexture(64, 256, (g, w, h) => {
+    for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? "#2f6b3c" : "#357443"; g.fillRect(0, i * h / 8, w, h / 8); }
+  });
+  grass.wrapS = grass.wrapT = THREE.RepeatWrapping; grass.repeat.set(1, 12);
+  const field = new THREE.Mesh(new THREE.CircleGeometry(75, 48), new THREE.MeshLambertMaterial({ map: grass }));
+  field.position.set(L / 2, 0, -0.03); field.rotation.z = Math.PI / 2; scene.add(field);
 
-// ---------------------------------------------------------------- mown field
-function mownTexture() {
-  const c = document.createElement("canvas"); c.width = 64; c.height = 512;
-  const g = c.getContext("2d");
-  for (let i = 0; i < 16; i++) {
-    g.fillStyle = i % 2 ? "#1f6b34" : "#246f39";
-    g.fillRect(0, i * 32, 64, 32);
+  const soil = canvasTexture(128, 128, (g, w, h) => {
+    g.fillStyle = "#b9ad7d"; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 1400; i++) {
+      g.fillStyle = Math.random() < .5 ? "rgba(90,80,45,.10)" : "rgba(255,250,225,.10)";
+      g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 1 + Math.random() * 2);
+    }
+  });
+  soil.wrapS = soil.wrapT = THREE.RepeatWrapping; soil.repeat.set(12, 2);
+  const strip = new THREE.Mesh(new THREE.PlaneGeometry(L + 4.4, PW), new THREE.MeshLambertMaterial({ map: soil }));
+  strip.position.set(L / 2, 0, 0); scene.add(strip);
+
+  // Law 7 markings: bowling crease through the stumps, popping crease 1.22 m in front, return creases 1.32 m out
+  const chalk = new THREE.MeshBasicMaterial({ color: 0xf1f4ef });
+  const mark = (x0, y0, x1, y1) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(Math.abs(x1 - x0) || 0.05, Math.abs(y1 - y0) || 0.05), chalk);
+    m.position.set((x0 + x1) / 2, (y0 + y1) / 2, 0.012); scene.add(m);
+  };
+  for (const [x, dir] of [[0, 1], [L, -1]]) {
+    mark(x, -RETURN_Y, x, RETURN_Y);
+    mark(x + dir * POP, -POP_HALF, x + dir * POP, POP_HALF);
+    for (const y of [-RETURN_Y, RETURN_Y]) mark(x + dir * POP, y, x - dir * POP, y);
   }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(10, 14);
-  t.colorSpace = THREE.SRGBColorSpace; return t;
-}
-{
-  const field = new THREE.Mesh(
-    new THREE.PlaneGeometry(70, 90),
-    new THREE.MeshStandardMaterial({ map: mownTexture(), roughness: 1.0 }));
-  field.position.set(L / 2, 0, -0.012); field.receiveShadow = true;
-  scene.add(field);
-}
-// pitch strip (worn tan-green), receives shadows
-{
-  const pitch = new THREE.Mesh(
-    new THREE.PlaneGeometry(L + 1.7, PW + 0.5),
-    new THREE.MeshStandardMaterial({ color: 0xb6b079, roughness: 0.97 }));
-  pitch.position.set(L / 2, 0, 0.0); pitch.receiveShadow = true; scene.add(pitch);
-  const worn = new THREE.Mesh(
-    new THREE.PlaneGeometry(L + 1.7, 1.0),
-    new THREE.MeshStandardMaterial({ color: 0xa49b66, roughness: 0.97 }));
-  worn.position.set(L / 2, 0, 0.001); worn.receiveShadow = true; scene.add(worn);
-}
-// white creases (popping, return and bowling)
-function line3(a, b, op = 0.92) {
-  const g = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(...a), new THREE.Vector3(...b)]);
-  return new THREE.Line(g, new THREE.LineBasicMaterial({
-    color: 0xf2f7fb, transparent: true, opacity: op }));
-}
-for (const cx of [1.22, L - 1.22, 0, L]) {
-  scene.add(line3([cx, -halfW, 0.005], [cx, halfW, 0.005], cx === 0 || cx === L ? 0.95 : 0.5));
-  for (const dy of [-0.66, 0.66])               // return creases
-    scene.add(line3([cx - 0.4, dy, 0.005], [cx + 0.7, dy, 0.005], 0.4));
+  // the stump-to-stump channel the in-line checks are about
+  const lane = new THREE.Mesh(new THREE.PlaneGeometry(L, STUMP_HALF * 2),
+    new THREE.MeshBasicMaterial({ color: 0xf7f9f7, transparent: true, opacity: 0.09, depthWrite: false }));
+  lane.position.set(L / 2, 0, 0.008); scene.add(lane);
 }
 
-// ---------------------------------------------------------------- corridor + blue wicket zone
-{
-  const g = new THREE.PlaneGeometry(L, CORR_HALF * 2);
-  const m = new THREE.MeshBasicMaterial({ color: 0x3f8bff, transparent: true,
-    opacity: 0.10, side: THREE.DoubleSide, depthWrite: false });
-  const mesh = new THREE.Mesh(g, m); mesh.position.set(L / 2, 0, 0.004); scene.add(mesh);
-}
-{
-  const g = new THREE.BoxGeometry(0.05, CORR_HALF * 2, STUMP_H);
-  const box = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x3f8bff,
-    transparent: true, opacity: 0.26, side: THREE.DoubleSide, depthWrite: false }));
-  box.position.set(TARGET_X, 0, STUMP_H / 2); scene.add(box);
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(g),
-    new THREE.LineBasicMaterial({ color: 0xbcd9ff, transparent: true, opacity: 0.95 }));
-  edges.position.copy(box.position); scene.add(edges);
-}
-
-// ---------------------------------------------------------------- stumps + bails (cast shadows)
-function stumps(x, color, scale, glow) {
-  const grp = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.05 });
-  const geo = new THREE.CylinderGeometry(0.017 * scale, 0.017 * scale, STUMP_H, 18);
-  for (const dy of [-STUMP_DX, 0, STUMP_DX]) {
-    const m = new THREE.Mesh(geo, mat); m.position.set(x, dy, STUMP_H / 2);
-    m.rotation.x = Math.PI / 2; m.castShadow = true; grp.add(m);
+// ---------------------------------------------------------------- stumps and bails
+function wicket(x) {
+  const g = new THREE.Group();
+  const wood = new THREE.MeshStandardMaterial({ color: 0xe9e4d6, roughness: 0.55 });
+  const stump = new THREE.CylinderGeometry(STUMP_R, STUMP_R, STUMP_H, 12);
+  stump.rotateX(Math.PI / 2);
+  for (const y of [-(STUMP_HALF - STUMP_R), 0, STUMP_HALF - STUMP_R]) {
+    const m = new THREE.Mesh(stump, wood); m.position.set(x, y, STUMP_H / 2); g.add(m);
   }
-  const bmat = new THREE.MeshStandardMaterial({ color, roughness: 0.4,
-    emissive: glow ? 0x554433 : 0x000000, emissiveIntensity: glow ? 0.4 : 0 });
-  const bgeo = new THREE.CylinderGeometry(0.01, 0.01, STUMP_DX + 0.02, 12);
-  for (const off of [-STUMP_DX / 2, STUMP_DX / 2]) {
-    const b = new THREE.Mesh(bgeo, bmat); b.position.set(x, off, STUMP_H + 0.015);
-    // the cylinder's own axis is y, which already lays the bails across the stumps
-    b.castShadow = true; grp.add(b);
+  const bail = new THREE.CylinderGeometry(0.008, 0.008, STUMP_HALF - 0.004, 8);
+  for (const y of [-STUMP_HALF / 2, STUMP_HALF / 2]) {
+    const b = new THREE.Mesh(bail, wood); b.position.set(x, y, STUMP_H + 0.008); g.add(b);
   }
-  return grp;
+  scene.add(g);
 }
-scene.add(stumps(TARGET_X, 0xf6f9fc, 1.0, true));
-scene.add(stumps(L - TARGET_X, 0xb6bdc6, 0.85, false));
+wicket(0); wicket(L);
 
-// ---------------------------------------------------------------- ball path tubes
-function tube(points, color, radius, opacity, emissive) {
-  const v = points.map(p => new THREE.Vector3(p[0], p[1], Math.max(0.0, p[2])));
-  const curve = new THREE.CatmullRomCurve3(v, false, "catmullrom", 0.5);
-  const geo = new THREE.TubeGeometry(curve, Math.max(64, v.length * 14), radius, 18, false);
-  const mat = new THREE.MeshStandardMaterial({ color, emissive: color,
-    emissiveIntensity: emissive, roughness: 0.3, metalness: 0.0,
-    transparent: opacity < 1, opacity });
-  const mesh = new THREE.Mesh(geo, mat); mesh.castShadow = true;
-  return { mesh, curve };
+// ---------------------------------------------------------------- the ball's path
+const V = (r) => new THREE.Vector3(r[1], r[2], Math.max(BALL_R, r[3]));
+// rows are [t_ms, x, y, z]; each run is drawn through a spline, keeping its sample times
+function densify(rows) {
+  if (rows.length < 2) return rows.map(r => ({ t: r[0], p: V(r) }));
+  const curve = new THREE.CatmullRomCurve3(rows.map(V), false, "centripetal");
+  const n = rows.length - 1, m = Math.max(12, n * 8), out = [];
+  for (let j = 0; j <= m; j++) {
+    const k = j / m * n, i = Math.min(n - 1, Math.floor(k));
+    out.push({ t: rows[i][0] + (rows[i + 1][0] - rows[i][0]) * (k - i), p: curve.getPoint(j / m) });
+  }
+  return out;
 }
-const trackedRaw = PAYLOAD.tracked.map(p => [p.x, p.y, p.z]);
-// the first predicted sample repeats the last tracked point
-const predicted = PAYLOAD.predicted.slice(1).map(p => [p.x, p.y, p.z]);
+const tracked = P.tracked.slice().sort((a, b) => a[0] - b[0]);
+let flight = [];
+const b = P.bounce;
+if (b && tracked.length >= 2 && b[0] > tracked[0][0] && b[0] < tracked[tracked.length - 1][0]) {
+  // split at the bounce so the pitch reads as a sharp V, not a curve smoothed through the ground
+  const pre = tracked.filter(r => r[0] < b[0]).concat([b]), post = [b].concat(tracked.filter(r => r[0] > b[0]));
+  flight = densify(pre).concat(densify(post).slice(1));
+} else flight = densify(tracked);
+// the first predicted row repeats the last tracked one
+const ahead = P.predicted.length >= 2 ? densify(P.predicted) : [];
 
-// The bounce is the lowest point of the incoming arc (where the ball pitches).
-// Split the path there: RED descends to the bounce, PINK rises away from it,
-// so the pitch reads as a sharp V, never a flat smear along the ground.
-let bi = 0;
-for (let i = 1; i < trackedRaw.length; i++) if (trackedRaw[i][2] < trackedRaw[bi][2]) bi = i;
-const trackDown = trackedRaw.slice(0, bi + 1);
-const predUp = trackedRaw.slice(bi).concat(predicted);
-
-if (trackDown.length >= 2) scene.add(tube(trackDown, 0xff3b30, 0.045, 1.0, 0.32).mesh);
-if (predUp.length >= 2) scene.add(tube(predUp, 0xff9a86, 0.040, 0.9, 0.25).mesh);
-
-// One smooth curve (incoming + predicted) for the moving ball.
-let fullCurve = null;
-{
-  const all = trackedRaw.concat(predicted).map(p => new THREE.Vector3(p[0], p[1], Math.max(0.0, p[2])));
-  if (all.length >= 2) fullCurve = new THREE.CatmullRomCurve3(all, false, "catmullrom", 0.5);
+function withLength(pts) {
+  let s = 0;
+  pts.forEach((q, i) => { if (i) s += q.p.distanceTo(pts[i - 1].p); q.s = s; });
+  return s;
 }
-const impact = PAYLOAD.impact;
-const impactPt = impact && Number.isFinite(impact.x_m)
-  ? [impact.x_m, impact.y_m, Math.max(0.04, impact.z_m)] : null;
+const flightLen = withLength(flight), aheadLen = withLength(ahead);
 
-// pitching + impact markers
-const bounce = PAYLOAD.bounce;
-if (bounce && Number.isFinite(bounce.x_m)) {
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.12, 0.16, 40),
-    new THREE.MeshBasicMaterial({ color: 0xffd166, side: THREE.DoubleSide }));
-  ring.position.set(bounce.x_m, bounce.y_m, 0.012); scene.add(ring);
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.12, 40),
-    new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.55 }));
-  disc.position.set(bounce.x_m, bounce.y_m, 0.011); scene.add(disc);
+// a straight-segment curve, so the tube passes through the bounce corner instead of rounding it
+class Polyline extends THREE.Curve {
+  constructor(pts, len) { super(); this.pts = pts; this.len = len || 1; }
+  getPoint(u, out = new THREE.Vector3()) {
+    const s = u * this.len, pts = this.pts;
+    let i = 1; while (i < pts.length - 1 && pts[i].s < s) i++;
+    const a = pts[i - 1], z = pts[i], f = (s - a.s) / ((z.s - a.s) || 1);
+    return out.copy(a.p).lerp(z.p, Math.min(1, Math.max(0, f)));
+  }
 }
-if (impactPt) {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(0.05, 22, 22),
-    new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 0.7 }));
-  m.position.set(...impactPt); m.castShadow = true; scene.add(m);
+const RADIAL = 10;
+function tube(pts, len, opacity) {
+  if (pts.length < 2 || len <= 0) return null;
+  const segs = Math.min(200, Math.max(24, Math.round(len * 10)));
+  const geo = new THREE.TubeGeometry(new Polyline(pts, len), segs, BALL_R * 0.92, RADIAL, false);
+  const mat = new THREE.MeshStandardMaterial({ color: BALL, roughness: 0.4, emissive: BALL, emissiveIntensity: 0.18,
+    transparent: opacity < 1, opacity, depthWrite: opacity >= 1 });
+  const mesh = new THREE.Mesh(geo, mat); mesh.userData.segs = segs; scene.add(mesh);
+  return mesh;
+}
+const flightTube = tube(flight, flightLen, 1), aheadTube = tube(ahead, aheadLen, 0.42);
+// tube ends are open; a sphere closes the one at the release point
+const cap = new THREE.Mesh(new THREE.SphereGeometry(BALL_R * 0.92, 12, 8), flightTube ? flightTube.material : undefined);
+if (flight.length) { cap.position.copy(flight[0].p); scene.add(cap); }
+function grow(mesh, frac) {
+  if (mesh) mesh.geometry.setDrawRange(0, Math.round(Math.min(1, Math.max(0, frac)) * mesh.userData.segs) * RADIAL * 6);
 }
 
-// moving ball (glows under bloom, casts a shadow)
-const ball = new THREE.Mesh(new THREE.SphereGeometry(0.058, 28, 28),
-  new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xff5436,
-    emissiveIntensity: 0.85, roughness: 0.25 }));
-ball.castShadow = true; scene.add(ball);
+const ball = new THREE.Mesh(new THREE.SphereGeometry(BALL_R * 1.12, 20, 14),
+  new THREE.MeshStandardMaterial({ color: BALL_HEAD, roughness: 0.3, emissive: BALL_HEAD, emissiveIntensity: 0.45 }));
+scene.add(ball);
+const shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), new THREE.MeshBasicMaterial({
+  transparent: true, depthWrite: false, color: 0x000000,
+  alphaMap: canvasTexture(64, 64, (g) => {
+    const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    r.addColorStop(0, "#fff"); r.addColorStop(1, "#000"); g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+  }),
+}));
+scene.add(shadow);
 
-// ---------------------------------------------------------------- post-processing (bloom)
-let composer = null;
-try {
-  composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 0.38, 0.5, 0.85);
-  composer.addPass(bloom);
-  composer.addPass(new OutputPass());
-} catch (e) { composer = null; }
+// ---------------------------------------------------------------- markers, coloured by their DRS row
+const verdict = P.verdict;
+const toneOf = i => verdict ? TONE[verdict.rows[i].tone] : 0x2ea86a;
+function ring(r0, r1, color, opacity) {
+  return new THREE.Mesh(new THREE.RingGeometry(r0, r1, 40),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false }));
+}
+const markers = [];
+if (b) {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.CircleGeometry(0.11, 32),
+    new THREE.MeshBasicMaterial({ color: toneOf(0), transparent: true, opacity: 0.95, depthWrite: false })));
+  g.add(ring(0.15, 0.19, toneOf(0), 0.9));
+  g.position.set(b[1], b[2], 0.016); scene.add(g);
+  markers.push({ obj: g, t: b[0] });
+}
+const imp = P.impact;
+if (imp) {
+  const g = new THREE.Group();
+  g.add(ring(0.08, 0.11, toneOf(1), 1));
+  const pulse = ring(0.08, 0.1, toneOf(1), 1); g.add(pulse);
+  g.rotation.y = Math.PI / 2;           // face down the pitch, like the pad it hit
+  g.position.copy(V(imp)); scene.add(g);
+  markers.push({ obj: g, t: imp[0], pulse });
+}
+let zone = null;
+if (ahead.length) {
+  // the face of the stumps lights up in the wickets colour when the path arrives
+  zone = new THREE.Mesh(new THREE.PlaneGeometry(STUMP_H, STUMP_HALF * 2).rotateY(Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: toneOf(2), transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }));
+  zone.position.set(-0.01, 0, STUMP_H / 2); scene.add(zone);
+  markers.push({ obj: zone, t: ahead[ahead.length - 1].t });
+}
 
 // ---------------------------------------------------------------- HUD
-const GRN = "#2faa4a", RED = "#d23b2f", YEL = "#e0a52b";
-const c = PAYLOAD.checks || {};
-const setP = (id, t, col) => { const e = document.getElementById(id); e.textContent = t; e.style.background = col; };
-setP("p-pitch", c.pitching_in_line ? "IN LINE" : "OUTSIDE", c.pitching_in_line ? RED : GRN);
-setP("p-impact", c.impact_in_line ? "IN LINE" : "OUTSIDE", c.impact_in_line ? RED : GRN);
-setP("p-wickets", c.wickets_hitting ? "HITTING" : "MISSING", c.wickets_hitting ? RED : GRN);
-const dec = (PAYLOAD.lbw_decision || "?").toUpperCase().replace(/_/g, " ");
-setP("p-decision", dec, dec === "OUT" ? RED : dec === "NOT OUT" ? GRN : YEL);
-// null means not measured, which is not the same as zero
-const fmt = (v, digits) => v == null ? "–" : v.toFixed(digits);
-document.getElementById("m-speed").textContent = fmt(PAYLOAD.speed_kmh, 0);
-document.getElementById("m-swing").textContent = fmt(PAYLOAD.swing_cm, 1);
-document.getElementById("m-spin").textContent = fmt(PAYLOAD.spin_deg, 0);
-for (const id of ["panels", "metrics", "brand"]) document.getElementById(id).classList.add("show");
-
-// ---------------------------------------------------------------- framing
-// side-on suits a wide screen; a tall one is too narrow for that, so it looks down the pitch from behind the striker
-const WIDE = new THREE.Vector3(-4.0, 2.3, 1.95), TALL = new THREE.Vector3(-5.5, 0.9, 4.2);
-const keep = trackedRaw.concat(predicted, [[0, -CORR_HALF, STUMP_H], [0, CORR_HALF, 0], [L, 0, STUMP_H]])
-  .map(p => new THREE.Vector3(...p));
-if (impactPt) keep.push(new THREE.Vector3(...impactPt));
-let tall = null;
-function frame() {
-  // on a tall screen the cards span the top and the labels the bottom, so the scene centres between them
-  const box = id => document.getElementById(id).getBoundingClientRect();
-  const top = H >= W ? Math.max(box("panels").bottom, box("metrics").bottom) + 8 : 0;
-  const bot = H >= W ? H - Math.min(box("brand").top, box("help").top) + 8 : 0;
-  camera.aspect = W / H;
-  camera.setViewOffset(W, H, 0, (bot - top) / 2, W, H);
-  if ((H >= W) === tall) return;               // a small resize keeps the user's orbit
-  tall = H >= W;
-  const dir = (tall ? TALL : WIDE).clone().sub(controls.target), v = new THREE.Vector3();
-  const ymax = 1 - 2 * top / H - 0.08, ymin = 2 * bot / H - 1 + 0.08;
-  // back off until the whole path and both wickets are on screen, whatever its shape
-  for (let s = 1; s < 4; s *= 1.05) {
-    camera.position.copy(controls.target).addScaledVector(dir, s);
-    camera.lookAt(controls.target); camera.updateMatrixWorld();
-    if (keep.every(p => { v.copy(p).project(camera); return Math.abs(v.x) < 0.92 && v.y < ymax && v.y > ymin; })) break;
-  }
+const fmt = (v, d) => v == null ? "–" : Number(v).toFixed(d);   // null is "not measured", not zero
+$("m-speed").textContent = fmt(P.speed_kmh, 0);
+$("m-swing").textContent = fmt(P.swing_cm, 1);
+$("m-spin").textContent = fmt(P.spin_deg, 0);
+const CALL_TEXT = { out: "OUT", not_out: "NOT OUT", umpires_call: "UMPIRE'S CALL" };
+const rowsEl = $("rows"), chips = [];
+for (const r of verdict ? verdict.rows : []) {
+  const li = document.createElement("li"), label = document.createElement("span"), chip = document.createElement("b");
+  label.textContent = r.label; chip.className = "chip pending"; chip.textContent = " ";
+  li.append(label, chip); rowsEl.append(li); chips.push({ chip, row: r });
 }
-frame();
+if (!verdict) rowsEl.style.display = "none";
+function reveal(i) {
+  const c = chips[i]; if (!c || !c.chip.classList.contains("pending")) return;
+  c.chip.className = "chip t-" + c.row.tone; c.chip.textContent = c.row.value;
+}
+function revealCall() {
+  const el = $("call"); if (!el.classList.contains("pending")) return;
+  el.className = verdict ? "t-" + verdict.decision : "t-none";
+  el.textContent = verdict ? CALL_TEXT[verdict.decision] : "NO CALL";
+  $("reason").textContent = verdict ? verdict.reason : "There was not enough to make a call. The tracked path is shown.";
+}
 
-// ---------------------------------------------------------------- resize + loop
-window.addEventListener("resize", () => {
-  W = window.innerWidth; H = window.innerHeight;
-  renderer.setSize(W, H, false); if (composer) composer.setSize(W, H);
-  frame();
+// ---------------------------------------------------------------- replay clock
+const path = flight.concat(ahead.slice(1));
+const tStart = path.length ? path[0].t : 0, tEnd = path.length ? path[path.length - 1].t : 0;
+const tFlightEnd = flight.length ? flight[flight.length - 1].t : tStart;
+// real deliveries last under a second, so the replay runs in slow motion
+const DUR = Math.min(3600, Math.max(1800, (tEnd - tStart) * 3)), LEAD = 350;
+let playStart = null, pausedAt = null, finished = false;
+const playBtn = $("play");
+const ICON = {
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
+  replay: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg>',
+};
+function setIcon(k, label) { playBtn.innerHTML = ICON[k]; playBtn.setAttribute("aria-label", label); }
+function play(now) { playStart = now; pausedAt = null; finished = false; setIcon("pause", "Pause"); wake(); }
+playBtn.addEventListener("click", () => {
+  const now = performance.now();
+  if (finished || playStart === null) play(now);
+  else if (pausedAt !== null) { playStart += now - pausedAt; pausedAt = null; setIcon("pause", "Pause"); wake(); }
+  else { pausedAt = now; setIcon("play", "Play"); }
 });
 
-// Static framed default view; the user orbits manually (no auto-rotation).
-let t0 = null;
-const LOOP = 2600, HOLD = 1100;
-const _bp = new THREE.Vector3();
-function tick(now) {
-  if (t0 === null) t0 = now;
-  const el = now - t0;
-  if (fullCurve) {                              // ball rides the trajectory, then holds
-    const phase = (el % (LOOP + HOLD)) / LOOP;
-    const u = Math.min(1, Math.max(0, phase));
-    fullCurve.getPointAt(u, _bp);
-    ball.position.set(_bp.x, _bp.y, Math.max(0.058, _bp.z));   // sit on the pitch
-    ball.visible = phase <= 1.02;
-  }
-  controls.update();
-  (composer || renderer).render(scene, camera);
-  requestAnimationFrame(tick);
+const _p = new THREE.Vector3();
+function sampleAt(t, pts) {
+  let i = 1; while (i < pts.length - 1 && pts[i].t < t) i++;
+  const a = pts[i - 1], z = pts[i], f = Math.min(1, Math.max(0, (t - a.t) / ((z.t - a.t) || 1)));
+  _p.copy(a.p).lerp(z.p, f);
+  return a.s + (z.s - a.s) * f;
 }
-requestAnimationFrame(tick);
+function placeBall(t) {
+  if (!path.length) { ball.visible = shadow.visible = false; return; }
+  const inFlight = t <= tFlightEnd || !ahead.length;
+  const s = sampleAt(t, inFlight ? flight : ahead);
+  grow(flightTube, inFlight ? s / (flightLen || 1) : 1);
+  grow(aheadTube, inFlight ? 0 : s / (aheadLen || 1));
+  ball.position.copy(_p);
+  shadow.position.set(_p.x, _p.y, 0.014);
+  shadow.material.opacity = 0.45 * Math.max(0.15, 1 - _p.z / 3);
+  for (const m of markers) {
+    const k = Math.min(1, Math.max(0, (t - m.t) / ((tEnd - tStart) * 0.25 || 1)));
+    m.obj.visible = t >= m.t;
+    m.obj.scale.setScalar(m.obj === zone ? 1 : 0.4 + 0.6 * (1 - Math.pow(1 - k, 3)));
+    if (m.pulse) { m.pulse.scale.setScalar(1 + 1.6 * k); m.pulse.material.opacity = 1 - k; }
+  }
+  if (verdict) {
+    if (b && t >= b[0]) reveal(0); else if (!b && t >= tStart) reveal(0);
+    if (imp && t >= imp[0]) reveal(1);
+  }
+}
+function step(now) {
+  if (playStart === null) { placeBall(tStart); return false; }
+  const el = (pausedAt ?? now) - playStart - LEAD;
+  const t = tStart + Math.max(0, Math.min(1, el / DUR)) * (tEnd - tStart);
+  placeBall(t);
+  if (el >= DUR) {
+    reveal(0); reveal(1); reveal(2);
+    if (el >= DUR + 450) { revealCall(); if (!finished) { finished = true; setIcon("replay", "Replay"); } }
+  }
+  return !finished && pausedAt === null;
+}
+
+// ---------------------------------------------------------------- camera: presets and touch orbit
+const cur = { az: 0, el: 0.3, r: 25, tg: new THREE.Vector3(L / 2, 0, 0.5) };
+const goal = { az: 0, el: 0.3, r: 25, tg: new THREE.Vector3(L / 2, 0, 0.5) };
+let rate = 4.5, view = "umpire", W = 1, H = 1, insetTop = 0, insetBot = 0;
+const pathPts = path.map(q => q.p);
+const wicketPts = x => [new THREE.Vector3(x, -STUMP_HALF, 0), new THREE.Vector3(x, STUMP_HALF, STUMP_H)];
+function viewSpec(name) {
+  const tall = H > W;
+  switch (name) {
+    // a phone held upright is too narrow for square-on, so it looks from wide of the striker instead
+    case "side": return { az: tall ? -2.2 : -Math.PI / 2, el: tall ? 0.3 : 0.16, tg: [L / 2, 0, 0.4],
+      keep: pathPts.concat(wicketPts(0), wicketPts(L)) };
+    case "top": return { az: tall ? Math.PI : -Math.PI / 2, el: 1.55, tg: [L / 2, 0, 0],
+      keep: [[-POP, -POP_HALF], [L + POP, POP_HALF], [-POP, POP_HALF], [L + POP, -POP_HALF]].map(([x, y]) => new THREE.Vector3(x, y, 0)) };
+    case "batter": return { az: Math.PI, el: tall ? 0.38 : 0.2, tg: [L * 0.55, 0, 0.6], keep: pathPts.concat(wicketPts(L)) };
+    default: return { az: 0, el: tall ? 0.45 : 0.3, tg: [Math.min(L * 0.3, imp ? imp[1] + 2 : 6), 0, 0.5],
+      // the release point is right by this camera; framing it too would shrink the batter's end to nothing
+      keep: pathPts.filter(p => p.x < L * 0.55).concat(wicketPts(0)) };
+  }
+}
+const fitCam = new THREE.PerspectiveCamera(); fitCam.up.set(0, 0, 1);
+function place(cam, s) {
+  const c = Math.cos(s.el);
+  cam.position.set(s.tg.x + s.r * c * Math.cos(s.az), s.tg.y + s.r * c * Math.sin(s.az), s.tg.z + s.r * Math.sin(s.el));
+  cam.lookAt(s.tg); cam.updateMatrixWorld();
+}
+// back off until every point that matters sits clear of the overlays
+function fit(spec) {
+  fitCam.fov = camera.fov; fitCam.aspect = camera.aspect;
+  fitCam.setViewOffset(W, H, 0, (insetBot - insetTop) / 2, W, H); fitCam.updateProjectionMatrix();
+  const top = 1 - 2 * insetTop / H - 0.04, bot = -1 + 2 * insetBot / H + 0.04, v = new THREE.Vector3();
+  const s = { az: spec.az, el: spec.el, tg: new THREE.Vector3(...spec.tg), r: 2 };
+  for (; s.r < 120; s.r *= 1.04) {
+    place(fitCam, s);
+    if (spec.keep.every(p => { v.copy(p).project(fitCam); return v.z < 1 && Math.abs(v.x) < 0.92 && v.y < top && v.y > bot; })) break;
+  }
+  return s;
+}
+function setView(name, snap) {
+  view = name;
+  const s = fit(viewSpec(name));
+  // turn the short way round
+  goal.az = s.az + Math.round((cur.az - s.az) / (2 * Math.PI)) * 2 * Math.PI;
+  goal.el = s.el; goal.r = s.r; goal.tg.copy(s.tg); rate = 4.2;
+  if (snap || reduced) { cur.az = goal.az; cur.el = goal.el; cur.r = goal.r; cur.tg.copy(goal.tg); }
+  for (const btn of document.querySelectorAll("#views button")) btn.setAttribute("aria-pressed", String(btn.dataset.view === name));
+  wake();
+}
+$("views").addEventListener("click", e => { const v = e.target.closest("button"); if (v) setView(v.dataset.view); });
+
+const canvas = renderer.domElement, ptrs = new Map();
+const spread = () => { const [a, z] = [...ptrs.values()]; return Math.hypot(a.x - z.x, a.y - z.y) || 1; };
+function userMoved() {
+  rate = 16; view = null; $("hint").style.opacity = "0";
+  for (const btn of document.querySelectorAll("#views button")) btn.setAttribute("aria-pressed", "false");
+  wake();
+}
+canvas.addEventListener("pointerdown", e => { canvas.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); });
+canvas.addEventListener("pointermove", e => {
+  const prev = ptrs.get(e.pointerId); if (!prev) return;
+  if (ptrs.size === 1) {
+    goal.az -= (e.clientX - prev.x) * 0.008;
+    goal.el = Math.min(1.55, Math.max(0.04, goal.el + (e.clientY - prev.y) * 0.006));
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  } else if (ptrs.size === 2) {
+    const before = spread(); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    goal.r = Math.min(70, Math.max(1.5, goal.r * before / spread()));
+  }
+  userMoved();
+});
+const lift = e => ptrs.delete(e.pointerId);
+canvas.addEventListener("pointerup", lift); canvas.addEventListener("pointercancel", lift);
+canvas.addEventListener("wheel", e => { e.preventDefault(); goal.r = Math.min(70, Math.max(1.5, goal.r * Math.exp(e.deltaY * 0.0012))); userMoved(); }, { passive: false });
+
+function easeCamera(dt) {
+  // exponential approach: an ease-out that stays smooth when a new goal arrives mid-move
+  const k = reduced ? 1 : 1 - Math.exp(-rate * dt);
+  cur.az += (goal.az - cur.az) * k; cur.el += (goal.el - cur.el) * k; cur.r += (goal.r - cur.r) * k;
+  cur.tg.lerp(goal.tg, k);
+  place(camera, cur);
+  return Math.abs(goal.az - cur.az) + Math.abs(goal.el - cur.el) > 1e-4 || Math.abs(goal.r - cur.r) > 1e-3 || cur.tg.distanceTo(goal.tg) > 1e-3;
+}
+
+// ---------------------------------------------------------------- size and loop
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  if (!w || !h || (w === W && h === H)) return;
+  const flipped = (w > h) !== (W > H);
+  W = w; H = h;
+  renderer.setSize(W, H, false);
+  camera.fov = H > W ? 46 : 36; camera.aspect = W / H;
+  const sr = stage.getBoundingClientRect();
+  insetTop = $("metrics").getBoundingClientRect().bottom - sr.top + 8;
+  insetBot = sr.bottom - $("controls").getBoundingClientRect().top + 8;
+  camera.setViewOffset(W, H, 0, (insetBot - insetTop) / 2, W, H);
+  camera.updateProjectionMatrix();
+  if (view) setView(view, flipped || playStart === null);
+  wake();
+}
+let raf = 0, last = 0;
+function frame(now) {
+  raf = 0;
+  const dt = Math.min(0.05, (now - (last || now)) / 1000); last = now;
+  const moving = easeCamera(dt);
+  const playing = step(now);
+  renderer.render(scene, camera);
+  // nothing moving: stop drawing so an idle page doesn't drain the battery
+  if (moving || playing) raf = requestAnimationFrame(frame); else last = 0;
+}
+function wake() { if (!raf) raf = requestAnimationFrame(frame); }
+
+new ResizeObserver(resize).observe(stage);
+resize();
+setView("umpire", true);
+setIcon("play", "Play");
+if (reduced) { playStart = performance.now() - DUR - LEAD - 500; }
+setTimeout(() => { if (playStart === null) play(performance.now()); else wake(); }, reduced ? 0 : 500);
+setTimeout(() => { $("hint").style.opacity = "0"; }, 5000);
 </script>
 </body>
 </html>

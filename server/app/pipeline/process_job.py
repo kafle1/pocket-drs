@@ -265,7 +265,7 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
         "impact": {"t_ms": impact_ms, "x_m": float(impact[0]), "y_m": float(impact[1]), "z_m": float(max(impact[2], 0.0))},
     }
     result["lbw"] = {
-        "decision": verdict.decision, "reason": verdict.reason,
+        "decision": verdict.decision, "reason": verdict.reason, "leg_sign": leg_sign, "tones": verdict.tones,
         "checks": {"pitching_in_line": verdict.pitching_in_line, "impact_in_line": verdict.impact_in_line,
                    "wickets_hitting": verdict.wickets_hitting},
         "prediction": {"y_at_stumps_m": pred.y, "z_at_stumps_m": pred.z,
