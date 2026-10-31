@@ -201,6 +201,8 @@ def _fit_flight(pose: CameraPose, dets: list[Detection], theta0: np.ndarray, *, 
                             f_scale=f_scale, max_nfev=400, xtol=1e-10, ftol=1e-10)
     except Exception:
         return None
+    if sol.status <= 0:
+        return None
     m = 2 * len(dets)
     rms = float(np.sqrt(np.mean(sol.fun[:m] ** 2)))
     dof = max(1, len(sol.fun) - len(x0))

@@ -56,12 +56,11 @@ def read_frames(path: str, *, start_ms: int, end_ms: int, sample_fps: int, max_f
         cap.release()
     if not frames:
         raise VideoDecodeError("No frames in the selected part of the video")
-    # most phone cameras default to 30 a second, too few to follow a fast ball, and the stump-mark
-    # warnings that follow would send people the wrong way
+    # most phone cameras default to 30 a second, which sees a fast ball in half as many places
     if len(times) > 2 and float(np.median(np.diff(times))) > 25:
         fps = 1000 / float(np.median(np.diff(times)))
-        warnings.append(f"filmed at about {fps:.0f} frames a second, too few to follow the ball; "
-                        "set the camera to 60 frames a second for a call")
+        warnings.append(f"filmed at about {fps:.0f} frames a second; set the camera to 60 frames a second "
+                        "for a surer call")
     if cut:
         warnings.append(f"only the first {(times[-1] - times[0]) / 1000:.1f} s were checked; trim the clip to just the delivery")
     return frames, times, scale, cut

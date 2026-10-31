@@ -104,7 +104,7 @@ main:has(#signin:not([hidden])) { max-width: 1040px; }
 .rows { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 24px 0 0; }
 .rows div { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 10px; min-width: 0; }
 .rows dt { font-size: 0.875rem; color: var(--muted); margin-bottom: 8px; }
-.rows dd { margin: 0; padding: 6px 4px; border-radius: 8px; font-size: 0.875rem; font-weight: 700; text-align: center; white-space: nowrap; color: var(--verdict-ink); }
+.rows dd { margin: 0; padding: 6px 4px; border-radius: 8px; font-size: 0.875rem; font-weight: 700; text-align: center; color: var(--verdict-ink); }
 .tone.out { background: var(--out); }
 .tone.not_out { background: var(--notout); }
 .foot { padding: 32px 0 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; }

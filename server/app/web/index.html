@@ -134,7 +134,7 @@
           <button id="undo">Undo</button>
           <button id="clear">Clear marks</button>
         </div>
-        <p id="mark-error" class="error" hidden></p>
+        <p id="mark-error" class="error" role="alert" hidden></p>
         <div class="row">
           <button id="go" class="primary" disabled>Check this ball</button>
           <button id="change">Pick another clip</button>
@@ -144,7 +144,7 @@
       <div id="step-run" class="card" hidden>
         <h2 id="run-title">Sending the clip</h2>
         <div class="progress"><div id="bar"></div></div>
-        <p id="run-text" class="muted">0%</p>
+        <p id="run-text" class="muted" aria-live="polite">0%</p>
         <p class="tip">Keep this screen open until it's done.</p>
       </div>
 
@@ -164,7 +164,7 @@
       </div>
     </div>
 
-    <p id="error" class="error" hidden></p>
+    <p id="error" class="error" role="alert" hidden></p>
     <button id="retry" hidden>Try again</button>
 
     <div id="admin" hidden>

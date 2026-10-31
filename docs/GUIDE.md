@@ -236,7 +236,7 @@ not always see every one of these even when it applies.
 | the ball's path is too unsure to call; re-mark the stumps or try a clearer clip | The estimated path has too much uncertainty for a safe verdict. | Re-mark the stumps, or try a clearer, steadier clip. |
 | speed not shown, as the ball was seen too briefly to time it; keep the bowler's hand in view | The ball was visible for too short a stretch to time it. | Keep the bowler's hand and the start of the delivery in view. |
 | speed not shown, as the stump marks leave it unsure; zoom in and re-mark the corners | Small errors in the stump marks change the speed more than the ball's path does. | Zoom in and tap the stump corners again. |
-| filmed at about 30 frames a second, too few to follow the ball; set the camera to 60 frames a second for a call | The clip has too few pictures a second to follow a fast ball. | Set your camera to 60 frames a second and film again. |
+| filmed at about 30 frames a second; set the camera to 60 frames a second for a surer call | The clip has half the pictures a second the app wants, so the ball is seen in fewer places and calls are less sure. | Set your camera to 60 frames a second and film again. |
 | only the first X.X s were checked; trim the clip to just the delivery | The clip was longer than the app checks in one go. | Trim the clip down to just the delivery before sending it. |
 
 ## Settings

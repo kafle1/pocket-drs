@@ -166,15 +166,16 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
         "diagnostics": {"warnings": warnings},
     }
 
-    def finish() -> PipelineOutput:
+    def finish(no_call: str | None = None) -> PipelineOutput:
+        if no_call:
+            warnings.insert(0, no_call)   # both apps show the first warning as why there's no call
         clean = _finite(result)
         (artifacts_dir / "result_debug.json").write_text(json.dumps(clean, indent=2))
         return PipelineOutput(clean, warnings)
 
     if behind > MAX_BEHIND_M:
-        warnings.append(f"no call, as the phone was about {behind:.0f} m behind the stumps; stand right behind the "
-                        "bowler's stumps with the zoom off")
-        return finish()
+        return finish(f"no call, as the phone was about {behind:.0f} m behind the stumps; stand right behind the "
+                      "bowler's stumps with the zoom off")
 
     # ---- detect and associate ------------------------------------------------
     report(40, "tracking")
@@ -187,9 +188,10 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
     track = max(filter(None, tracks), key=lambda tr: tr.score, default=None)
     report(55, "tracking")
     if track is None:
-        warnings.append("no ball found; use a red or pink ball in good light, with the whole pitch in view")
         result["track"] = {"image_points": []}
-        return finish()
+        # marks taken from behind the bowler but started on the near stumps read as a phone behind the batter
+        return finish("no ball found; use a red or pink ball in good light, with the whole pitch in view" +
+                      ("; if you filmed from behind the bowler, mark the far stumps first" if cam_x < 0 else ""))
     image_points = track.points
     result["track"] = {"image_points": image_points}
     # drawn even without a call, so the user sees what was followed
@@ -197,9 +199,8 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
                                       image_points=image_points, predicted=np.empty((0, 4)), bounce_ms=None, impact_ms=None)
     # the clip or the frame cap ran out while the ball was still being followed, so where it ends isn't the impact
     if image_points[-1]["t_ms"] >= times_ms[-1] - 1000 * MAX_GAP_S:
-        warnings.append("no call, as the ball was still in flight where the check stopped; " +
-                        ("trim the clip to just the delivery" if cut else "keep a moment after the ball reaches the batter"))
-        return finish()
+        return finish("no call, as the ball was still in flight where the check stopped; " +
+                      ("trim the clip to just the delivery" if cut else "keep a moment after the ball reaches the batter"))
 
     # ---- reconstruct ----------------------------------------------------------
     report(65, "reconstruction")
@@ -210,8 +211,7 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
     if rec is None or rec.rms_px > MAX_FIT_RMS_PX:
         if rec is not None:
             result["diagnostics"]["fit_rms_px"] = rec.rms_px
-        warnings.append("the ball's path doesn't match the stump marks; re-mark the stumps or try a clearer clip")
-        return finish()
+        return finish("the ball's path doesn't match the stump marks; re-mark the stumps or try a clearer clip")
     tr = rec.trajectory
     if not tr.bounce_observed:
         warnings.append("no bounce seen, so the ball was treated as a full toss")
@@ -221,13 +221,11 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
     t_last = dets[-1][0]
     pred = predict_stump_plane(rec)
     if pred is None:
-        warnings.append("the ball's path couldn't be carried on to the stumps; try a clip where the ball stays in view up to the batter")
-        return finish()
+        return finish("the ball's path couldn't be carried on to the stumps; try a clip where the ball stays in view up to the batter")
     spread = _calibration_spread(stumps, (width, height), cal.pitch_dimensions_m.length, cal.pitch_dimensions_m.width,
                                  max(pose.reproj_error_px, MIN_TAP_SD_PX), dets, rec, t_last)
     if spread is None:
-        warnings.append("the stump marks aren't precise enough for a call; zoom in and re-mark the corners")
-        return finish()
+        return finish("the stump marks aren't precise enough for a call; zoom in and re-mark the corners")
     cal_pitch_y, cal_bounce_x, cal_impact_y, cal_y, cal_z, cal_speed = (float(s) for s in spread)
     pred = replace(pred, sigma_y=math.hypot(pred.sigma_y, cal_y), sigma_z=math.hypot(pred.sigma_z, cal_z))
     sig_bx, sig_by = bounce_sigma(rec)
@@ -237,14 +235,12 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
     used = [pred.sigma_y, pred.sigma_z, sig_impact] + ([sig_by] if tr.bounce_observed else [])
     # once the 1-sigma miss is bigger than the stumps are tall, the path can't tell hitting from missing
     if not all(map(math.isfinite, used)) or math.hypot(pred.sigma_y, pred.sigma_z) > STUMP_HEIGHT_M:
-        warnings.append("the ball's path is too unsure to call; re-mark the stumps or try a clearer clip")
-        return finish()
+        return finish("the ball's path is too unsure to call; re-mark the stumps or try a clearer clip")
     impact = tr.position(np.array([t_last]))[0]
     # the track ends where the ball was last seen; well short of the batter that's a lost ball, not the pad
     if impact[0] > MAX_IMPACT_X_M:
-        warnings.append("no call, as the ball was lost before it reached the batter; film against a plain "
-                        "background with the ball in view up to the pad")
-        return finish()
+        return finish("no call, as the ball was lost before it reached the batter; film against a plain "
+                      "background with the ball in view up to the pad")
     verdict = decide(leg_sign=leg_sign,
                      pitch_y=float(tr.y_b) if tr.bounce_observed else None, pitch_sigma=sig_by,
                      impact_y=float(impact[1]), impact_sigma=sig_impact,

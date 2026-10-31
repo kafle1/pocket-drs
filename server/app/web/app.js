@@ -8,6 +8,8 @@ const $ = (id) => document.getElementById(id);
 const show = (id, on) => { $(id).hidden = !on; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const MAX_BYTES = 200 * 1024 * 1024;
+// the server reads 240 frames, 4 s at 60 a second, so a longer part would be cut short
+const MAX_PART_MS = 4000;
 const LABELS = [
   "Batter's stumps, top left", "Batter's stumps, top right", "Batter's stumps, bottom right", "Batter's stumps, bottom left",
   "Bowler's stumps, top left", "Bowler's stumps, top right", "Bowler's stumps, bottom right", "Bowler's stumps, bottom left",
@@ -249,6 +251,8 @@ video.addEventListener("loadedmetadata", () => {
   $("scrub").max = String(Math.max(1, Math.round(duration() * 1000)));
   // ios shows a black box until the video is seeked once
   video.currentTime = 0.001;
+  renderSegment();
+  renderMarks();
 });
 video.addEventListener("error", () => file && showError("This browser can't play this video. Try another clip, or record a new one."));
 video.addEventListener("timeupdate", () => {
@@ -262,24 +266,34 @@ $("fwd").addEventListener("click", () => { video.currentTime = Math.min(duration
 $("set-start").addEventListener("click", () => { startMs = Math.round(video.currentTime * 1000); renderSegment(); });
 $("set-end").addEventListener("click", () => { endMs = Math.round(video.currentTime * 1000); renderSegment(); });
 
+function partError() {
+  const s = startMs ?? 0, e = endMs ?? duration() * 1000;
+  if (endMs != null && endMs <= s) return "The end must come after the start.";
+  if (e - s > MAX_PART_MS) return "Set Start and End around the delivery, 4 seconds at most.";
+  return null;
+}
+
 function renderSegment() {
-  const s = startMs ?? 0, e = endMs;
-  const bad = e != null && e <= s;
-  $("segment").textContent = startMs == null && endMs == null ? "Whole clip"
-    : `From ${(s / 1000).toFixed(2)} s to ${e == null ? "the end" : (e / 1000).toFixed(2) + " s"}`
-      + (bad ? ". The end must come after the start." : "");
-  $("segment").classList.toggle("error", bad);
+  const s = startMs ?? 0, e = endMs, err = partError();
+  $("segment").textContent = (startMs == null && endMs == null ? "Whole clip"
+    : `From ${(s / 1000).toFixed(2)} s to ${e == null ? "the end" : (e / 1000).toFixed(2) + " s"}`)
+      + (err ? ". " + err : "");
+  $("segment").classList.toggle("error", !!err);
   renderGo();
 }
 
 function setZoom(z) {
   $("stage").style.width = z * 100 + "%";
+  // the stumps sit near the middle of the frame, not the top left
+  const w = $("zoom-wrap");
+  w.scrollLeft = (w.scrollWidth - w.clientWidth) / 2;
   document.querySelectorAll("[data-z]").forEach((b) => b.classList.toggle("on", Number(b.dataset.z) === z));
 }
 document.querySelectorAll("[data-z]").forEach((b) => b.addEventListener("click", () => setZoom(Number(b.dataset.z))));
 
 $("marks").addEventListener("click", (ev) => {
-  if (marks.length >= 8 || !video.videoWidth) return;
+  if (marks.length >= 8) return;
+  if (!video.videoWidth) { $("next-tap").textContent = "The video is still loading. Wait a moment, then tap again."; return; }
   const r = $("marks").getBoundingClientRect();
   const x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
   if (x < 0 || x > 1 || y < 0 || y > 1) return;
@@ -309,7 +323,7 @@ function renderMarks() {
 }
 
 function renderGo() {
-  $("go").disabled = busy || marks.length !== 8 || !!checkMarks() || freeLeft() === 0 || (endMs != null && endMs <= (startMs ?? 0));
+  $("go").disabled = busy || marks.length !== 8 || !!checkMarks() || freeLeft() === 0 || !!partError();
 }
 
 // same shape check as the app: tops above bottoms and lefts left of rights, for both sets
@@ -406,7 +420,8 @@ async function send(body, key) {
     const x = new XMLHttpRequest();
     x.open("POST", API + "/v1/jobs");
     for (const k in h) x.setRequestHeader(k, h[k]);
-    x.timeout = 600000;
+    // the server allows a minute plus 25 KB a second, up to half an hour; wait 30 s longer so its reply gets here
+    x.timeout = (Math.min(1800, 60 + file.size / 25000) + 30) * 1000;
     x.upload.onprogress = (ev) => {
       if (!ev.lengthComputable) return;
       const p = Math.round((ev.loaded / ev.total) * 100);
@@ -460,9 +475,9 @@ function showResult(jobId, result) {
   $("verdict").textContent = DECISIONS[d] || "No call";
   $("verdict-note").textContent = d === "umpires_call" ? "Too close to call, so the on-field umpire's decision stands."
     : d ? "" : `The app couldn't make a call on this ball. This is not a not out. ${NOT_COUNTED}`;
-  // like the app: with no call the server's first warning is the reason, with a call they follow it
+  // like the app: with no call the server puts the reason first, with a call the warnings follow it
   const warn = (result && result.diagnostics && result.diagnostics.warnings) || [];
-  const lines = d ? [lbw.reason, ...warn] : [warn[0] || "The ball's path couldn't be worked out well enough to make a call."];
+  const lines = d ? [lbw.reason, ...warn] : warn.length ? warn : ["The ball's path couldn't be worked out well enough to make a call."];
   $("reason").textContent = lines.filter(Boolean).map((l) => l[0].toUpperCase() + l.slice(1)).join(". ");
   const c = lbw && lbw.checks;
   $("checks").replaceChildren(...(c ? [
