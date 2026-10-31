@@ -1,5 +1,5 @@
-# listens on 7860 as uid 1000; jobs live in /app/data and are lost with the container,
-# accounts live in /data, which should be a host volume owned by uid 1000
+# listens on 7860 as uid 1000; accounts and jobs live in /data, a host volume owned by uid 1000,
+# so a redeploy keeps every result people still have open
 FROM python:3.12-slim
 
 # libglib2.0-0 and libgomp1 are what opencv-python-headless needs on slim; no ffmpeg
@@ -16,11 +16,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app app
 
-ENV POCKET_DRS_DATA_DIR=/app/data
+ENV POCKET_DRS_DATA_DIR=/data
 
 RUN useradd --uid 1000 --create-home appuser \
-    && mkdir -p /app/data /data \
-    && chown -R appuser:appuser /app/data /data
+    && mkdir -p /data \
+    && chown -R appuser:appuser /data
 USER appuser
 
 EXPOSE 7860

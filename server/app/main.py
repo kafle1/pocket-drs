@@ -56,7 +56,8 @@ async def _lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="PocketDRS Server", version="1.0", lifespan=_lifespan)
+# no /docs: it would hand strangers a map of the admin routes
+app = FastAPI(title="PocketDRS Server", version="1.0", lifespan=_lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 # the 3D page's three.js, served from here so no outside site sees who opens it
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
@@ -89,7 +90,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 _MAX_UPLOAD_BYTES = 201 * 1024 * 1024    # a 200 MB clip plus the form around it
 _BAD_REQUEST = "The clip couldn't be sent. Pick it again and retry."
-_UPLOAD_DEADLINE_S = 600    # the app gives up on an upload after 10 minutes too
+# a minute plus 25 KB a second, so a big clip on a slow phone still gets in; the apps wait 30 s longer
+_UPLOAD_MIN_BPS, _UPLOAD_MAX_S = 25_000, 1800
 
 
 @app.middleware("http")
@@ -103,13 +105,16 @@ async def _cap_upload(request: Request, call_next):
     if int(size) > _MAX_UPLOAD_BYTES:
         return JSONResponse({"detail": "Video exceeds the 200 MB limit"},
                             status_code=413)
-    # the job queue only says busy after the body is on disk, so parallel uploads could still fill it
-    if _uploads.locked():
+    # create_job only takes a queue slot once the clip is on disk, so peek now rather than say busy after the upload
+    free = _job_slots.acquire(blocking=False)
+    if free:
+        _job_slots.release()
+    if not free or _uploads.locked():
         return await _drain(request, _err(503, "server_busy"))
     async with _uploads:
         # a phone that drops off the network mid-upload leaves a half-open socket that would hold its slot forever
         try:
-            async with asyncio.timeout(_UPLOAD_DEADLINE_S):
+            async with asyncio.timeout(min(_UPLOAD_MAX_S, 60 + int(size) / _UPLOAD_MIN_BPS)):
                 return await call_next(request)
         except TimeoutError:
             return JSONResponse({"detail": "The upload took too long. Try again on a better connection."}, status_code=408)
@@ -132,8 +137,9 @@ _store: JobStore = default_job_store()
 _accounts = acc.default_accounts()
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="job-worker")
 
-# the ball detector pins every CPU, so one job runs at a time and a burst past the cap gets a 503
-_MAX_JOBS = 10
+# the ball detector pins every CPU, so one job runs at a time and a burst past the cap gets a 503;
+# a job takes about 10 s, so a full queue is a few minutes' wait
+_MAX_JOBS = 25
 _job_slots = threading.Semaphore(_MAX_JOBS)
 _uploads = asyncio.Semaphore(_MAX_JOBS)
 
@@ -405,7 +411,7 @@ async def create_job(request: Request):
                 _job_slots.release()
                 if paths is not None:
                     # a no-op without a row; a cut-off save already took the use, so give it back
-                    _record_safe(job_id, "failed")
+                    await run_in_threadpool(_record_safe, job_id, "failed")
                     shutil.rmtree(paths.job_dir, ignore_errors=True)
     finally:
         await form.close()
