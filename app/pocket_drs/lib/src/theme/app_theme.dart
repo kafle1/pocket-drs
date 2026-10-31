@@ -16,9 +16,11 @@ class AppTheme {
 
   static ThemeData _build(Brightness brightness) {
     final scheme = AppColors.scheme(brightness);
-    final base = Typography.material2021(
+    // englishLike alone carries sizes but no colours, which left plain headings white on the light theme
+    final base = ThemeData(
+      colorScheme: scheme,
       platform: TargetPlatform.android,
-    ).englishLike;
+    ).textTheme;
     // heavier heads so a glance in the sun finds the title first
     final text = base.copyWith(
       displaySmall: base.displaySmall?.copyWith(
