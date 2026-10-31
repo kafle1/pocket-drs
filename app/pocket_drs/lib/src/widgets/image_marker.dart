@@ -425,7 +425,7 @@ class _Counter extends StatelessWidget {
         ),
         decoration: BoxDecoration(
           color: scheme.secondaryContainer,
-          borderRadius: BorderRadius.circular(AppRadius.xl),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
         ),
         child: Text(
           '$current of $total',

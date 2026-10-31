@@ -15,18 +15,14 @@ import '../api/pocket_drs_api.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
-import '../utils/app_logger.dart';
 import '../utils/app_settings.dart';
 import '../widgets/account_widgets.dart';
 import '../widgets/image_marker.dart';
 import '../widgets/trajectory_video_view.dart';
 import '../widgets/video_frame_selector.dart';
 import '../widgets/video_trim_selector.dart';
-import 'settings_screen.dart';
 
 const _native = MethodChannel('pocket_drs/native');
-// keep in step with the server's own upload limit
-const _maxUploadBytes = 200 << 20;
 
 /// Single end-to-end flow: pick one video → trim it → choose a frame → tap
 /// both sets of stumps → the server tracks the ball on that same video and
@@ -68,7 +64,6 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   // Processing / result state.
   int? _progressPct;
   String? _progressStage;
-  String? _progressError;
   AnalysisResult? _analysis;
   String? _jobId;
   // the result's times are on the cut's clock, so the result plays the cut
@@ -82,22 +77,13 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   // one key per clip and settings, so a retry after a lost reply gets the same job back
   ({String key, String id})? _idem;
 
-  void _log(String m) => AppLogger.instance.log(m);
+  void _log(String m) => debugPrint(m);
 
   // ---------------------------------------------------------------- step 1: video
   Future<void> _pickVideo(ImageSource source) async {
     try {
       final video = await _picker.pickVideo(source: source);
       if (video == null || !mounted) return;
-      // no native trim on web, so a too-big file has to be caught before the
-      // user spends time marking stumps on it
-      if (kIsWeb && await video.length() > _maxUploadBytes) {
-        _showError(
-          'This video is over 200 MB. Trim it on your phone first, then '
-          'pick it again.',
-        );
-        return;
-      }
       setState(() {
         _video = video;
         _videoFromCamera = source == ImageSource.camera;
@@ -110,8 +96,10 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     } on PlatformException catch (e) {
       _log('[PICK] ${e.code}: ${e.message}');
       _showError(switch (e.code) {
-        'camera_access_denied' => 'Camera access is off. Allow it for Pocket DRS in your phone settings, then try again.',
-        'photo_access_denied' || 'storage_access_denied' => 'Access to your videos is off. Allow it for Pocket DRS in your phone settings, then try again.',
+        'camera_access_denied' =>
+          'Camera access is off. Allow it for Pocket DRS in your phone settings, then try again.',
+        'photo_access_denied' || 'storage_access_denied' =>
+          'Access to your videos is off. Allow it for Pocket DRS in your phone settings, then try again.',
         'no_available_camera' => 'No camera found on this phone.',
         _ => "Couldn't open this video. Try another clip.",
       });
@@ -138,7 +126,6 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       final bytes = await decodeFrameJpeg(
         videoPath: video.path,
         timeMs: timestamp.inMilliseconds,
-        quality: 95,
       );
       if (bytes == null) {
         _showError("Couldn't read a frame from this clip. Try another one.");
@@ -166,9 +153,9 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     // check before cutting and uploading a clip the server would turn away
     if (Account.instance.me.value?.usedUp ?? false) {
       await Account.instance.refreshMe();
-      if (!mounted) return;
+      // a second tap while the plan reloaded already started this ball
+      if (!mounted || _step != _Step.stumps) return;
       if (Account.instance.me.value?.usedUp ?? false) {
-        Account.instance.logEvent('trials_used_up');
         showUsedUp(context);
         return;
       }
@@ -181,15 +168,13 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       _step = _Step.processing;
       _progressPct = 0;
       _progressStage = 'queued';
-      _progressError = null;
     });
 
-    final api = _api = PocketDrsApi(baseUrl: kServerUrl);
+    final api = _api = PocketDrsApi();
     String? cutPath;
     String? jobId;
     String? key;
     try {
-      _log('[ANALYZE] server=$kServerUrl');
       final pitchLengthM = await AppSettings.getPitchLength();
       key =
           '${video.path}|$_segmentStartMs|$_segmentEndMs|'
@@ -222,33 +207,28 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         }
       }
       if (analysis == null) {
-        var startMs = _segmentStartMs;
-        var endMs = _segmentEndMs;
-        final Uint8List bytes;
-        if (kIsWeb) {
-          bytes = await video.readAsBytes();
-        } else {
-          // upload only the marked segment, not the whole recording
-          cutPath =
-              '${Directory.systemTemp.path}/pocket_drs_cut_'
-              '${DateTime.now().microsecondsSinceEpoch}.mp4';
-          // the cut starts at a keyframe, so the chosen part sits at span[0] inside it
-          final List<int>? span;
-          try {
-            span = await _native.invokeListMethod<int>('trim', {
-              'input': video.path,
-              'output': cutPath,
-              'startMs': startMs,
-              'endMs': endMs,
-            });
-          } catch (e) {
-            final msg = e is PlatformException ? (e.message ?? e.code) : '$e';
-            throw StateError('Could not cut the clip: $msg');
-          }
-          startMs = span![0];
-          endMs = span[1];
-          bytes = await File(cutPath).readAsBytes();
+        // upload only the marked segment, not the whole recording
+        cutPath =
+            '${Directory.systemTemp.path}/pocket_drs_cut_'
+            '${DateTime.now().microsecondsSinceEpoch}.mp4';
+        // the cut starts at a keyframe, so the chosen part sits at span[0] inside it
+        final List<int>? span;
+        try {
+          span = await _native.invokeListMethod<int>('trim', {
+            'input': video.path,
+            'output': cutPath,
+            'startMs': _segmentStartMs,
+            'endMs': _segmentEndMs,
+          });
+        } catch (e) {
+          _log('[ANALYZE] trim: $e');
+          throw StateError(
+            "Couldn't cut this clip. Try trimming it again, or pick another clip.",
+          );
         }
+        final startMs = span![0];
+        final endMs = span[1];
+        final bytes = await File(cutPath).readAsBytes();
         if (stale()) throw StateError('Cancelled');
         final idem = _idem?.key == key
             ? _idem!
@@ -295,7 +275,6 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       // step so the user can adjust and retry without restarting.
       setState(() => _step = _Step.stumps);
       if (e is ApiException && e.kind == ApiErrorKind.usedUp) {
-        unawaited(Account.instance.refreshMe());
         if (mounted) showUsedUp(context);
         return;
       }
@@ -326,7 +305,6 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     setState(() {
       _progressPct = status.pct;
       _progressStage = status.stage ?? status.status;
-      _progressError = status.errorMessage;
     });
   }
 
@@ -345,9 +323,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   // checking again from the stumps step cuts the source again, so a recorded one goes only once the user leaves
   Future<void> _deleteRecordedSource() async {
     final video = _video;
-    if (kIsWeb || video == null || !_videoFromCamera || _analysis == null) {
-      return;
-    }
+    if (video == null || !_videoFromCamera || _analysis == null) return;
     if (!await AppSettings.getAutoDeleteSource()) return;
     try {
       await File(video.path).delete();
@@ -379,7 +355,6 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       _stumps = null;
       _progressPct = null;
       _progressStage = null;
-      _progressError = null;
       _analysis = null;
       _jobId = null;
     });
@@ -462,20 +437,6 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
                 )
               : null,
           title: Text(_title),
-          // on phones settings sit on the home screen; on web this is the home screen
-          actions: kIsWeb && _step == _Step.upload
-              ? [
-                  IconButton(
-                    tooltip: 'Settings',
-                    icon: const Icon(Icons.settings_outlined),
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const SettingsScreen(),
-                      ),
-                    ),
-                  ),
-                ]
-              : null,
           bottom: showProgress
               ? PreferredSize(
                   preferredSize: const Size.fromHeight(4),
@@ -525,11 +486,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
           },
         );
       case _Step.processing:
-        return _ProcessingView(
-          pct: _progressPct,
-          stage: _progressStage,
-          error: _progressError,
-        );
+        return _ProcessingView(pct: _progressPct, stage: _progressStage);
       case _Step.results:
         return ResultsView(
           videoPath: _cutPath ?? _video!.path,
@@ -556,7 +513,7 @@ class _StepProgress extends StatelessWidget {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: value),
       duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
+      curve: Curves.easeOutCubic,
       builder: (context, v, _) => LinearProgressIndicator(value: v),
     );
   }
@@ -651,18 +608,11 @@ class _UploadStep extends StatelessWidget {
 }
 
 class _ProcessingView extends StatelessWidget {
-  const _ProcessingView({
-    required this.pct,
-    required this.stage,
-    required this.error,
-  });
+  const _ProcessingView({required this.pct, required this.stage});
   final int? pct;
   final String? stage;
-  final String? error;
 
-  // Friendly description for each backend stage. The backend emits short
-  // tokens like "decode" / "tracking"; the user wants to see what is
-  // actually happening at that moment instead of guessing.
+  // same words as the website
   static const Map<String, String> _stageHelp = {
     'queued': 'Waiting in line',
     'starting': 'Loading the video',
@@ -672,8 +622,6 @@ class _ProcessingView extends StatelessWidget {
     'reconstruction': "Working out the ball's path",
     'lbw': 'Making the LBW call',
     'finalize': 'Finishing up',
-    'succeeded': 'Done',
-    'failed': 'Failed',
   };
 
   @override
@@ -681,12 +629,7 @@ class _ProcessingView extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final p = (pct ?? 0).clamp(0, 100);
-    final stageKey = (stage ?? 'working').toLowerCase();
-    final stageName = stageKey.isEmpty
-        ? stageKey
-        : stageKey[0].toUpperCase() + stageKey.substring(1);
-    final help = _stageHelp[stageKey] ?? 'Processing your delivery';
-    final hasError = error != null;
+    final help = _stageHelp[stage] ?? 'Working on your delivery';
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.xl),
@@ -695,11 +638,12 @@ class _ProcessingView extends StatelessWidget {
           children: [
             Text(
               '$p%',
-              style: AppTheme.tabular(theme.textTheme.displayMedium)
-                  ?.copyWith(color: hasError ? scheme.error : scheme.primary),
+              style: AppTheme.tabular(
+                theme.textTheme.displayMedium,
+              )?.copyWith(color: scheme.primary),
             ),
             const SizedBox(height: AppSpacing.md),
-            Text(stageName, style: theme.textTheme.titleMedium),
+            Text('Checking the ball', style: theme.textTheme.titleMedium),
             const SizedBox(height: AppSpacing.xs),
             Text(
               help,
@@ -718,25 +662,15 @@ class _ProcessingView extends StatelessWidget {
               child: TweenAnimationBuilder<double>(
                 tween: Tween(begin: 0, end: pct == null ? 0 : p / 100.0),
                 duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
+                curve: Curves.easeOutCubic,
                 builder: (context, v, _) => LinearProgressIndicator(
                   value: pct == null ? null : v,
-                  color: hasError ? scheme.error : scheme.primary,
+                  color: scheme.primary,
                   backgroundColor: scheme.surfaceContainerHigh,
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
               ),
             ),
-            if (hasError) ...[
-              const SizedBox(height: AppSpacing.lg),
-              Icon(Icons.error_outline, color: scheme.error, size: 28),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                error!,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(color: scheme.error),
-              ),
-            ],
           ],
         ),
       ),
@@ -759,11 +693,10 @@ class ResultsView extends StatelessWidget {
 
   Future<void> _open3D(BuildContext context) async {
     try {
-      final baseUri = Uri.parse(
-        kServerUrl.endsWith('/') ? kServerUrl : '$kServerUrl/',
+      final opened = await launchUrl(
+        Uri.parse('$kServerUrl/v1/jobs/$jobId/three-d'),
+        mode: LaunchMode.externalApplication,
       );
-      final uri = baseUri.resolve('v1/jobs/$jobId/three-d');
-      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!opened) throw StateError('no browser');
     } catch (_) {
       if (context.mounted) {
@@ -849,25 +782,15 @@ class _ResultPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final verdictText = switch (decision) {
-      LbwDecisionKey.out => 'Out',
-      LbwDecisionKey.notOut => 'Not out',
-      LbwDecisionKey.umpiresCall => "Umpire's call",
-      null => 'No decision',
-    };
+    final verdictText = decision.label;
     final verdictNote = switch (decision) {
       LbwDecisionKey.umpiresCall =>
         "Too close to call, so the on-field umpire's decision stands.",
       null =>
-        "The app couldn't make a call on this ball. This is not a not out.",
+        "The app couldn't make a call on this ball. This is not a not out. $notCounted",
       _ => null,
     };
-    final verdictColor = switch (decision) {
-      LbwDecisionKey.out => AppColors.out(Brightness.light),
-      LbwDecisionKey.notOut => AppColors.notOut(Brightness.light),
-      LbwDecisionKey.umpiresCall => AppColors.umpiresCall(Brightness.light),
-      null => scheme.surfaceContainerHighest,
-    };
+    final fill = AppColors.verdict(decision);
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: const Duration(milliseconds: 300),
@@ -878,9 +801,9 @@ class _ResultPanel extends StatelessWidget {
           color: scheme.surfaceContainerLow,
           borderRadius: wide
               ? const BorderRadius.horizontal(
-                  left: Radius.circular(AppRadius.xl),
+                  left: Radius.circular(AppRadius.lg),
                 )
-              : const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+              : const BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
         ),
         child: SafeArea(
           top: wide,
@@ -898,19 +821,20 @@ class _ResultPanel extends StatelessWidget {
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    vertical: AppSpacing.md,
+                    vertical: AppSpacing.xl,
                     horizontal: AppSpacing.lg,
                   ),
                   decoration: BoxDecoration(
-                    color: verdictColor,
-                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    color: fill ?? scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
                   ),
                   child: Text(
                     verdictText,
                     textAlign: TextAlign.center,
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      color: decision == null ? scheme.onSurface : Colors.white,
-                      fontWeight: FontWeight.bold,
+                    style: theme.textTheme.displaySmall?.copyWith(
+                      color: fill == null
+                          ? scheme.onSurfaceVariant
+                          : AppColors.onVerdict(fill),
                     ),
                   ),
                 ),

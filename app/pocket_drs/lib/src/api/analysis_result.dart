@@ -267,8 +267,6 @@ class WorldTrajectory {
   final List<WorldPointM> predictedToStumps;
   final ProjectileFitInfo? fit;
 
-  bool get hasTrajectory => points.length >= 2;
-
   static WorldTrajectory fromJson(Map<String, Object?> json) {
     final pts = <WorldPointM>[];
     final ptsJson = json['points_m'];
@@ -428,7 +426,27 @@ class EventPointM {
   }
 }
 
-enum LbwDecisionKey { out, notOut, umpiresCall }
+enum LbwDecisionKey {
+  out,
+  notOut,
+  umpiresCall;
+
+  static LbwDecisionKey? parse(Object? raw) => switch (raw) {
+    'out' => out,
+    'not_out' => notOut,
+    'umpires_call' => umpiresCall,
+    _ => null,
+  };
+}
+
+extension LbwDecisionLabel on LbwDecisionKey? {
+  String get label => switch (this) {
+    LbwDecisionKey.out => 'Out',
+    LbwDecisionKey.notOut => 'Not out',
+    LbwDecisionKey.umpiresCall => "Umpire's call",
+    null => 'No call',
+  };
+}
 
 class LbwResult {
   const LbwResult({
@@ -437,6 +455,7 @@ class LbwResult {
     required this.pitchedInLine,
     required this.impactInLine,
     required this.wicketsHitting,
+    required this.tones,
     required this.yAtStumpsM,
     required this.zAtStumpsM,
     required this.stumpXM,
@@ -448,19 +467,15 @@ class LbwResult {
   final bool pitchedInLine;
   final bool impactInLine;
   final bool wicketsHitting;
+  // each DRS row's colour from the server: out, not_out or umpires_call
+  final Map<String, Object?> tones;
   final double? yAtStumpsM;
   final double? zAtStumpsM;
   final double stumpXM;
   final double confidence;
 
   static LbwResult fromJson(Map<String, Object?> json) {
-    final decisionRaw = json['decision'];
-    final decision = switch (decisionRaw) {
-      'out' => LbwDecisionKey.out,
-      'not_out' => LbwDecisionKey.notOut,
-      'umpires_call' => LbwDecisionKey.umpiresCall,
-      _ => null,
-    };
+    final decision = LbwDecisionKey.parse(json['decision']);
 
     final checksRaw = json['checks'];
     final checks = checksRaw is Map
@@ -474,6 +489,7 @@ class LbwResult {
       pitchedInLine: (checks['pitching_in_line'] as bool?) ?? false,
       impactInLine: (checks['impact_in_line'] as bool?) ?? false,
       wicketsHitting: (checks['wickets_hitting'] as bool?) ?? false,
+      tones: (json['tones'] as Map?)?.cast<String, Object?>() ?? const {},
       yAtStumpsM: pred != null ? _readDouble(pred, 'y_at_stumps_m') : null,
       zAtStumpsM: pred != null ? _readDouble(pred, 'z_at_stumps_m') : null,
       stumpXM: pred != null ? (_readDouble(pred, 'stump_x_m') ?? 0) : 0,

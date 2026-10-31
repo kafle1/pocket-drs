@@ -46,7 +46,7 @@ class HomeScreen extends StatelessWidget {
             sliver: SliverList(
               delegate: SliverChildListDelegate([
                 Text(
-                  'Check leg before wicket calls from your phone.',
+                  'Check leg before wicket calls from one phone video.',
                   style: theme.textTheme.bodyLarge?.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),
@@ -129,7 +129,6 @@ class _ActionCard extends StatelessWidget {
     final scheme = theme.colorScheme;
     final fg = filled ? scheme.onPrimaryContainer : scheme.onSurface;
     final content = InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.md),
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
@@ -160,13 +159,10 @@ class _ActionCard extends StatelessWidget {
         ),
       ),
     );
-    return filled
-        ? Card.filled(
-            margin: EdgeInsets.zero,
-            color: scheme.primaryContainer,
-            child: content,
-          )
-        : Card.outlined(margin: EdgeInsets.zero, child: content);
+    return Card.filled(
+      color: filled ? scheme.primaryContainer : null,
+      child: content,
+    );
   }
 }
 

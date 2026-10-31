@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -6,7 +7,6 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../utils/native_video_resources.dart';
-import '../utils/video_controller_factory.dart';
 
 /// Pick the delivery sub-clip from a recorded or uploaded video.
 ///
@@ -48,12 +48,10 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
   }
 
   Future<void> _init() async {
-    final controller = createVideoPlayerController(widget.videoPath);
+    final controller = VideoPlayerController.file(File(widget.videoPath));
     try {
       await runWithNativeVideoResources(() async {
-        await coolDownNativeVideoResources(
-          delay: const Duration(milliseconds: 350),
-        );
+        await Future<void>.delayed(const Duration(milliseconds: 350));
         await controller.initialize();
       });
     } catch (_) {
@@ -88,7 +86,6 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
       controller.removeListener(_onUpdate);
       controller.dispose();
     }
-    unawaited(coolDownNativeVideoResources());
     super.dispose();
   }
 
@@ -183,9 +180,8 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
         Container(
           decoration: BoxDecoration(
             color: scheme.surfaceContainerLow,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(AppRadius.xl),
-              topRight: Radius.circular(AppRadius.xl),
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(AppRadius.lg),
             ),
           ),
           child: SafeArea(
@@ -217,7 +213,7 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
                         backgroundColor: scheme.primaryContainer,
                         side: BorderSide.none,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppRadius.xl),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
                         ),
                         visualDensity: VisualDensity.compact,
                         padding: const EdgeInsets.symmetric(

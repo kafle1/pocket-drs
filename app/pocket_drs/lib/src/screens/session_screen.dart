@@ -57,7 +57,7 @@ class _Ball {
 
 class _SessionScreenState extends State<SessionScreen>
     with WidgetsBindingObserver {
-  final _api = PocketDrsApi(baseUrl: kServerUrl);
+  final _api = PocketDrsApi();
   late final Future<Directory> _dir = _prepareDir();
   final _balls = <_Ball>[];
   final _clock = Stopwatch();
@@ -257,11 +257,7 @@ class _SessionScreenState extends State<SessionScreen>
     await Future<void>.delayed(const Duration(seconds: 1));
     final raw = await c.stopVideoRecording();
     try {
-      final jpg = await decodeFrameJpeg(
-        videoPath: raw.path,
-        timeMs: 500,
-        quality: 95,
-      );
+      final jpg = await decodeFrameJpeg(videoPath: raw.path, timeMs: 500);
       if (jpg == null) {
         throw StateError('Could not read a frame from the camera. Try again.');
       }
@@ -327,7 +323,8 @@ class _SessionScreenState extends State<SessionScreen>
         ..startMs = span![0]
         ..endMs = span[1];
     } catch (e) {
-      _fail(b, 'Could not cut the clip: ${_describe(e)}');
+      debugPrint('[SESSION] trim: $e');
+      _fail(b, "Couldn't cut this ball's clip. Bowl it again.");
       return;
     } finally {
       File(raw).delete().ignore();
@@ -337,18 +334,21 @@ class _SessionScreenState extends State<SessionScreen>
   }
 
   Future<void> _send(_Ball b) async {
-    // no upload when the server would turn it away
-    if (Account.instance.me.value?.usedUp ?? false) {
-      // they may have been given premium since, so check before refusing
-      await Account.instance.refreshMe();
-      if (!_live(b)) return;
-      if (Account.instance.me.value?.usedUp ?? false) return _fail(b, kUsedUp);
-    }
     setState(
       () => b
         ..state = _BallState.uploading
         ..canRetry = false,
     );
+    // no upload when the server would turn it away
+    if (Account.instance.me.value?.usedUp ?? false) {
+      // they may have been given premium since, so check before refusing
+      await Account.instance.refreshMe();
+      if (!_live(b)) return;
+      if (Account.instance.me.value?.usedUp ?? false) {
+        if (mounted) showUsedUp(context);
+        return _fail(b, kUsedUp, retry: true);
+      }
+    }
     try {
       b.jobId = await _api.createJob(
         idempotencyKey: b.idem,
@@ -365,15 +365,9 @@ class _SessionScreenState extends State<SessionScreen>
       );
     } catch (e) {
       final kind = e is ApiException ? e.kind : null;
-      if (kind == ApiErrorKind.usedUp && mounted && _balls.contains(b)) {
-        unawaited(Account.instance.refreshMe());
-        showUsedUp(context);
-      }
-      _fail(
-        b,
-        _describe(e),
-        retry: kind != ApiErrorKind.usedUp && kind != ApiErrorKind.signIn,
-      );
+      if (kind == ApiErrorKind.usedUp && mounted) showUsedUp(context);
+      // a used-up ball can go once premium is given, and a sign-out leaves this screen anyway
+      _fail(b, _describe(e), retry: kind != ApiErrorKind.signIn);
       return;
     }
     if (!_live(b)) return;
@@ -456,16 +450,14 @@ class _SessionScreenState extends State<SessionScreen>
       ) =>
         'Camera access is off. Allow it for Pocket DRS in system settings, '
             'then try again.',
-      CameraException e => e.description ?? e.code,
-      PlatformException e => e.message ?? e.code,
+      CameraException _ || PlatformException _ || TimeoutException _ =>
+        "The camera didn't start. Close any other app using it, then try again.",
       StateError e => e.message,
       ApiException e => e.message,
       JobFailedException e => e.message,
       FileSystemException _ => "Couldn't read this ball's clip. Bowl it again.",
-      FormatException _ => 'Got an unexpected reply. Try again in a minute.',
-      TimeoutException _ =>
-        'The camera did not start. Close any other app using it, then try '
-            'again.',
+      FormatException _ =>
+        'Got an unexpected reply from the server. Try again in a minute.',
       _ => 'Something went wrong. Try again.',
     };
   }
@@ -681,6 +673,7 @@ class _SessionScreenState extends State<SessionScreen>
             label: Text(actionLabel),
           ),
         ),
+        if (_balls.isNotEmpty) const SizedBox(height: AppSpacing.lg),
         for (final b in _balls) _card(b, theme),
       ],
     );
@@ -688,7 +681,9 @@ class _SessionScreenState extends State<SessionScreen>
 
   Widget _card(_Ball b, ThemeData theme) {
     final scheme = theme.colorScheme;
-    final brightness = theme.brightness;
+    final fill = b.state == _BallState.done
+        ? AppColors.verdict(b.result!.lbw?.decision)
+        : null;
     final m = b.result?.metrics;
     final speedValue = _unit == SpeedUnit.kmh ? m?.speedKmh : m?.speedMph;
     final speed = speedValue == null
@@ -698,18 +693,12 @@ class _SessionScreenState extends State<SessionScreen>
       _BallState.uploading => ('Uploading', scheme.onSurfaceVariant),
       _BallState.analysing => ('Analysing', scheme.onSurfaceVariant),
       _BallState.failed => (b.error ?? 'Failed', scheme.error),
-      _BallState.done => switch (b.result!.lbw?.decision) {
-        LbwDecisionKey.out => ('Out$speed', AppColors.out(brightness)),
-        LbwDecisionKey.notOut => (
-          'Not out$speed',
-          AppColors.notOut(brightness),
-        ),
-        LbwDecisionKey.umpiresCall => (
-          "Umpire's call$speed",
-          AppColors.umpiresCall(brightness),
-        ),
-        null => ('No LBW call$speed', scheme.onSurfaceVariant),
-      },
+      _BallState.done => (
+        '${b.result!.lbw?.decision.label}$speed',
+        b.result!.lbw?.decision == null
+            ? scheme.onSurfaceVariant
+            : scheme.onSurface,
+      ),
     };
     return Dismissible(
       key: ObjectKey(b),
@@ -718,8 +707,11 @@ class _SessionScreenState extends State<SessionScreen>
         margin: const EdgeInsets.only(bottom: AppSpacing.sm),
         child: ListTile(
           leading: CircleAvatar(
-            backgroundColor: scheme.secondaryContainer,
-            foregroundColor: scheme.onSecondaryContainer,
+            // the verdict colour fills the ball number, readable at arm's length
+            backgroundColor: fill ?? scheme.secondaryContainer,
+            foregroundColor: fill == null
+                ? scheme.onSecondaryContainer
+                : AppColors.onVerdict(fill),
             child: Text('${b.number}'),
           ),
           title: Text('Ball ${b.number}'),

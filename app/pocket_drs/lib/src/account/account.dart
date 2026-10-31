@@ -7,10 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../api/pocket_drs_api.dart';
-import '../utils/app_logger.dart';
 
 const _native = MethodChannel('pocket_drs/native');
 const kAdminEmail = 'kafleniraj@gmail.com';
@@ -72,11 +70,10 @@ class Account {
   Future<void>? _meLoad;
   String? _meLoadUid;
 
-  void _log(String m) => AppLogger.instance.log(m);
+  void _log(String m) => debugPrint(m);
 
-  /// Call after Firebase is up. Web has no Firebase setup here, so it stays signed out.
+  /// Call after Firebase is up.
   Future<void> init() async {
-    if (kIsWeb) return;
     try {
       await GoogleSignIn.instance.initialize();
       _ready = true;
@@ -96,12 +93,10 @@ class Account {
     final cached = _deviceId;
     if (cached != null) return cached;
     String? id;
-    if (!kIsWeb) {
-      try {
-        id = await _native.invokeMethod<String>('deviceId');
-      } catch (e) {
-        _log('[AUTH] device id: $e');
-      }
+    try {
+      id = await _native.invokeMethod<String>('deviceId');
+    } catch (e) {
+      _log('[AUTH] device id: $e');
     }
     // some emulators and custom ROMs have no ANDROID_ID, so keep a random one instead
     if (id == null || !_validDeviceId.hasMatch(id)) {
@@ -109,10 +104,7 @@ class Account {
       id = prefs.getString('device_id');
       if (id == null || !_validDeviceId.hasMatch(id)) {
         final r = Random.secure();
-        id = List.generate(
-          32,
-          (_) => r.nextInt(16).toRadixString(16),
-        ).join();
+        id = List.generate(32, (_) => r.nextInt(16).toRadixString(16)).join();
         await prefs.setString('device_id', id);
       }
     }
@@ -122,16 +114,13 @@ class Account {
   /// Headers for every server call. [refresh] forces a new sign-in token.
   Future<Map<String, String>> headers({bool refresh = false}) async {
     String? token;
-    final user = kIsWeb ? null : FirebaseAuth.instance.currentUser;
+    final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
         token = await user.getIdToken(refresh);
       } on FirebaseAuthException catch (e) {
         if (e.code == 'network-request-failed') {
-          throw ApiException(
-            ApiErrorKind.network,
-            "Can't reach the server. Check your internet, or try again later.",
-          );
+          throw ApiException(ApiErrorKind.network, kCantConnect);
         }
         // the account was removed or its sign-in ran out, so ask again
         await signOut();
@@ -202,7 +191,7 @@ class Account {
   /// Reloads the plan and free reviews left; failures keep the last known value.
   Future<void> refreshMe() {
     // the listener may not have set signedIn yet right after signIn(), so ask Firebase
-    final uid = kIsWeb ? null : FirebaseAuth.instance.currentUser?.uid;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return Future.value();
     final pending = _meLoad;
     if (pending != null && _meLoadUid == uid) return pending;
@@ -215,7 +204,7 @@ class Account {
   }
 
   Future<void> _loadMe(String uid) async {
-    final api = PocketDrsApi(baseUrl: kServerUrl);
+    final api = PocketDrsApi();
     try {
       final next = await api.getMe();
       // a sign-out or another sign-in during the call makes this someone else's plan
@@ -228,23 +217,8 @@ class Account {
   }
 
   void logEvent(String name, [Map<String, Object>? params]) {
-    if (kIsWeb) return;
     FirebaseAnalytics.instance
         .logEvent(name: name, parameters: params)
         .catchError((Object e) => _log('[ANALYTICS] $e'));
-  }
-
-  /// False when the phone has no email app to open.
-  Future<bool> contactAdmin() async {
-    logEvent('contact_admin_tapped');
-    final to = me.value?.contactEmail ?? kAdminEmail;
-    try {
-      return await launchUrl(
-        Uri.parse('mailto:$to?subject=PocketDRS%20premium'),
-      );
-    } catch (e) {
-      _log('[AUTH] mailto: $e');
-      return false;
-    }
   }
 }

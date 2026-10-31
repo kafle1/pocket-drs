@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -6,7 +7,6 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../utils/native_video_resources.dart';
-import '../utils/video_controller_factory.dart';
 
 class VideoFrameSelector extends StatefulWidget {
   const VideoFrameSelector({
@@ -40,12 +40,10 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
   }
 
   Future<void> _init() async {
-    final controller = createVideoPlayerController(widget.videoPath);
+    final controller = VideoPlayerController.file(File(widget.videoPath));
     try {
       await runWithNativeVideoResources(() async {
-        await coolDownNativeVideoResources(
-          delay: const Duration(milliseconds: 350),
-        );
+        await Future<void>.delayed(const Duration(milliseconds: 350));
         await controller.initialize();
       });
     } catch (_) {
@@ -78,7 +76,6 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
       controller.removeListener(_onUpdate);
       controller.dispose();
     }
-    unawaited(coolDownNativeVideoResources());
     super.dispose();
   }
 
@@ -117,9 +114,7 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
       controller.removeListener(_onUpdate);
       await controller.dispose();
       if (_controller == controller) _controller = null;
-      await coolDownNativeVideoResources(
-        delay: const Duration(milliseconds: 550),
-      );
+      await Future<void>.delayed(const Duration(milliseconds: 550));
       final used = await widget.onFrameSelected(position);
       // extraction failed, so give the player back instead of a dead spinner
       if (!used && mounted) {
@@ -198,9 +193,8 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
         Container(
           decoration: BoxDecoration(
             color: scheme.surfaceContainerLow,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(AppRadius.xl),
-              topRight: Radius.circular(AppRadius.xl),
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(AppRadius.lg),
             ),
           ),
           child: SafeArea(
@@ -279,8 +273,8 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                                   : controller.play(),
                         icon: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 250),
-                          switchInCurve: Curves.easeInOut,
-                          switchOutCurve: Curves.easeInOut,
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeOutCubic,
                           child: Icon(
                             playing ? Icons.pause : Icons.play_arrow,
                             key: ValueKey(playing),

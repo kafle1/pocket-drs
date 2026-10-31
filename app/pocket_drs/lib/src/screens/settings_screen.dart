@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -6,7 +5,7 @@ import '../theme/app_spacing.dart';
 import '../theme/theme_controller.dart';
 import '../utils/app_settings.dart';
 
-const _version = '2.1.0';
+const _version = '2.1.1';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -145,18 +144,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     trailing: const Icon(Icons.edit_outlined),
                     onTap: _editPitchLength,
                   ),
-                  if (!kIsWeb) ...[
-                    const _SectionHeader('Storage'),
-                    SwitchListTile(
-                      value: _autoDeleteSource,
-                      onChanged: _setAutoDelete,
-                      title: const Text('Delete recordings after analysis'),
-                      subtitle: const Text(
-                        'Clips you record in the app are removed once you '
-                        'leave the result.',
-                      ),
+                  const _SectionHeader('Storage'),
+                  SwitchListTile(
+                    value: _autoDeleteSource,
+                    onChanged: _setAutoDelete,
+                    title: const Text('Delete recordings after analysis'),
+                    subtitle: const Text(
+                      'Clips you record in the app are removed once you '
+                      'leave the result.',
                     ),
-                  ],
+                  ),
                   const _SectionHeader('About'),
                   const ListTile(
                     title: Text('Pocket DRS'),

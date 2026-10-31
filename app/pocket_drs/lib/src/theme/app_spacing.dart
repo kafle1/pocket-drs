@@ -8,11 +8,12 @@ class AppSpacing {
   static const double xxl = 32;
 }
 
-// the Material 3 shape scale
 class AppRadius {
   AppRadius._();
-  static const double sm = 8;
-  static const double md = 12;
+  // chips, fields, small controls
+  static const double sm = 12;
+  // the video overlay still reads this name
+  static const double md = sm;
+  // cards, sheets, panels, buttons, dialogs
   static const double lg = 16;
-  static const double xl = 28;
 }

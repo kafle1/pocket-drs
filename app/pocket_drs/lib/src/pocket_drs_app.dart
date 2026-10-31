@@ -1,12 +1,10 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'account/account.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
-import 'screens/analyze_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/sign_in_screen.dart';
 
@@ -68,14 +66,11 @@ class _PocketDrsAppState extends State<PocketDrsApp> {
               child: child!,
             );
           },
-          // no live camera session in a browser, so web keeps the upload flow only
-          home: kIsWeb
-              ? const AnalyzeScreen()
-              : ValueListenableBuilder<bool>(
-                  valueListenable: Account.instance.signedIn,
-                  builder: (context, signedIn, _) =>
-                      signedIn ? const HomeScreen() : const SignInScreen(),
-                ),
+          home: ValueListenableBuilder<bool>(
+            valueListenable: Account.instance.signedIn,
+            builder: (context, signedIn, _) =>
+                signedIn ? const HomeScreen() : const SignInScreen(),
+          ),
         );
       },
     );

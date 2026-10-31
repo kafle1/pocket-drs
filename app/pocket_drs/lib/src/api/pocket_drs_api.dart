@@ -5,7 +5,6 @@ import 'dart:math' show Random;
 import 'dart:typed_data';
 import 'dart:ui' show Offset;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
@@ -54,7 +53,7 @@ String newIdempotencyKey() {
 
 enum ApiErrorKind { network, timeout, server, badResponse, signIn, usedUp }
 
-const _cantConnect =
+const kCantConnect =
     "Can't reach the server. Check your internet, or try again later.";
 const _noReply = 'No reply in time. Check your internet, or try again later.';
 // caddy answers 502 when the VM is up but the server container isn't
@@ -74,31 +73,17 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
-// only a plain sentence the server wrote for people; raw bodies and error codes stay out of the UI
-String _extractDetail(String body) {
-  try {
-    final decoded = jsonDecode(body);
-    if (decoded is Map && decoded['detail'] is String) {
-      return decoded['detail'] as String;
-    }
-  } catch (_) {}
-  return '';
-}
-
 const _jobGone =
     'This ball is no longer on the server. Results are kept for 24 hours. '
     'Send it again.';
 
 // one place for what each http status means to the player; [jobGone] says a 404 means the job expired
-void _throwForStatus(int code, String body, {required bool jobGone}) {
+void _throwForStatus(int code, {required bool jobGone}) {
   if (code >= 200 && code < 300) return;
   final (kind, msg) = switch (code) {
     400 => (
       ApiErrorKind.badResponse,
-      _detailOr(
-        body,
-        'The app sent a bad request. Update the app and try again.',
-      ),
+      "The clip couldn't be sent. Pick it again and retry.",
     ),
     401 => (ApiErrorKind.signIn, kSignInAgain),
     402 => (ApiErrorKind.usedUp, kUsedUp),
@@ -122,31 +107,22 @@ void _throwForStatus(int code, String body, {required bool jobGone}) {
       ApiErrorKind.server,
       'Something went wrong on the server. Try again.',
     ),
-    _ => (
-      ApiErrorKind.badResponse,
-      _detailOr(body, 'Got an unexpected reply from the server. Try again.'),
-    ),
+    _ => (ApiErrorKind.badResponse, _oddReply),
   };
   throw ApiException(kind, msg, statusCode: code);
 }
 
-String _detailOr(String body, String fallback) {
-  final d = _extractDetail(body).trim();
-  return d.isEmpty ? fallback : d;
-}
+// the server gives back the free review of a failed check or one with no call
+const notCounted = "This one didn't use up a free review.";
 
-// plain words for a failed job, by the server's error code
-String _jobErrorMessage(String? code, String? serverMessage) => switch (code) {
-  'JOB_TIMEOUT' => 'Checking this ball took too long. Trim the clip closer to the delivery and try again.',
-  'INVALID_VIDEO' || 'VIDEO_DECODE_FAILED' =>
+// plain words for a failed job by the server's error code; its own message can be a raw decoder error
+String _jobErrorMessage(String? code) => switch (code) {
+  'VIDEO_DECODE_FAILED' =>
     "The server couldn't read this video. Try another clip.",
-  'CALIBRATION_DEGENERATE' => "The stump marks don't line up. Mark the tops and bottoms of both sets of stumps again.",
-  'INTERNAL_ERROR' =>
-    'Something went wrong checking this ball. Try again, or try another clip.',
+  'CALIBRATION_DEGENERATE' =>
+    "The stump marks don't line up. Mark the tops and bottoms of both sets of stumps again.",
   _ =>
-    (serverMessage == null || serverMessage.trim().isEmpty)
-        ? 'Could not check this ball. Try again.'
-        : serverMessage.trim(),
+    'Something went wrong checking this ball. Try again, or try another clip.',
 };
 
 /// A job the server finished with an error; retrying the same clip won't help.
@@ -159,24 +135,12 @@ class JobFailedException implements Exception {
 }
 
 class PocketDrsApi {
-  // an offline home server never answers the handshake, so fail fast instead of waiting out the upload timeout
-  PocketDrsApi({required this.baseUrl, http.Client? client})
-    : _client =
-          client ??
-          (kIsWeb
-              ? http.Client()
-              : IOClient(
-                  HttpClient()..connectionTimeout = const Duration(seconds: 10),
-                ));
+  // no signal fails in 10 s instead of waiting out a long upload timeout
+  final http.Client _client = IOClient(
+    HttpClient()..connectionTimeout = const Duration(seconds: 10),
+  );
 
-  final String baseUrl;
-  final http.Client _client;
-
-  Uri _u(String path) {
-    final b = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
-    return Uri.parse(b)
-        .resolve(path.startsWith('/') ? path.substring(1) : path);
-  }
+  Uri _u(String path) => Uri.parse('$kServerUrl$path');
 
   /// Sends with the sign-in headers. A 401 gets one fresh token; a second one signs the person out.
   Future<(int, String)> _send(
@@ -192,9 +156,9 @@ class PocketDrsApi {
         );
         return (res.statusCode, body);
       } on IOException {
-        throw ApiException(ApiErrorKind.network, _cantConnect);
+        throw ApiException(ApiErrorKind.network, kCantConnect);
       } on http.ClientException {
-        throw ApiException(ApiErrorKind.network, _cantConnect);
+        throw ApiException(ApiErrorKind.network, kCantConnect);
       } on TimeoutException {
         throw ApiException(ApiErrorKind.timeout, _noReply);
       }
@@ -207,12 +171,16 @@ class PocketDrsApi {
     return r;
   }
 
-  Future<String> _get(String path, {int seconds = 15, bool jobGone = false}) async {
+  Future<String> _get(
+    String path, {
+    int seconds = 15,
+    bool jobGone = false,
+  }) async {
     final (code, body) = await _send(
       () => http.Request('GET', _u(path)),
       Duration(seconds: seconds),
     );
-    _throwForStatus(code, body, jobGone: jobGone);
+    _throwForStatus(code, jobGone: jobGone);
     return body;
   }
 
@@ -225,8 +193,29 @@ class PocketDrsApi {
       }
       return req;
     }, const Duration(seconds: 15));
-    _throwForStatus(code, body, jobGone: false);
+    // admin changes name what was wrong; same words as the website
+    final reason = switch (code == 400 || code == 404
+        ? _errorCode(body)
+        : null) {
+      'bad_email' => 'That does not look like an email.',
+      'admin_plan_locked' => "The admin's plan can't be changed.",
+      'not_found' => 'That phone is not on the list any more.',
+      _ => null,
+    };
+    if (reason != null) {
+      throw ApiException(ApiErrorKind.badResponse, reason, statusCode: code);
+    }
+    _throwForStatus(code, jobGone: false);
     return body;
+  }
+
+  static String? _errorCode(String body) {
+    try {
+      final v = jsonDecode(body);
+      return v is Map ? v['error'] as String? : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<String> createJob({
@@ -254,8 +243,7 @@ class PocketDrsApi {
         ),
       Duration(seconds: uploadSeconds),
     );
-    if (code == 402) Account.instance.logEvent('trials_used_up');
-    _throwForStatus(code, body, jobGone: false);
+    _throwForStatus(code, jobGone: false);
 
     final Object? decoded;
     try {
@@ -284,7 +272,11 @@ class PocketDrsApi {
   }
 
   Future<AnalysisResult> getJobResult(String jobId) async {
-    final body = await _get('/v1/jobs/$jobId/result', seconds: 30, jobGone: true);
+    final body = await _get(
+      '/v1/jobs/$jobId/result',
+      seconds: 30,
+      jobGone: true,
+    );
     final Object? decoded;
     try {
       decoded = jsonDecode(body);
@@ -357,18 +349,17 @@ class PocketDrsApi {
         while (true) {
           try {
             final result = await getJobResult(jobId);
+            unawaited(Account.instance.refreshMe());
             // a tracked ball with no call still gets the result screen and its reason
             if (result.overlay?.hasPath != true) {
               Account.instance.logEvent('analysis_completed', {
                 'decision': 'none',
               });
               // the server's warnings say why no ball was tracked
-              throw StateError(
-                result.warnings.isEmpty
-                    ? 'No ball found. Check the ball is clearly visible, or '
-                          're-mark the stumps.'
-                    : result.warnings.join('\n'),
-              );
+              final why = result.warnings.isEmpty
+                  ? 'No ball found. Check the ball is clearly visible, or re-mark the stumps.'
+                  : result.warnings.join('\n');
+              throw StateError('$why\n$notCounted');
             }
             Account.instance.logEvent('analysis_completed', {
               'decision': switch (result.lbw?.decision) {
@@ -391,11 +382,10 @@ class PocketDrsApi {
       }
       if (status.status == 'failed') {
         Account.instance.logEvent('analysis_failed');
-        // a failed job gives its free review back
         unawaited(Account.instance.refreshMe());
         throw JobFailedException(
           status.errorCode,
-          _jobErrorMessage(status.errorCode, status.errorMessage),
+          '${_jobErrorMessage(status.errorCode)} $notCounted',
         );
       }
       final ms = attempt < 10 ? 500 : (attempt < 30 ? 800 : 1200);
@@ -414,7 +404,7 @@ class PocketDrsApi {
     );
   }
 
-  Future<Map<String, Object?>> _map(String body) async {
+  Map<String, Object?> _map(String body) {
     try {
       final d = jsonDecode(body);
       if (d is Map) return d.cast<String, Object?>();
@@ -424,14 +414,13 @@ class PocketDrsApi {
     throw ApiException(ApiErrorKind.badResponse, _oddReply);
   }
 
-  Future<List<Map<String, Object?>>> _list(String body, String key) async {
+  List<Map<String, Object?>> _list(String body, String key) {
     Object? d;
     try {
       d = jsonDecode(body);
     } on FormatException {
       throw ApiException(ApiErrorKind.badResponse, _oddReply);
     }
-    // the server may wrap the list in an object or send it bare
     if (d is Map) d = d[key];
     if (d is! List) throw ApiException(ApiErrorKind.badResponse, _oddReply);
     return [
@@ -440,7 +429,7 @@ class PocketDrsApi {
     ];
   }
 
-  Future<Me> getMe() async => Me.fromJson(await _map(await _get('/v1/me')));
+  Future<Me> getMe() async => Me.fromJson(_map(await _get('/v1/me')));
 
   String _q(String q) =>
       q.trim().isEmpty ? '' : '?q=${Uri.encodeQueryComponent(q.trim())}';
@@ -454,6 +443,15 @@ class PocketDrsApi {
   Future<Map<String, Object?>> adminStats() async =>
       _map(await _get('/v1/admin/stats'));
 
+  /// The newest 50 reviews, or only [email]'s when given.
+  Future<List<Map<String, Object?>>> adminJobs(String? email) async => _list(
+    await _get(
+      '/v1/admin/jobs'
+      '${email == null ? '' : '?email=${Uri.encodeQueryComponent(email)}'}',
+    ),
+    'jobs',
+  );
+
   Future<void> adminUpdateUser(
     String email, {
     String? plan,
@@ -464,10 +462,8 @@ class PocketDrsApi {
     {'plan': ?plan, if (resetUsed) 'reset_used': true},
   );
 
-  Future<void> adminResetDevice(String deviceId) => _json(
-    'POST',
-    '/v1/admin/devices/${Uri.encodeComponent(deviceId)}/reset',
-  );
+  Future<void> adminResetDevice(String deviceId) =>
+      _json('POST', '/v1/admin/devices/${Uri.encodeComponent(deviceId)}/reset');
 
   void close() => _client.close();
 }
@@ -488,14 +484,12 @@ class JobStatus {
     required this.status,
     required this.pct,
     required this.stage,
-    required this.errorMessage,
     this.errorCode,
   });
 
   final String status;
   final int? pct;
   final String? stage;
-  final String? errorMessage;
   final String? errorCode;
 
   static JobStatus fromJson(Map<String, Object?> json) {
@@ -512,22 +506,13 @@ class JobStatus {
       if (s is String) stage = s;
     }
 
-    String? errorMessage;
-    String? errorCode;
     final err = json['error'];
-    if (err is Map) {
-      final msg = err['message'];
-      final code = err['code'];
-      if (msg is String) errorMessage = msg;
-      if (code is String) errorCode = code;
-    }
-
+    final code = err is Map ? err['code'] : null;
     return JobStatus(
       status: status,
       pct: pct,
       stage: stage,
-      errorMessage: errorMessage,
-      errorCode: errorCode,
+      errorCode: code is String ? code : null,
     );
   }
 }
