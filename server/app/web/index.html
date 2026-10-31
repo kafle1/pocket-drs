@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#14532d">
-<title>PocketDRS</title>
-<meta name="description" content="Check an LBW call from one phone clip.">
+<meta name="theme-color" content="#f2f7f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1511" media="(prefers-color-scheme: dark)">
+<title>Pocket DRS</title>
+<meta name="description" content="Check leg before wicket calls from one phone video.">
 <link rel="stylesheet" href="/web/style.css">
 <script type="module" src="/web/app.js"></script>
 </head>
@@ -14,15 +15,20 @@
   <p id="boot" class="muted center">Loading...</p>
 
   <section id="signin" hidden>
-    <h1>PocketDRS</h1>
-    <p class="lead">Check an LBW call from one phone clip.</p>
+    <svg class="mark-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M7 7v14M12 7v14M17 7v14M6 4h5M13 4h5"/></svg>
+    <h1>Pocket DRS</h1>
+    <p class="lead">Check leg before wicket calls from one phone video.</p>
+    <div id="in-app" class="notice" hidden>
+      <p>Google sign-in doesn't work inside this app. Open this page in Safari or Chrome.</p>
+      <button id="copy-link" class="button">Copy link</button>
+    </div>
     <button id="google" class="primary">Continue with Google</button>
     <p id="signin-error" class="error" hidden></p>
   </section>
 
   <section id="app" hidden>
     <header class="bar">
-      <a href="/" class="brand">PocketDRS</a>
+      <a href="/" class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M7 7v14M12 7v14M17 7v14M6 4h5M13 4h5"/></svg>Pocket DRS</a>
       <span class="grow"></span>
       <a id="admin-link" href="/admin" hidden>Admin</a>
       <button id="signout" class="link">Sign out</button>
@@ -32,14 +38,14 @@
     <div id="review">
       <div id="quota" class="quota"></div>
       <div id="used-up" class="notice" hidden>
-        <p>You've used your 5 free reviews. Contact the admin for premium access.</p>
-        <a id="contact" class="button primary" href="mailto:kafleniraj@gmail.com?subject=PocketDRS%20premium">Contact admin</a>
+        <p>No free reviews left on this account or this phone. Contact the admin for premium access at <strong id="contact-email"></strong>.</p>
+        <a id="contact" class="button primary">Contact admin</a>
       </div>
 
       <div id="step-pick" class="card">
         <h2>Pick a delivery</h2>
         <p class="muted">Record or choose one clip of the delivery. Film from behind the bowler's stumps with the phone held still.</p>
-        <p class="muted">Set the camera to 60 frames a second first, or the app usually can't make a call. On iPhone: Settings, Camera, Record Video, 1080p at 60 fps.</p>
+        <p class="tip">Set the camera to 60 frames a second first, or the app usually can't make a call. On iPhone: Settings, Camera, Record Video, 1080p at 60 fps.</p>
         <div class="seg" role="group" aria-label="Batter">
           <button data-hand="right" class="on">Right-handed</button>
           <button data-hand="left">Left-handed</button>
@@ -74,7 +80,7 @@
         </div>
         <p id="segment" class="muted small">Whole clip</p>
         <div class="row tight">
-          <span class="small">Zoom</span>
+          <span class="small zoom-label">Zoom</span>
           <div class="seg small-seg" id="zoom">
             <button data-z="1" class="on">1x</button><button data-z="2">2x</button><button data-z="3">3x</button>
           </div>
@@ -95,36 +101,50 @@
         <h2 id="run-title">Sending the clip</h2>
         <div class="progress"><div id="bar"></div></div>
         <p id="run-text" class="muted">0%</p>
+        <p class="tip">Keep this screen open until it's done.</p>
       </div>
 
       <div id="step-result" class="card" hidden>
+        <div id="replay" class="replay" hidden>
+          <video id="replay-video" playsinline muted controls preload="auto"></video>
+          <canvas id="replay-canvas"></canvas>
+        </div>
         <div id="verdict" class="verdict"></div>
         <p id="verdict-note"></p>
         <p id="reason" class="muted"></p>
         <ul id="checks" class="checks"></ul>
-        <div class="row">
+        <div class="row actions">
           <a id="three-d" class="button" target="_blank" rel="noopener">View in 3D</a>
           <button id="again" class="primary">Check another ball</button>
         </div>
       </div>
-      <p id="error" class="error" hidden></p>
     </div>
+
+    <p id="error" class="error" hidden></p>
+    <button id="retry" hidden>Try again</button>
 
     <div id="admin" hidden>
       <h2>Admin</h2>
       <p id="stats" class="muted"></p>
-      <input id="q" type="search" placeholder="Search by email" aria-label="Search by email">
+      <div class="admin-tools">
       <form id="add" class="row tight">
-        <input id="add-email" type="email" placeholder="Email to give premium" aria-label="Email to give premium" required class="grow">
-        <button class="primary">Give premium</button>
+        <input id="add-email" type="email" placeholder="Gmail address" aria-label="Gmail address to make premium" required class="grow">
+        <button id="add-btn" class="primary">Make premium</button>
       </form>
-      <p id="admin-msg" class="muted small" hidden></p>
-      <h3>People</h3>
+      <input id="q" type="search" placeholder="Search by email" aria-label="Search by email">
+      </div>
+      <div class="section-head">
+        <h3 id="jobs-title" class="grow">Recent reviews</h3>
+        <button id="jobs-all" class="link" hidden>Show everyone</button>
+      </div>
+      <ul id="jobs" class="list"></ul>
+      <div class="section-head"><h3>People</h3></div>
       <ul id="users" class="list"></ul>
-      <h3>Phones</h3>
+      <div class="section-head"><h3>Phones</h3></div>
       <ul id="devices" class="list"></ul>
     </div>
     <p id="not-admin" class="notice" hidden>This page is only for the admin. <a href="/">Go back</a></p>
+    <p id="toast" class="toast" role="status" hidden></p>
   </section>
 </main>
 </body>
