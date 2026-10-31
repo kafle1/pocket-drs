@@ -25,9 +25,9 @@ Each file is about 20 MB. Open it on your phone, and allow installs from your br
 asks. When the app opens, tap **Continue with Google** to sign in.
 
 Every account gets 5 free reviews, and the home screen shows how many are left. Each phone also
-gets 5, so a phone shared by several people runs out after 5 reviews in total. A ball that fails
-to check doesn't use one up, but a ball that is checked and gets no call does. When they run out, tap **Contact admin** to ask for premium access,
-which has no limit.
+gets 5, so a phone shared by several people runs out after 5 reviews in total. Only a ball that
+gets a call uses one up; a ball that fails or gets no call gives it back. When they run out, tap
+**Contact admin** to ask for premium access, which has no limit.
 
 On an iPhone, or any phone without the app, open
 [the PocketDRS website](https://pocketdrs-saarathi.centralindia.cloudapp.azure.com) in Safari or
