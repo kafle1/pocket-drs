@@ -17,14 +17,15 @@ cd paper/experiments
 
 | Step | Command | Needs | Writes | Runtime |
 |---|---|---|---|---|
-| exp1 geometry sweeps | `$PY exp1_geometry.py --workers 4` | nothing | `raw/exp1_geometry.csv`, `raw/exp1_config.json` | 608.7 s (4 workers) |
-| exp1 calibration ablation | `$PY exp1_geometry.py --ablation --workers 4` | nothing | `raw/exp1_ablation.csv`, `raw/exp1_ablation_config.json` | 116.6 s (4) |
+| exp1 geometry sweeps | `$PY exp1_geometry.py --workers 4` | nothing | `raw/exp1_geometry.csv`, `raw/exp1_config.json` | 228.0 s (4 workers); every row reuses the same 400 deliveries |
+| exp1 calibration ablation | `$PY exp1_geometry.py --ablation --workers 4` | nothing | `raw/exp1_ablation.csv`, `raw/exp1_ablation_config.json` | 83.8 s (4) |
 | exp2 rendered clips | `$PY exp2_rendered.py` | `server/models/cricket_ball.pt` | `raw/exp2_rendered_striker_ref.csv`, `raw/exp2_config_striker_ref.json` | 1133.7 s (1) |
 | exp3 real clips | `$PY exp3_real.py` | `server/models/cricket_ball.pt`, the clips | `raw/exp3_real.csv` | about 3 min (1) |
 | exp4 JCGM 100 budget | `$PY exp4_budget.py --workers 4` | nothing | `raw/exp4_budget_rep.csv`, `raw/exp4_budget_dist.csv`, `raw/exp4_budget.json` | 717.6 s (4) |
 | exp5 JCGM 101 Monte Carlo | `$PY exp5_mc.py --workers 4` | exp4 | `raw/exp5_mc_rep.csv`, `raw/exp5_mc_subset.csv`, `raw/exp5_mc.json` | 1268.2 s (4) |
 | exp6 coverage and model error | `$PY exp6_coverage.py --n 600 --n-sweep 200 --workers 4` | nothing | `raw/exp6_worldb.csv`, `raw/exp6_sweeps.csv`, `raw/exp6_model_error.json` | 409.0 s (4) |
-| exp7 JCGM 106 guard band | `$PY exp7_risk.py` | exp6 | `raw/exp7_risk_curve.csv`, `raw/exp7_risk.json` | 0.5 s |
+| exp6 calibration (height bias, split-conformal factors, held out) | `$PY exp6_calibrate.py` | exp6 | `raw/exp6_calibrated.csv`, `raw/exp6_calibrated.json` | about 1 s |
+| exp7 JCGM 106 guard band | `$PY exp7_risk.py` | exp6, exp6 calibration | `raw/exp7_risk_curve.csv`, `raw/exp7_risk.json` | 0.5 s |
 | exp8 unmodelled physics | `$PY exp8_physics.py --part physics --workers 4` | exp6 (for sigma_mod) | `raw/exp8_physics.csv` | 163.5 s (4) |
 | exp8 tap perturbation | `$PY exp8_physics.py --part taps --workers 4` | exp6, exp7 | `raw/exp8_taps.csv` | 59.7 s (4) |
 | exp8 summary | `$PY exp8_physics.py --summary-only` | both exp8 parts, exp7 | `raw/exp8_physics.json` | seconds |
