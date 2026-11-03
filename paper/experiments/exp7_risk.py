@@ -6,6 +6,9 @@ ICC rule applied to the true path (k = 0, sigma = 0), under three 1-sigma sets:
   fit          the pipeline's own covariance, as shipped
   fit+cal      plus tap noise through the calibration (exp6 sigma_cal)
   full         plus the cross-validated model error (exp6 sigma_mod, out of fold)
+  calibrated   exp6_calibrate: z bias removed from the estimate, sigma scaled so its Gaussian
+               95 % interval is the held-out conformal U95 (U95 / 1.96), the conservative
+               choice when the tails are heavier than Gaussian
 
 Specific risk (JCGM 106 clause 9.3, flat prior, independent Gaussian errors per test):
   false out      = P(some test clearly fails on the true path | the estimate), for OUT calls
@@ -33,7 +36,7 @@ from uq import QTY, OUT, verdict, specific_risk, save_json
 
 K_GRID = np.round(np.arange(0.0, 3.0001, 0.05), 2)
 ALPHAS = (0.01, 0.05)
-SETS = ("fit", "fit+cal", "full")
+SETS = ("fit", "fit+cal", "full", "calibrated")
 
 
 def fnum(v):
@@ -44,8 +47,17 @@ def fnum(v):
     return x if np.isfinite(x) else None
 
 
+def load_cal():
+    path = os.path.join(OUT, "exp6_calibrated.csv")
+    if not os.path.exists(path):
+        return {}
+    with open(path, newline="") as fh:
+        return {int(r["i"]): r for r in csv.DictReader(fh)}
+
+
 def load_rows():
     rows = []
+    cal = load_cal()
     with open(os.path.join(OUT, "exp6_worldb.csv"), newline="") as fh:
         for r in csv.DictReader(fh):
             if r["ok"] != "True" or r["bounce"] != "True":
@@ -60,8 +72,11 @@ def load_rows():
             sig = {"fit": sf,
                    "fit+cal": {q: float(np.hypot(sf[q], sc[q])) for q in QTY},
                    "full": {q: float(np.sqrt(sf[q] ** 2 + sc[q] ** 2 + sm[q] ** 2)) for q in QTY}}
+            c = cal.get(int(r["i"]), {})
+            sig["calibrated"] = {q: (fnum(c.get(f"U95_{q}")) or sig["full"][q] * 1.96) / 1.96 for q in QTY}
+            est_c = dict(est, z=est["z"] - (fnum(c.get("bias_z")) or 0.0))
             zero = {q: 0.0 for q in QTY}
-            rows.append(dict(i=int(r["i"]), est=est, sig=sig, truth=verdict(tru, zero, 0.0)))
+            rows.append(dict(i=int(r["i"]), est=est, est_c=est_c, sig=sig, truth=verdict(tru, zero, 0.0)))
     return rows
 
 
@@ -72,12 +87,13 @@ def cp_upper(x, n, conf=0.95):
 
 def curve(rows, sset):
     out = []
-    risks = [specific_risk(r["est"], r["sig"][sset]) for r in rows]
+    ek = "est_c" if sset == "calibrated" else "est"
+    risks = [specific_risk(r[ek], r["sig"][sset]) for r in rows]
     n = len(rows)
     n_true_out = sum(r["truth"] == "out" for r in rows)
     n_true_no = sum(r["truth"] == "not_out" for r in rows)
     for k in K_GRID:
-        v = [verdict(r["est"], r["sig"][sset], float(k)) for r in rows]
+        v = [verdict(r[ek], r["sig"][sset], float(k)) for r in rows]
         t = [r["truth"] for r in rows]
         outs = [j for j, x in enumerate(v) if x == "out"]
         nots = [j for j, x in enumerate(v) if x == "not_out"]
@@ -151,6 +167,9 @@ def main():
     summary["shipped"]["max_specific_false_out_full_sigma_pct"] = 100 * max(sp) if sp else 0.0
     summary["shipped"]["mean_specific_false_out_full_sigma_pct"] = 100 * float(np.mean(sp)) if sp else 0.0
     summary["shipped"]["outs_over_5pct_full_sigma"] = int(sum(x > 0.05 for x in sp))
+    sp = [specific_risk(r["est_c"], r["sig"]["calibrated"])[0] for r in rows if verdict(r["est"], r["sig"]["fit"], 1.0) == "out"]
+    summary["shipped"]["max_specific_false_out_cal_sigma_pct"] = 100 * max(sp) if sp else 0.0
+    summary["shipped"]["outs_over_5pct_cal_sigma"] = int(sum(x > 0.05 for x in sp))
     summary["seconds"] = round(time.time() - t0, 1)
     save_json("exp7_risk.json", summary)
 

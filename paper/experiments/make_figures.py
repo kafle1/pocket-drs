@@ -98,7 +98,7 @@ def fig_risk():
     cur = load("exp7_risk_curve.csv")
     chosen = json.load(open(os.path.join(RAW, "exp7_risk.json")))["chosen"]
     fig, axes = plt.subplots(1, 2, figsize=(3.4, 1.7))
-    for sset, col, lab in (("fit", GREY, "pipeline $\\sigma$"), ("full", BLUE, "full $\\sigma$")):
+    for sset, col, lab in (("fit", GREY, "pipeline $\\sigma$"), ("calibrated", BLUE, "calibrated $\\sigma$")):
         rr = [r for r in cur if r["sigma_set"] == sset]
         k = [fl(r, "k") for r in rr]
         axes[0].plot(k, [fl(r, "max_specific_false_out_pct") for r in rr], color=col, lw=1.2, label=lab)
@@ -106,7 +106,7 @@ def fig_risk():
         axes[1].plot(k, [fl(r, "agree_pct") for r in rr], color=col, lw=1.0, ls="--")
     for a, ls in (("0.01", ":"), ("0.05", "-.")):
         axes[0].axhline(100 * float(a), color=RED, lw=0.8, ls=ls)
-        kk = chosen["full"][a]["k_specific"]
+        kk = chosen["calibrated"][a]["k_specific"]
         if kk is not None:
             for ax in axes:
                 ax.axvline(kk, color=ORANGE, lw=0.8, ls=ls)
