@@ -483,12 +483,15 @@ def find_ball_trajectory(
 
     # a false arc, say a big round object seen in many frames, can outscore the ball, and
     # returning None on it would lose the ball too, so drop its detections and search again
+    # max_arcs also caps the retries, so a clip full of false detections cannot loop for long
     for _ in range(max_arcs):
         fit = _best_track(frames, image_diagonal_px=image_diagonal_px, search_radius_px=search_radius_px,
                           min_inliers=min_inliers, max_seed_pairs=max_seed_pairs)
-        if fit is None or accept is None:
-            return fit
-        kept = accept(fit)
+        if fit is None:
+            return None
+        # a hand-held clip makes a ground mark drift past the static filter; it wins the search
+        # but spans too little to be a ball, so drop it and look again rather than give up
+        kept = None if _spans_too_little(fit, image_diagonal_px) else (fit if accept is None else accept(fit))
         if kept is not None:
             return kept
         drop = {(p.t_ms, p.x_px, p.y_px) for p in fit.points}
@@ -563,16 +566,14 @@ def _best_track(
             px_per_ms_x=best_fit.px_per_ms_x,
         )
 
-    # Final-track validation: a genuine ball traverses a meaningful fraction
-    # of the image. A track whose points span almost no distance is a static
-    # cluster that survived per-seed gating, reject it so the pipeline
-    # reports "no trajectory" rather than fabricating a decision from clutter.
-    if len(best_fit.points) >= 2:
-        xs_t = [p.x_px for p in best_fit.points]
-        ys_t = [p.y_px for p in best_fit.points]
-        span = math.hypot(max(xs_t) - min(xs_t), max(ys_t) - min(ys_t))
-        min_span = max(40.0, 0.06 * image_diagonal_px)  # ~130 px on 1080p
-        if span < min_span:
-            return None
-
     return best_fit
+
+
+def _spans_too_little(fit: TrajectoryFit, image_diagonal_px: float) -> bool:
+    """A genuine ball traverses a meaningful fraction of the image; a track that spans almost
+    no distance is a static cluster that survived per-seed gating."""
+    if len(fit.points) < 2:
+        return False
+    xs = [p.x_px for p in fit.points]
+    ys = [p.y_px for p in fit.points]
+    return math.hypot(max(xs) - min(xs), max(ys) - min(ys)) < max(40.0, 0.06 * image_diagonal_px)  # ~130 px on 1080p
