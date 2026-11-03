@@ -15,8 +15,9 @@ Two estimators run on identical detections:
              (the side fits _anchor_candidates already makes), so the only thing missing
              is the contact pinned to the ground plane
 
-Cells run in parallel worker processes, each with its own seed, so the output does not
-depend on the worker count. --ablation runs the calibration ablations instead (focal length
+Every cell sees the same deliveries: delivery i draws its trajectory, tap noise and detection
+noise from its own streams seeded by (seed, i), so sweep rows differ only in the factor swept
+(common random numbers) and the output does not depend on the worker count. --ablation runs the calibration ablations instead (focal length
 handed to the solver, pitch length left free, a 70 degree camera) into exp1_ablation.csv.
 
 Usage:  server/.venv/bin/python paper/experiments/exp1_geometry.py [--quick] [--ablation] [--workers 8]
@@ -187,13 +188,14 @@ def evaluate(rec, truth):
 
 
 def run_cell(name, cam_name, cfg, n, seed, cam=None):
-    rng = np.random.default_rng(seed)
     cam = cam or CAMERAS[cam_name]
     calib = cfg.get("calib", "app")
     pose_true = cam.pose()
     rows = []
     for i in range(n):
-        d = random_delivery(rng, physics=cfg["physics"])
+        # separate streams, so a factor that skips or adds draws (taps off, frame rate) cannot shift the others
+        rng_d, rng_t, rng_o = (np.random.default_rng([seed, i, k]) for k in range(3))
+        d = random_delivery(rng_d, physics=cfg["physics"])
         try:
             truth = fly(d)
         except ValueError:
@@ -201,14 +203,14 @@ def run_cell(name, cam_name, cfg, n, seed, cam=None):
         if cfg["tap_px"] > 0:
             kw = CALIB[calib] if CALIB[calib] is not None else {"fov_deg": cam.fov_deg}
             try:
-                pose, _, _ = calibration_taps(pose_true, noise_px=cfg["tap_px"], rng=rng, **kw)
+                pose, _, _ = calibration_taps(pose_true, noise_px=cfg["tap_px"], rng=rng_t, **kw)
             except CalibrationError:
                 pose = None
         else:
             pose = pose_true
         dets = observe(truth, pose_true, fps=cfg["fps"], noise_px=cfg["noise_px"],
-                       radius_noise=cfg["radius_noise"], dropout=cfg["dropout"], rng=rng)
-        if pose is None or len(dets) < 6:       # observe still ran, so paired cells keep the same draws
+                       radius_noise=cfg["radius_noise"], dropout=cfg["dropout"], rng=rng_o)
+        if pose is None or len(dets) < 6:
             continue
         gt = truth_verdict(truth)
         base = dict(sweep=name, camera=cam_name, **{k: cfg[k] for k in BASE}, i=i,
@@ -234,7 +236,7 @@ def _cell(args):
 
 def main():
     t_start = time.time()
-    cells, seed = [], 0
+    cells, seed = [], 1
     if ABLATION:
         # paired: the three calibrations see the same deliveries and the same tap noise
         for calib in CALIB:
@@ -247,11 +249,9 @@ def main():
         for key, values in SWEEPS.items():
             for val in values:
                 cfg = dict(BASE); cfg[key] = val
-                seed += 1
                 cells.append((f"{key}={val}", "striker_ref", cfg, N, seed))
         # camera placements at the reference noise
         for cam_name in CAMERAS:
-            seed += 1
             cells.append((f"camera={cam_name}", cam_name, dict(BASE), N, seed))
     rows = []
     with mp.get_context("spawn").Pool(WORKERS) as pool:
