@@ -1,26 +1,26 @@
 calib_fov_deg,camera,contact_x_err_cm,contact_y_err_cm,focal_err_pct,i,length_m,line_m,n_frames,n_track,reproj_px,sigma_y_cm,sigma_z_cm,speed_err_kmh,speed_kmh,truth,truth_y_cm,truth_z_cm,verdict,warnings,y_err_cm,z_err_cm
-91.55,striker_ref,1.85,0.3,-1.817,0,2.0,-0.4,67,30,1.77,1.32,2.44,0.8,90,not_out,-44.73,30.5,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,0.94,1.18
+91.55,striker_ref,1.85,0.3,-1.816,0,2.0,-0.4,67,30,1.77,1.32,2.44,0.8,90,not_out,-44.73,30.5,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,0.94,1.18
 89.009,striker_ref,9.99,0.45,2.637,1,4.0,-0.4,68,37,2.06,1.18,2.06,3.3,90,not_out,-50.72,49.72,not_out,no interception seen; the last tracked point stands in for the impact,1.21,2.82
 89.905,striker_ref,2.65,0.47,1.044,2,6.0,-0.4,68,41,2.12,0.98,1.46,0.8,90,not_out,-58.58,63.06,not_out,no interception seen; the last tracked point stands in for the impact,0.03,0.45
 90.804,striker_ref,15.11,0.63,-0.529,3,8.0,-0.4,69,39,1.39,0.79,0.97,1.7,90,not_out,-69.3,73.46,not_out,no interception seen; the last tracked point stands in for the impact,1.48,1.98
 91.251,striker_ref,1.69,0.29,-1.303,4,2.0,-0.2,67,28,2.22,0.94,2.36,0.1,90,not_out,-22.36,30.5,not_out,no interception seen; the last tracked point stands in for the impact,0.58,1.3
-89.632,striker_ref,4.96,0.68,1.526,5,4.0,-0.2,68,33,2.76,0.54,1.82,1.0,90,not_out,-25.36,49.72,not_out,no interception seen; the last tracked point stands in for the impact,1.1,3.79
+89.631,striker_ref,4.97,0.68,1.528,5,4.0,-0.2,68,33,2.76,0.54,1.82,1.0,90,not_out,-25.36,49.72,not_out,no interception seen; the last tracked point stands in for the impact,1.1,3.79
 89.038,striker_ref,12.52,0.76,2.585,6,6.0,-0.2,68,35,2.21,0.57,1.61,2.4,90,not_out,-29.29,63.06,not_out,no interception seen; the last tracked point stands in for the impact,0.49,1.14
 89.435,striker_ref,4.69,1.03,1.876,7,8.0,-0.2,69,36,1.81,0.45,1.05,2.8,90,not_out,-34.65,73.46,not_out,no interception seen; the last tracked point stands in for the impact,0.94,3.36
 89.557,striker_ref,302.56,0.13,1.66,8,2.0,0.0,67,25,2.93,16.44,8.64,40.7,90,out,0.0,30.5,umpires_call,no interception seen; the last tracked point stands in for the impact,0.31,14.9
-88.866,striker_ref,12.19,0.57,2.894,9,4.0,0.0,68,26,1.98,0.15,1.7,3.4,90,out,0.0,49.72,out,no interception seen; the last tracked point stands in for the impact,0.5,2.57
+88.866,striker_ref,12.19,0.57,2.893,9,4.0,0.0,68,26,1.98,0.15,1.7,3.4,90,out,0.0,49.72,out,no interception seen; the last tracked point stands in for the impact,0.5,2.57
 91.005,striker_ref,2.01,0.38,-0.878,10,6.0,0.0,68,26,2.74,0.18,2.02,1.4,90,out,0.0,63.06,out,no interception seen; the last tracked point stands in for the impact,0.92,0.4
-91.702,striker_ref,12.78,1.23,-2.077,11,8.0,0.0,69,28,2.75,0.13,1.19,7.4,90,umpires_call,0.0,73.46,umpires_call,no interception seen; the last tracked point stands in for the impact,0.11,1.56
+91.702,striker_ref,12.78,1.23,-2.076,11,8.0,0.0,69,28,2.75,0.13,1.19,7.4,90,umpires_call,0.0,73.46,umpires_call,no interception seen; the last tracked point stands in for the impact,0.11,1.56
 89.811,striker_ref,302.75,3.03,1.21,12,2.0,0.2,67,21,2.08,14.81,8.3,43.7,90,not_out,22.36,30.5,not_out,no interception seen; the last tracked point stands in for the impact,1.39,14.15
 90.686,striker_ref,2.32,1.27,-0.325,13,4.0,0.2,68,33,2.07,0.65,2.21,0.6,90,not_out,25.36,49.72,not_out,no interception seen; the last tracked point stands in for the impact,1.14,3.26
-92.046,striker_ref,11.88,0.39,-2.663,14,6.0,0.2,68,34,1.77,0.61,1.77,3.7,90,not_out,29.29,63.06,not_out,no interception seen; the last tracked point stands in for the impact,0.32,1.59
+92.045,striker_ref,11.88,0.39,-2.662,14,6.0,0.2,68,34,1.77,0.61,1.77,3.7,90,not_out,29.29,63.06,not_out,no interception seen; the last tracked point stands in for the impact,0.32,1.59
 90.334,striker_ref,6.53,1.82,0.29,15,8.0,0.2,69,33,2.49,0.51,1.2,1.5,90,not_out,34.65,73.46,not_out,no interception seen; the last tracked point stands in for the impact,0.82,1.45
 89.373,striker_ref,4.32,0.07,1.987,16,2.0,0.4,67,32,2.35,1.33,2.38,2.0,90,not_out,44.73,30.5,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,0.67,0.89
 88.639,striker_ref,11.23,0.06,3.302,17,4.0,0.4,68,40,2.33,1.07,1.84,2.9,90,not_out,50.72,49.72,not_out,no interception seen; the last tracked point stands in for the impact,2.46,4.11
-88.86,striker_ref,11.65,0.84,2.903,18,6.0,0.4,68,40,1.64,0.97,1.43,0.5,90,not_out,58.58,63.06,not_out,no interception seen; the last tracked point stands in for the impact,1.72,3.42
+88.86,striker_ref,11.66,0.84,2.904,18,6.0,0.4,68,40,1.64,0.97,1.43,0.5,90,not_out,58.58,63.06,not_out,no interception seen; the last tracked point stands in for the impact,1.72,3.42
 88.515,striker_ref,26.22,0.59,3.526,19,8.0,0.4,69,39,2.27,0.8,1.0,2.8,90,not_out,69.3,73.46,not_out,no interception seen; the last tracked point stands in for the impact,2.1,4.19
 87.604,striker_ref,13.68,0.04,5.186,20,2.0,-0.4,61,31,2.78,1.06,1.65,6.6,105,not_out,-44.73,27.23,not_out,no interception seen; the last tracked point stands in for the impact,0.87,1.5
-90.888,striker_ref,0.08,0.1,-0.675,21,4.0,-0.4,62,34,2.1,1.42,2.57,0.2,105,not_out,-50.72,46.26,not_out,no interception seen; the last tracked point stands in for the impact,1.26,1.91
+90.888,striker_ref,0.08,0.1,-0.674,21,4.0,-0.4,62,34,2.1,1.42,2.57,0.2,105,not_out,-50.72,46.26,not_out,no interception seen; the last tracked point stands in for the impact,1.26,1.91
 89.567,striker_ref,11.94,0.55,1.642,22,6.0,-0.4,62,35,1.52,1.21,1.73,2.8,105,not_out,-58.58,62.46,not_out,no interception seen; the last tracked point stands in for the impact,0.29,0.21
 89.711,striker_ref,8.67,0.6,1.387,23,8.0,-0.4,63,31,2.49,0.97,1.03,4.1,105,not_out,-69.3,78.78,not_out,no interception seen; the last tracked point stands in for the impact,0.37,1.29
 91.305,striker_ref,3.51,0.36,-1.396,24,2.0,-0.2,61,27,1.8,0.9,2.42,3.9,105,not_out,-22.36,27.23,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,1.9,2.21
@@ -29,9 +29,9 @@ calib_fov_deg,camera,contact_x_err_cm,contact_y_err_cm,focal_err_pct,i,length_m,
 90.213,striker_ref,5.53,0.06,0.502,27,8.0,-0.2,63,29,2.37,0.44,0.9,3.0,105,not_out,-34.65,78.78,not_out,no interception seen; the last tracked point stands in for the impact,0.3,1.95
 89.714,striker_ref,376.14,0.59,1.382,28,2.0,0.0,61,15,2.16,2.43,44.37,70.0,105,out,0.0,27.23,umpires_call,no interception seen; the last tracked point stands in for the impact,0.06,1.48
 91.884,striker_ref,9.38,0.43,-2.387,29,4.0,0.0,62,24,2.45,0.21,1.96,3.5,105,out,0.0,46.26,out,no interception seen; the last tracked point stands in for the impact,0.1,3.81
-92.053,striker_ref,8.83,0.98,-2.675,30,6.0,0.0,62,22,2.32,0.13,1.42,5.2,105,out,0.0,62.46,out,no interception seen; the last tracked point stands in for the impact,1.09,0.25
+92.053,striker_ref,8.82,0.98,-2.675,30,6.0,0.0,62,22,2.32,0.13,1.42,5.2,105,out,0.0,62.46,out,no interception seen; the last tracked point stands in for the impact,1.09,0.25
 91.583,striker_ref,15.41,0.42,-1.872,31,8.0,0.0,63,25,2.4,0.11,0.89,6.5,105,not_out,0.0,78.78,not_out,no interception seen; the last tracked point stands in for the impact,0.16,1.73
-89.506,striker_ref,510.65,4.54,1.75,32,2.0,0.2,61,24,2.57,89.98,53.17,81.0,105,not_out,22.36,27.23,not_out,no interception seen; the last tracked point stands in for the impact,1.75,21.31
+89.506,striker_ref,510.65,4.54,1.751,32,2.0,0.2,61,24,2.57,89.98,53.17,81.0,105,not_out,22.36,27.23,not_out,no interception seen; the last tracked point stands in for the impact,1.75,21.31
 90.923,striker_ref,2.96,0.96,-0.736,33,4.0,0.2,62,28,2.15,0.6,2.07,1.7,105,not_out,25.36,46.26,not_out,no interception seen; the last tracked point stands in for the impact,0.72,2.88
 90.247,striker_ref,10.44,0.99,0.442,34,6.0,0.2,62,27,2.3,0.64,1.77,0.5,105,not_out,29.29,62.46,not_out,no interception seen; the last tracked point stands in for the impact,0.94,1.47
 93.691,striker_ref,29.6,0.32,-5.421,35,8.0,0.2,63,28,2.21,0.52,1.04,6.1,105,not_out,34.65,78.78,not_out,no interception seen; the last tracked point stands in for the impact,0.35,0.12
@@ -39,15 +39,15 @@ calib_fov_deg,camera,contact_x_err_cm,contact_y_err_cm,focal_err_pct,i,length_m,
 89.979,striker_ref,0.59,0.23,0.913,37,4.0,0.4,62,32,2.37,1.04,1.84,0.3,105,not_out,50.72,46.26,not_out,no interception seen; the last tracked point stands in for the impact,2.1,3.22
 90.296,striker_ref,3.77,0.31,0.357,38,6.0,0.4,62,32,2.24,1.11,1.59,0.1,105,not_out,58.58,62.46,not_out,no interception seen; the last tracked point stands in for the impact,1.72,2.32
 89.158,striker_ref,5.46,1.46,2.369,39,8.0,0.4,63,29,1.74,0.63,0.67,3.2,105,not_out,69.3,78.78,not_out,no interception seen; the last tracked point stands in for the impact,1.24,1.6
-90.773,striker_ref,7.18,0.06,-0.475,40,2.0,-0.4,57,26,1.96,1.78,2.35,2.7,120,not_out,-44.73,25.11,not_out,no interception seen; the last tracked point stands in for the impact,2.67,0.91
+90.772,striker_ref,7.18,0.06,-0.474,40,2.0,-0.4,57,26,1.96,1.78,2.35,2.7,120,not_out,-44.73,25.11,not_out,no interception seen; the last tracked point stands in for the impact,2.67,0.91
 91.193,striker_ref,4.42,0.47,-1.203,41,4.0,-0.4,57,28,1.72,1.42,2.49,0.6,120,not_out,-50.72,44.01,not_out,no interception seen; the last tracked point stands in for the impact,0.58,2.85
-90.053,striker_ref,15.23,0.02,0.782,42,6.0,-0.4,58,30,2.23,1.06,1.48,0.1,120,not_out,-58.58,62.06,not_out,no interception seen; the last tracked point stands in for the impact,0.95,1.17
-90.408,striker_ref,2.2,0.05,0.161,43,8.0,-0.4,58,27,2.68,0.91,0.87,2.2,120,not_out,-69.3,82.25,not_out,no interception seen; the last tracked point stands in for the impact,0.71,1.23
+90.053,striker_ref,15.23,0.02,0.783,42,6.0,-0.4,58,30,2.23,1.06,1.48,0.1,120,not_out,-58.58,62.06,not_out,no interception seen; the last tracked point stands in for the impact,0.95,1.17
+90.408,striker_ref,2.2,0.05,0.16,43,8.0,-0.4,58,27,2.68,0.91,0.87,2.2,120,not_out,-69.3,82.25,not_out,no interception seen; the last tracked point stands in for the impact,0.71,1.23
 88.276,striker_ref,534.48,3.77,3.958,44,2.0,-0.2,57,18,2.55,10.22,6.18,96.4,120,not_out,-22.36,25.11,not_out,no interception seen; the last tracked point stands in for the impact,3.7,20.83
 91.047,striker_ref,4.19,0.2,-0.95,45,4.0,-0.2,57,24,2.93,0.81,2.68,0.2,120,not_out,-25.36,44.01,not_out,no interception seen; the last tracked point stands in for the impact,1.16,3.36
-89.311,striker_ref,13.54,0.2,2.096,46,6.0,-0.2,58,25,1.5,0.65,1.75,0.0,120,not_out,-29.29,62.06,not_out,no interception seen; the last tracked point stands in for the impact,0.31,0.29
+89.312,striker_ref,13.54,0.2,2.096,46,6.0,-0.2,58,25,1.5,0.65,1.75,0.0,120,not_out,-29.29,62.06,not_out,no interception seen; the last tracked point stands in for the impact,0.31,0.29
 89.26,striker_ref,11.24,0.74,2.188,47,8.0,-0.2,58,26,3.03,0.58,1.04,3.0,120,not_out,-34.65,82.25,not_out,no interception seen; the last tracked point stands in for the impact,0.91,2.22
-87.704,striker_ref,25.88,0.36,5.002,48,2.0,0.0,57,26,2.12,6.63,15.7,13.1,120,out,0.0,25.11,out,no interception seen; the last tracked point stands in for the impact,1.03,1.56
+87.705,striker_ref,25.88,0.36,5.001,48,2.0,0.0,57,26,2.12,6.63,15.7,13.1,120,out,0.0,25.11,out,no interception seen; the last tracked point stands in for the impact,1.03,1.56
 90.063,striker_ref,4.22,0.05,0.766,49,4.0,0.0,57,18,1.91,0.32,2.32,2.3,120,out,0.0,44.01,out,no interception seen; the last tracked point stands in for the impact,0.26,5.0
 93.199,striker_ref,16.1,1.63,-4.604,50,6.0,0.0,58,20,2.13,0.18,1.73,9.9,120,out,0.0,62.06,out,no interception seen; the last tracked point stands in for the impact,0.03,1.37
 91.37,striker_ref,18.07,0.27,-1.508,51,8.0,0.0,58,19,1.87,0.09,0.76,12.5,120,not_out,0.0,82.25,not_out,no interception seen; the last tracked point stands in for the impact,0.39,2.24
@@ -55,9 +55,9 @@ calib_fov_deg,camera,contact_x_err_cm,contact_y_err_cm,focal_err_pct,i,length_m,
 92.218,striker_ref,9.68,0.23,-2.955,53,4.0,0.2,57,25,2.32,0.71,2.4,3.8,120,not_out,25.36,44.01,not_out,no interception seen; the last tracked point stands in for the impact,0.68,1.13
 89.214,striker_ref,10.88,1.17,2.27,54,6.0,0.2,58,24,2.2,0.67,1.81,5.5,120,not_out,29.29,62.06,not_out,no interception seen; the last tracked point stands in for the impact,0.69,1.07
 88.952,striker_ref,7.66,0.36,2.739,55,8.0,0.2,58,24,2.93,0.58,1.05,2.8,120,not_out,34.65,82.25,not_out,no interception seen; the last tracked point stands in for the impact,1.05,1.86
-89.717,striker_ref,1.23,0.39,1.377,56,2.0,0.4,57,27,2.48,5.46,10.63,3.5,120,not_out,44.73,25.11,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,0.0,2.48
+89.717,striker_ref,1.24,0.39,1.377,56,2.0,0.4,57,27,2.48,5.46,10.63,3.5,120,not_out,44.73,25.11,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,0.0,2.48
 88.887,striker_ref,11.67,0.11,2.856,57,4.0,0.4,57,24,3.24,1.37,2.28,3.3,120,not_out,50.72,44.01,not_out,no interception seen; the last tracked point stands in for the impact,1.54,4.05
-90.274,striker_ref,1.19,1.38,0.396,58,6.0,0.4,58,27,3.06,1.2,1.7,2.6,120,not_out,58.58,62.06,not_out,no interception seen; the last tracked point stands in for the impact,0.84,2.39
+90.273,striker_ref,1.19,1.38,0.396,58,6.0,0.4,58,27,3.06,1.2,1.7,2.6,120,not_out,58.58,62.06,not_out,no interception seen; the last tracked point stands in for the impact,0.84,2.39
 89.904,striker_ref,8.43,1.42,1.045,59,8.0,0.4,58,26,2.28,0.85,0.81,0.2,120,not_out,69.3,82.25,not_out,no interception seen; the last tracked point stands in for the impact,1.64,1.3
 90.205,striker_ref,12.12,0.33,0.516,60,2.0,-0.4,53,25,3.42,0.74,1.4,4.2,135,not_out,-44.73,23.66,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,2.26,0.25
 88.285,striker_ref,10.01,0.26,3.942,61,4.0,-0.4,53,23,2.25,1.93,3.18,2.9,135,not_out,-50.72,42.47,not_out,no interception seen; the last tracked point stands in for the impact,1.57,4.03
@@ -65,36 +65,36 @@ calib_fov_deg,camera,contact_x_err_cm,contact_y_err_cm,focal_err_pct,i,length_m,
 90.175,striker_ref,0.79,0.8,0.569,63,8.0,-0.4,54,24,2.96,1.38,1.22,0.9,135,not_out,-69.3,84.64,not_out,no interception seen; the last tracked point stands in for the impact,0.94,0.28
 90.297,striker_ref,657.22,2.18,0.354,64,2.0,-0.2,53,17,2.5,15.22,9.19,81.7,135,not_out,-22.36,23.66,not_out,no interception seen; the last tracked point stands in for the impact,9.56,32.01
 91.49,striker_ref,9.16,0.37,-1.713,65,4.0,-0.2,53,20,2.27,1.02,3.03,4.5,135,not_out,-25.36,42.47,not_out,no interception seen; the last tracked point stands in for the impact,0.4,3.97
-88.555,striker_ref,11.68,1.11,3.452,66,6.0,-0.2,54,22,2.3,0.62,1.63,1.3,135,not_out,-29.29,61.79,not_out,no interception seen; the last tracked point stands in for the impact,0.28,0.35
+88.556,striker_ref,11.68,1.11,3.452,66,6.0,-0.2,54,22,2.3,0.62,1.63,1.3,135,not_out,-29.29,61.79,not_out,no interception seen; the last tracked point stands in for the impact,0.28,0.35
 91.007,striker_ref,6.13,0.35,-0.881,67,8.0,-0.2,54,22,1.83,0.67,1.11,1.0,135,not_out,-34.65,84.64,not_out,no interception seen; the last tracked point stands in for the impact,1.17,2.23
 89.961,striker_ref,654.52,1.38,0.945,68,2.0,0.0,53,22,2.13,61.51,36.75,81.6,135,out,0.0,23.66,umpires_call,no interception seen; the last tracked point stands in for the impact,0.2,31.36
-89.415,striker_ref,5.92,0.43,1.912,69,4.0,0.0,53,16,1.94,0.35,2.11,0.0,135,out,0.0,42.47,out,no interception seen; the last tracked point stands in for the impact,0.43,4.57
+89.415,striker_ref,5.93,0.43,1.912,69,4.0,0.0,53,16,1.94,0.35,2.11,0.0,135,out,0.0,42.47,out,no interception seen; the last tracked point stands in for the impact,0.43,4.57
 90.836,striker_ref,1.59,1.95,-0.585,70,6.0,0.0,54,21,2.3,0.14,1.35,2.7,135,out,0.0,61.79,out,no interception seen; the last tracked point stands in for the impact,0.6,0.35
 90.4,striker_ref,7.71,1.59,0.174,71,8.0,0.0,54,17,2.2,0.12,0.99,11.1,135,not_out,0.0,84.64,not_out,no interception seen; the last tracked point stands in for the impact,0.12,1.99
 90.143,striker_ref,2.05,0.15,0.625,72,2.0,0.2,53,23,2.95,1.33,3.08,3.7,135,not_out,22.36,23.66,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,0.32,1.19
-91.332,striker_ref,7.19,0.21,-1.442,73,4.0,0.2,53,17,2.59,1.16,3.04,4.8,135,not_out,25.36,42.47,not_out,no interception seen; the last tracked point stands in for the impact,0.44,4.12
+91.33,striker_ref,7.18,0.21,-1.438,73,4.0,0.2,53,17,2.59,1.16,3.04,4.8,135,not_out,25.36,42.47,not_out,no interception seen; the last tracked point stands in for the impact,0.44,4.12
 90.696,striker_ref,1.38,1.24,-0.341,74,6.0,0.2,54,22,2.78,0.66,1.73,4.5,135,not_out,29.29,61.79,not_out,no interception seen; the last tracked point stands in for the impact,0.62,0.12
 91.041,striker_ref,13.04,0.04,-0.94,75,8.0,0.2,54,21,2.5,0.68,1.16,6.0,135,not_out,34.65,84.64,not_out,no interception seen; the last tracked point stands in for the impact,0.75,2.11
 89.672,striker_ref,11.38,0.14,1.456,76,2.0,0.4,53,26,2.11,0.89,1.6,4.3,135,not_out,44.73,23.66,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,1.43,0.54
 90.888,striker_ref,7.05,0.47,-0.676,77,4.0,0.4,53,27,2.23,1.35,2.45,5.9,135,not_out,50.72,42.47,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,0.79,0.93
 91.946,striker_ref,11.26,0.45,-2.492,78,6.0,0.4,54,25,2.53,1.11,1.53,3.2,135,not_out,58.58,61.79,not_out,no interception seen; the last tracked point stands in for the impact,0.53,0.9
 88.89,striker_ref,4.33,0.83,2.85,79,8.0,0.4,54,24,1.79,0.98,0.87,1.5,135,not_out,69.3,84.64,not_out,no interception seen; the last tracked point stands in for the impact,2.88,3.19
-91.738,striker_ref,9.94,0.98,-2.139,80,2.0,-0.4,51,23,2.52,0.87,1.59,0.7,145,not_out,-44.73,22.93,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,2.29,0.47
+91.739,striker_ref,9.94,0.98,-2.139,80,2.0,-0.4,51,23,2.52,0.87,1.59,0.7,145,not_out,-44.73,22.93,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,2.29,0.47
 90.962,striker_ref,2.13,0.65,-0.803,81,4.0,-0.4,51,21,2.26,1.68,2.96,2.1,145,not_out,-50.72,41.69,not_out,no interception seen; the last tracked point stands in for the impact,1.92,3.46
 89.081,striker_ref,5.7,0.44,2.507,82,6.0,-0.4,52,25,2.35,1.67,2.27,0.9,145,not_out,-58.58,61.65,not_out,no interception seen; the last tracked point stands in for the impact,2.61,4.39
 89.514,striker_ref,12.47,1.7,1.735,83,8.0,-0.4,52,23,2.15,1.4,1.22,5.7,145,not_out,-69.3,85.84,not_out,no interception seen; the last tracked point stands in for the impact,2.49,1.63
-93.752,striker_ref,511.45,3.51,-5.523,84,2.0,-0.2,51,21,2.29,21.7,13.75,61.1,145,not_out,-22.36,22.93,not_out,no interception seen; the last tracked point stands in for the impact,9.38,29.87
+93.753,striker_ref,511.45,3.51,-5.523,84,2.0,-0.2,51,21,2.29,21.7,13.75,61.1,145,not_out,-22.36,22.93,not_out,no interception seen; the last tracked point stands in for the impact,9.38,29.87
 92.183,striker_ref,5.96,0.31,-2.895,85,4.0,-0.2,51,19,2.03,1.1,3.35,3.4,145,not_out,-25.36,41.69,not_out,no interception seen; the last tracked point stands in for the impact,0.65,1.31
 90.394,striker_ref,1.97,0.28,0.185,86,6.0,-0.2,52,20,2.91,0.76,1.99,4.5,145,not_out,-29.29,61.65,not_out,no interception seen; the last tracked point stands in for the impact,1.56,2.89
 90.891,striker_ref,5.46,0.08,-0.681,87,8.0,-0.2,52,21,2.61,0.9,1.47,1.7,145,not_out,-34.65,85.84,not_out,no interception seen; the last tracked point stands in for the impact,0.62,0.47
-90.433,striker_ref,458.45,0.8,0.118,88,2.0,0.0,51,20,2.72,7.9,7.67,60.7,145,out,0.0,22.93,umpires_call,no interception seen; the last tracked point stands in for the impact,20.12,22.25
+90.433,striker_ref,458.45,0.8,0.117,88,2.0,0.0,51,20,2.72,7.9,7.67,60.7,145,out,0.0,22.93,umpires_call,no interception seen; the last tracked point stands in for the impact,20.12,22.25
 92.154,striker_ref,8.73,0.13,-2.847,89,4.0,0.0,51,12,2.33,0.44,2.43,9.5,145,out,0.0,41.69,out,no interception seen; the last tracked point stands in for the impact,0.24,0.69
-91.806,striker_ref,11.37,1.35,-2.254,90,6.0,0.0,52,19,2.43,0.19,1.78,3.9,145,out,0.0,61.65,out,no interception seen; the last tracked point stands in for the impact,0.29,3.61
-89.035,striker_ref,13.58,1.55,2.589,91,8.0,0.0,52,18,2.83,0.21,1.82,7.8,145,not_out,0.0,85.84,not_out,no interception seen; the last tracked point stands in for the impact,0.5,1.52
-92.282,striker_ref,524.04,4.41,-3.064,92,2.0,0.2,51,14,2.68,9.43,5.95,71.7,145,not_out,22.36,22.93,not_out,no interception seen; the last tracked point stands in for the impact,8.1,27.99
-91.858,striker_ref,11.73,0.42,-2.342,93,4.0,0.2,51,25,2.8,0.91,3.19,6.9,145,not_out,25.36,41.69,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,0.07,0.48
+91.808,striker_ref,11.38,1.35,-2.258,90,6.0,0.0,52,19,2.43,0.19,1.78,3.9,145,out,0.0,61.65,out,no interception seen; the last tracked point stands in for the impact,0.29,3.61
+89.039,striker_ref,13.55,1.55,2.583,91,8.0,0.0,52,18,2.83,0.21,1.82,7.8,145,not_out,0.0,85.84,not_out,no interception seen; the last tracked point stands in for the impact,0.5,1.52
+92.282,striker_ref,524.04,4.41,-3.062,92,2.0,0.2,51,14,2.68,9.43,5.95,71.7,145,not_out,22.36,22.93,not_out,no interception seen; the last tracked point stands in for the impact,8.1,27.99
+91.858,striker_ref,11.72,0.42,-2.342,93,4.0,0.2,51,25,2.8,0.91,3.19,6.9,145,not_out,25.36,41.69,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,0.07,0.48
 88.824,striker_ref,12.64,0.57,2.968,94,6.0,0.2,52,19,2.12,0.7,1.81,6.3,145,not_out,29.29,61.65,not_out,no interception seen; the last tracked point stands in for the impact,0.79,2.27
-91.276,striker_ref,9.3,0.01,-1.346,95,8.0,0.2,52,20,1.99,0.85,1.41,6.0,145,not_out,34.65,85.84,not_out,no interception seen; the last tracked point stands in for the impact,0.19,0.74
+91.277,striker_ref,9.3,0.01,-1.346,95,8.0,0.2,52,20,1.99,0.85,1.41,6.0,145,not_out,34.65,85.84,not_out,no interception seen; the last tracked point stands in for the impact,0.19,0.74
 89.378,striker_ref,15.54,0.64,1.978,96,2.0,0.4,51,24,2.65,0.75,1.32,4.6,145,not_out,44.73,22.93,not_out,used the colour track over a shorter learned-detector arc | no interception seen; the last tracked point stands in for the impact,2.06,0.06
 92.558,striker_ref,5.13,0.63,-3.529,97,4.0,0.4,51,18,1.96,1.71,2.81,1.6,145,not_out,50.72,41.69,not_out,no interception seen; the last tracked point stands in for the impact,2.04,3.24
 88.397,striker_ref,12.01,1.09,3.739,98,6.0,0.4,52,23,2.61,1.72,2.4,0.4,145,not_out,58.58,61.65,not_out,no interception seen; the last tracked point stands in for the impact,1.12,1.98

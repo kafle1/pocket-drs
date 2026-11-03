@@ -19,7 +19,7 @@ cd paper/experiments
 |---|---|---|---|---|
 | exp1 geometry sweeps | `$PY exp1_geometry.py --workers 4` | nothing | `raw/exp1_geometry.csv`, `raw/exp1_config.json` | 228.0 s (4 workers); every row reuses the same 400 deliveries |
 | exp1 calibration ablation | `$PY exp1_geometry.py --ablation --workers 4` | nothing | `raw/exp1_ablation.csv`, `raw/exp1_ablation_config.json` | 83.8 s (4) |
-| exp2 rendered clips | `$PY exp2_rendered.py` | `server/models/cricket_ball.pt` | `raw/exp2_rendered_striker_ref.csv`, `raw/exp2_config_striker_ref.json` | 1133.7 s (1) |
+| exp2 rendered clips | `$PY exp2_rendered.py` | `server/models/cricket_ball.pt` | `raw/exp2_rendered_striker_ref.csv`, `raw/exp2_config_striker_ref.json` | 869.3 s (1) |
 | exp3 real clips | `$PY exp3_real.py` | `server/models/cricket_ball.pt`, the clips | `raw/exp3_real.csv` | about 3 min (1) |
 | exp4 JCGM 100 budget | `$PY exp4_budget.py --workers 4` | nothing | `raw/exp4_budget_rep.csv`, `raw/exp4_budget_dist.csv`, `raw/exp4_budget.json` | 717.6 s (4) |
 | exp5 JCGM 101 Monte Carlo | `$PY exp5_mc.py --workers 4` | exp4 | `raw/exp5_mc_rep.csv`, `raw/exp5_mc_subset.csv`, `raw/exp5_mc.json` | 1268.2 s (4) |
