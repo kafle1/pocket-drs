@@ -99,6 +99,21 @@ m("GeoOutCalledOut", sum(1 for r in A if r["truth"] == "out" and r["verdict"] ==
 m("GeoAlwaysNotOutPct", 100.0 * sum(1 for r in A if r["truth"] == "not_out") / len(A), "{:.1f}")
 m("GeoFalseOutParabola", false_out(P), "{}")
 m("GeoAgreeAll", agree(A)); m("GeoAgreeAllParabola", agree(P))
+# 95 % Clopper-Pearson intervals: two-sided on agreement, one-sided upper on false outs
+from scipy.stats import beta as _beta
+
+
+def cp(x, n, upper_only=False):
+    if upper_only:
+        return 100.0 * (1.0 if x >= n else float(_beta.ppf(0.95, x + 1, n - x)))
+    lo = 0.0 if x == 0 else float(_beta.ppf(0.025, x, n - x + 1))
+    hi = 1.0 if x == n else float(_beta.ppf(0.975, x + 1, n - x))
+    return 100.0 * lo, 100.0 * hi
+
+
+_n_agree = sum(1 for r in A if r["verdict"] == r["truth"])
+_lo, _hi = cp(_n_agree, len(A)); m("GeoAgreeAllLo", _lo); m("GeoAgreeAllHi", _hi)
+m("GeoFalseOutUpper", cp(false_out(A), sum(1 for r in A if r["truth"] == "not_out"), True), "{:.2f}")
 m("GeoNoVerdict", sum(1 for r in A if r["verdict"] == "no_verdict"), "{}")
 m("GeoNoVerdictParabola", sum(1 for r in P if r["verdict"] == "no_verdict"), "{}")
 okA = [r for r in A if r["ok"]]; okP = [r for r in P if r["ok"]]
@@ -167,6 +182,11 @@ write_table("sweeps.tex", L)
 ref = cell_stats([r for r in A if r["sweep"] == "noise_px=1.0"])
 refp = cell_stats([r for r in P if r["sweep"] == "noise_px=1.0"])
 m("RefAgree", ref["agree"]); m("RefMedY", ref["y"]); m("RefMedZ", ref["z"]); m("RefP90Y", ref["y90"]); m("RefP90Z", ref["z90"])
+_rs = [r for r in A if r["sweep"] == "noise_px=1.0"]
+_lo, _hi = cp(sum(1 for r in _rs if r["verdict"] == r["truth"]), len(_rs)); m("RefAgreeLo", _lo); m("RefAgreeHi", _hi)
+# every cell reuses the same deliveries, so say how many distinct ones the pooled false outs come from
+m("GeoFalseOutDistinct", len({r["i"] for r in A if r["verdict"] == "out" and r["truth"] == "not_out"}), "{}")
+m("GeoFalseOutBowler", sum(1 for r in A if r["verdict"] == "out" and r["truth"] == "not_out" and r["camera"].startswith("bowler")), "{}")
 refu = cell_stats([r for r in U if r["sweep"] == "noise_px=1.0"])
 m("RefAgreeUnanch", refu["agree"]); m("RefMedYUnanch", refu["y"]); m("RefMedZUnanch", refu["z"])
 m("RefAgreeParabola", refp["agree"]); m("RefMedYParabola", refp["y"]); m("RefMedZParabola", refp["z"])
@@ -227,6 +247,7 @@ for key, k in [("verdict_k0", 0.0), ("verdict_k0.5", 0.5), ("verdict", 1.0), ("v
 # ------------------------------------------------------------------ experiment 2: rendered end to end
 e2 = rows("exp2_rendered_striker_ref.csv")
 cfg2 = json.load(open(os.path.join(RAW, "exp2_config_striker_ref.json")))
+m("EteFalseOutUpper", cp(false_out(e2), sum(1 for r in e2 if r["truth"] == "not_out"), True), "{:.1f}")
 m("EteN", len(e2), "{}"); m("EteAgree", sum(1 for r in e2 if r["verdict"] == r["truth"]), "{}")
 m("EteAgreePct", agree(e2)); m("EteFalseOut", false_out(e2), "{}"); m("EteMissedOut", missed_out(e2), "{}")
 m("EteUmp", ump(e2), "{}"); m("EteNoVerdict", sum(1 for r in e2 if r["verdict"] in ("no_verdict", "error")), "{}")
@@ -259,9 +280,29 @@ m("EteMiddleOutTruth", sum(1 for r in mid if r["truth"] == "out"), "{}")
 
 # ------------------------------------------------------------------ experiment 3: real clips
 e3 = rows("exp3_real.csv")
+# exp6_calibrate's held-out calibration: z bias line, refitted model term and coverage factors
+CALJ = os.path.join(RAW, "exp6_calibrated.json")
+cal6 = json.load(open(CALJ))["measurands"] if os.path.exists(CALJ) else None
+
+
+def calibrated(q, val_cm, sig_cm, x_b):
+    """(corrected value, u, U95) in cm for one anchored analysis, as the instrument reports it."""
+    c = cal6[q]
+    p = c["sigma_mod_params_m"]
+    smod = {"constant": lambda: p[0], "proportional to x_b": lambda: p[0] * x_b,
+            "constant + proportional": lambda: float(np.hypot(p[0], p[1] * x_b))}[c["form"]]() * 100
+    b, ub = 0.0, 0.0
+    if c.get("bias_line"):
+        a_ = np.array([1.0, x_b])
+        b = float(a_ @ np.array(c["bias_line"]["coef_m"])) * 100
+        ub = float(np.sqrt(a_ @ np.array(c["bias_line"]["cov_m2"]) @ a_)) * 100
+    s = float(np.sqrt(sig_cm ** 2 + ub ** 2 + smod ** 2))
+    return val_cm - b, c["k_all"]["68"] * s, c["k_all"]["95"] * s
+
+
 lab3 = {"test3": "Outdoor net, white ball, off-spin", "test4": "Indoor net, red ball, leg-spin", "test5": "Indoor net, red ball, off-spin"}
 L = [r"\begin{tabular}{llcccccc}", r"\toprule",
-     r"Clip & Frames & Reproj. (px) & Track & Contact $x$ (m) & Stump-plane $y \pm \sigma$ (cm) & Stump-plane $z \pm \sigma$ (cm) & Verdict \\", r"\midrule"]
+     r"Clip & Frames & Reproj. (px) & Track & Contact $x$ (m) & Stump-plane $y \pm U_{95}$ (cm) & Stump-plane $z \pm U_{95}$ (cm) & Verdict \\", r"\midrule"]
 for clip in ("test3", "test4", "test5"):
     for fr in ("all", "even", "odd"):
         r = next((x for x in e3 if x["clip"] == clip and x["frames"] == fr), None)
@@ -273,8 +314,15 @@ for clip in ("test3", "test4", "test5"):
             continue
         verdict = {"not_out": "not out", "out": "out", "umpires_call": "umpire's call"}.get(r["verdict"], r["verdict"])
         cx = "--" if r["bounce_x_m"] is None else f"{r['bounce_x_m']:.1f}"
-        L.append(f"{name} & {fr} & {r['reproj_px']:.1f} & {r['n_track']} & {cx} & "
-                 f"${r['y_cm']:+.1f} \\pm {r['sigma_y_cm']:.1f}$ & ${r['z_cm']:.1f} \\pm {r['sigma_z_cm']:.1f}$ & {verdict} \\\\")
+        if cal6 and r["bounce_x_m"] is not None:
+            yc, _, Uy = calibrated("y", r["y_cm"], r["sigma_y_cm"], r["bounce_x_m"])
+            zc, _, Uz = calibrated("z", r["z_cm"], r["sigma_z_cm"], r["bounce_x_m"])
+            ys, zs = f"${yc:+.1f} \\pm {Uy:.1f}$", f"${zc:.1f} \\pm {Uz:.1f}$"
+        else:
+            # fallback fit: outside the calibration, so only the uncalibrated 1.96 sigma
+            ys = f"${r['y_cm']:+.1f} \\pm {1.96 * r['sigma_y_cm']:.1f}^\\dagger$"
+            zs = f"${r['z_cm']:.1f} \\pm {1.96 * r['sigma_z_cm']:.1f}^\\dagger$"
+        L.append(f"{name} & {fr} & {r['reproj_px']:.1f} & {r['n_track']} & {cx} & {ys} & {zs} & {verdict} \\\\")
     L.append(r"\midrule")
 L.pop()
 L += [r"\bottomrule", r"\end{tabular}"]
@@ -310,6 +358,10 @@ for clip in ("test3", "test4", "test5"):
     if mod6 and allr["bounce_x_m"] is not None:
         for q, s in (("y", allr["sigma_y_cm"]), ("z", allr["sigma_z_cm"])):
             m(f"Real{tag}FullSigma{q.upper()}", float(np.hypot(s, sigma_mod_cm(q, allr["bounce_x_m"]))))
+    if cal6 and allr["bounce_x_m"] is not None:
+        for q in ("y", "z"):
+            _, u, U = calibrated(q, allr[f"{q}_cm"], allr[f"sigma_{q}_cm"], allr["bounce_x_m"])
+            m(f"Real{tag}CalU{q.upper()}", u); m(f"Real{tag}CalUNinetyfive{q.upper()}", U)
 
 # ------------------------------------------------------------------ revision: uncertainty experiments 4-9
 # each block runs only when its raw files exist, so the committed results above stay reproducible alone
@@ -501,15 +553,35 @@ if have("exp6_model_error.json", "exp6_worldb.csv"):
     m("CovBN", b6["n"], "{}"); m("CovBFitted", b6["fitted"], "{}"); m("CovBBounce", b6["bounce_observed"], "{}")
     L = [r"\begin{tabular}{lcccc}", r"\toprule",
          r"& \multicolumn{2}{c}{Lateral $y$} & \multicolumn{2}{c}{Vertical $z$} \\", r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}",
-         r"1-$\sigma$ used & $|e| \le \sigma$ & $|e| \le 1.96\sigma$ & $|e| \le \sigma$ & $|e| \le 1.96\sigma$ \\", r"\midrule",
+         r"Uncertainty used & $|e| \le u$ & $|e| \le U_{95}$ & $|e| \le u$ & $|e| \le U_{95}$ \\", r"\midrule",
          f"Exp.~1, pipeline $\\sigma$ (before) & {macros['CovYOne']} & -- & {macros['CovZOne']} & -- \\\\"]
     for key, tag in SETS6:
         c = b6["coverage"]
-        L.append(f"World B, {key} & {c['y'][key]['one']:.1f} & {c['y'][key]['p95']:.1f} & {c['z'][key]['one']:.1f} & {c['z'][key]['p95']:.1f} \\\\")
+        if tag != "FitCal":      # kept as macros; the table row went to the calibrated result
+            L.append(f"World B, {key} & {c['y'][key]['one']:.1f} & {c['y'][key]['p95']:.1f} & {c['z'][key]['one']:.1f} & {c['z'][key]['p95']:.1f} \\\\")
         for q in QTY:
             Q = {"pitch_y": "Pitch", "crease_y": "Crease", "y": "Y", "z": "Z"}[q]
             m(f"CovB{tag}{Q}One", c[q][key]["one"]); m(f"CovB{tag}{Q}Ninetyfive", c[q][key]["p95"])
             m(f"CovB{tag}{Q}Ratio", c[q][key]["median_ratio"], "{:.2f}")
+    if cal6:
+        cy, cz = cal6["y"], cal6["z"]
+        L.append(f"World B, bias-corrected, conformal (held out) & {cy['cover_68']['pct']:.1f} & {cy['cover_95']['pct']:.1f} & "
+                 f"{cz['cover_68']['pct']:.1f} & {cz['cover_95']['pct']:.1f} \\\\")
+        for q in QTY:
+            Q = {"pitch_y": "Pitch", "crease_y": "Crease", "y": "Y", "z": "Z"}[q]
+            c = cal6[q]
+            for lv, T in (("68", "Sixtyeight"), ("95", "Ninetyfive")):
+                m(f"Cal{Q}Cov{T}", c[f"cover_{lv}"]["pct"]); m(f"Cal{Q}Cov{T}Lo", c[f"cover_{lv}"]["lo"]); m(f"Cal{Q}Cov{T}Hi", c[f"cover_{lv}"]["hi"])
+                m(f"Cal{Q}K{T}", c["k_all"][lv], "{:.2f}")
+                m(f"Cal{Q}K{T}Min", min(c["k_fold"][lv]), "{:.2f}"); m(f"Cal{Q}K{T}Max", max(c["k_fold"][lv]), "{:.2f}")
+            m(f"Cal{Q}MedU", c["median_u_mm"]); m(f"Cal{Q}MedUNinetyfive", c["median_U95_mm"])
+            m(f"Cal{Q}MeanBefore", c["mean_err_before_mm"]); m(f"Cal{Q}MeanAfter", c["mean_err_after_mm"]); m(f"Cal{Q}MeanSe", c["se_mean_mm"])
+            if "corr_ratio_abs_swing" in c:
+                m(f"Cal{Q}SwingCorr", c["corr_ratio_abs_swing"], "{:.2f}"); m(f"Cal{Q}SwingRsq", 100 * c["r2_err_swing"], "{:.0f}")
+        bl = cal6["z"]["bias_line"]
+        m("CalBiasA", bl["a_mm"]); m("CalBiasUA", bl["u_a_mm"]); m("CalBiasC", bl["c_mm_per_m"], "{:.2f}")
+        m("CalBiasUC", bl["u_c_mm_per_m"], "{:.2f}"); m("CalBiasMedU", bl["median_u_b_mm"])
+        m("CalN", cal6["z"]["n"], "{}")
     L += [r"\midrule", r"Nominal & 68.3 & 95.0 & 68.3 & 95.0 \\", r"\bottomrule", r"\end{tabular}"]
     write_table("coverage.tex", L)
     # the multiple of each sigma that really covers 68.3 % and 95 % of errors (diagnostic, review item 11)
@@ -568,7 +640,9 @@ if have("exp7_risk.json"):
         m("RiskTruth" + {"out": "Out", "umpires_call": "Ump", "not_out": "NotOut"}[c], b7["truth_mix"][c], "{}")
     for a, b in b7["bounds"].items():
         m(f"RiskBoundSingle{ALPHA_TAG[a]}", b["single_test"], "{:.2f}"); m(f"RiskBoundFour{ALPHA_TAG[a]}", b["four_tests"], "{:.2f}")
-    for s, stag in (("fit", "Fit"), ("fit+cal", "FitCal"), ("full", "Full")):
+    for s, stag in (("fit", "Fit"), ("fit+cal", "FitCal"), ("full", "Full"), ("calibrated", "Cal")):
+        if s not in b7["chosen"]:
+            continue
         for a, ch in b7["chosen"][s].items():
             A_ = ALPHA_TAG[a]
             m(f"Risk{stag}K{A_}", "none" if ch["k_specific"] is None else f"{ch['k_specific']:.2f}")
@@ -592,6 +666,8 @@ if have("exp7_risk.json"):
         m("RiskShippedMeanSpecFull", sh["mean_specific_false_out_full_sigma_pct"])
         m("RiskShippedOutsOverFive", sh["outs_over_5pct_full_sigma"], "{}")
         m("RiskShippedOutToUmp", sh["true_out_to_ump_pct"])
+    if "max_specific_false_out_cal_sigma_pct" in sh:
+        m("RiskShippedMaxSpecCal", sh["max_specific_false_out_cal_sigma_pct"]); m("RiskShippedOutsOverFiveCal", sh["outs_over_5pct_cal_sigma"], "{}")
 
 if have("exp8_physics.json"):
     b8 = js("exp8_physics.json")

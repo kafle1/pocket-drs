@@ -3,12 +3,12 @@
 \toprule
 & \multicolumn{2}{c}{Lateral $y$} & \multicolumn{2}{c}{Vertical $z$} \\
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}
-1-$\sigma$ used & $|e| \le \sigma$ & $|e| \le 1.96\sigma$ & $|e| \le \sigma$ & $|e| \le 1.96\sigma$ \\
+Uncertainty used & $|e| \le u$ & $|e| \le U_{95}$ & $|e| \le u$ & $|e| \le U_{95}$ \\
 \midrule
-Exp.~1, pipeline $\sigma$ (before) & 51.6 & -- & 61.4 & -- \\
+Exp.~1, pipeline $\sigma$ (before) & 53.1 & -- & 63.6 & -- \\
 World B, fit only (as shipped) & 53.6 & 84.1 & 60.8 & 85.3 \\
-World B, fit + calibration & 56.4 & 85.8 & 61.4 & 86.3 \\
 World B, fit + calibration + model & 63.9 & 90.7 & 85.5 & 97.7 \\
+World B, bias-corrected, conformal (held out) & 68.6 & 95.2 & 68.4 & 95.2 \\
 \midrule
 Nominal & 68.3 & 95.0 & 68.3 & 95.0 \\
 \bottomrule
