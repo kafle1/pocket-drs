@@ -565,7 +565,7 @@ if have("exp6_model_error.json", "exp6_worldb.csv"):
             m(f"CovB{tag}{Q}Ratio", c[q][key]["median_ratio"], "{:.2f}")
     if cal6:
         cy, cz = cal6["y"], cal6["z"]
-        L.append(f"World B, bias-corrected, conformal (held out) & {cy['cover_68']['pct']:.1f} & {cy['cover_95']['pct']:.1f} & "
+        L.append(f"World B, calibrated, held out & {cy['cover_68']['pct']:.1f} & {cy['cover_95']['pct']:.1f} & "
                  f"{cz['cover_68']['pct']:.1f} & {cz['cover_95']['pct']:.1f} \\\\")
         for q in QTY:
             Q = {"pitch_y": "Pitch", "crease_y": "Crease", "y": "Y", "z": "Z"}[q]
