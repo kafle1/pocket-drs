@@ -8,10 +8,10 @@ import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../api/analysis_result.dart';
 import '../api/pocket_drs_api.dart';
 
 const _native = MethodChannel('pocket_drs/native');
-const kAdminEmail = 'kafleniraj@gmail.com';
 final _validDeviceId = RegExp(r'^[A-Za-z0-9_-]{8,128}$');
 
 /// What `/v1/me` says about the signed-in person.
@@ -23,7 +23,7 @@ class Me {
     required this.isAdmin,
     required this.freeLimit,
     required this.left,
-    required this.contactEmail,
+    required this.resetsAt,
   });
 
   final String email;
@@ -33,7 +33,8 @@ class Me {
   final int freeLimit;
   // fewest reviews left on this account or this phone; null means unlimited
   final int? left;
-  final String contactEmail;
+  // when today's free reviews come back, in local time; null when the server doesn't say
+  final DateTime? resetsAt;
 
   bool get usedUp => left != null && left! <= 0;
 
@@ -51,9 +52,9 @@ class Me {
       freeLimit: n(j['free_limit']) ?? 5,
       // premium and admin come back with nulls, a free account never should
       left: plan == 'free' ? (left ?? 0) : null,
-      contactEmail: j['contact_email'] is String
-          ? j['contact_email'] as String
-          : kAdminEmail,
+      resetsAt: j[Assumed.resetsAt] is String
+          ? DateTime.tryParse(j[Assumed.resetsAt] as String)?.toLocal()
+          : null,
     );
   }
 }
@@ -64,6 +65,9 @@ class Account {
   static final instance = Account._();
 
   final signedIn = ValueNotifier<bool>(false);
+
+  // only read once signedIn is true, which means Firebase is up
+  String? get uid => FirebaseAuth.instance.currentUser?.uid;
   final me = ValueNotifier<Me?>(null);
   bool _ready = false;
   String? _deviceId;
@@ -191,6 +195,17 @@ class Account {
     } catch (e) {
       _log('[AUTH] sign-out: $e');
     }
+  }
+
+  /// Removes the account on the server. Throws [ApiException] when the server refuses.
+  Future<void> deleteAccount() async {
+    final api = PocketDrsApi();
+    try {
+      await api.deleteAccount();
+    } finally {
+      api.close();
+    }
+    logEvent('account_deleted');
   }
 
   /// Reloads the plan and free reviews left; failures keep the last known value.

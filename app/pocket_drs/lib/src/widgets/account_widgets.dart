@@ -1,33 +1,29 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../account/account.dart';
-import '../api/pocket_drs_api.dart';
-import '../screens/admin_screen.dart';
 import '../theme/app_spacing.dart';
 
 String planLine(Me me) => switch (me) {
   Me(isAdmin: true) => 'Admin, unlimited reviews',
   Me(left: null) => 'Premium, unlimited reviews',
   Me(:final left?, :final freeLimit) =>
-    '${left.clamp(0, freeLimit)} of $freeLimit free reviews left',
+    '${left.clamp(0, freeLimit)} of $freeLimit free reviews left today',
 };
 
-Future<void> contactAdmin(BuildContext context) async {
-  Account.instance.logEvent('contact_admin_tapped');
-  final to = Account.instance.me.value?.contactEmail ?? kAdminEmail;
-  final opened = await launchUrl(
-    Uri.parse('mailto:$to?subject=PocketDRS%20premium'),
-  ).catchError((_) => false);
-  if (opened || !context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text('No email app found. Write to $to for premium.')),
-  );
+/// When the free reviews come back, in the phone's own time; null when the server doesn't say.
+String? resetLine(BuildContext context, Me me) {
+  final at = me.resetsAt;
+  if (at == null || me.left == null) return null;
+  final now = DateTime.now();
+  final time = TimeOfDay.fromDateTime(at).format(context);
+  final today =
+      at.year == now.year && at.month == now.month && at.day == now.day;
+  return today ? 'More at $time' : 'More tomorrow at $time';
 }
 
-/// Free reviews left, the used-up message, or the plan, near the analyse button.
+/// Free reviews left today and when more come, near the buttons that spend one.
 class PlanStatus extends StatelessWidget {
   const PlanStatus({super.key});
 
@@ -39,30 +35,28 @@ class PlanStatus extends StatelessWidget {
       valueListenable: Account.instance.me,
       builder: (context, me, _) {
         if (me == null) return const SizedBox.shrink();
-        if (!me.usedUp) {
-          return Text(
-            planLine(me),
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: scheme.onSurfaceVariant,
+        final reset = resetLine(context, me);
+        final used = me.usedUp;
+        return Row(
+          children: [
+            Icon(
+              used ? Icons.hourglass_empty : Icons.confirmation_number_outlined,
+              size: 18,
+              color: used ? scheme.error : scheme.onSurfaceVariant,
             ),
-          );
-        }
-        return Card.filled(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(kUsedUp, style: theme.textTheme.bodyMedium),
-                const SizedBox(height: AppSpacing.md),
-                FilledButton.icon(
-                  icon: const Icon(Icons.mail_outline),
-                  label: const Text('Contact admin'),
-                  onPressed: () => contactAdmin(context),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(
+                [
+                  used ? "No free reviews left today" : planLine(me),
+                  ?reset,
+                ].join('. '),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: used ? scheme.error : scheme.onSurfaceVariant,
                 ),
-              ],
+              ),
             ),
-          ),
+          ],
         );
       },
     );
@@ -71,30 +65,29 @@ class PlanStatus extends StatelessWidget {
 
 bool _usedUpOpen = false;
 
-/// Shown when a review is turned away because the free ones are gone.
+/// Shown when a review is turned away because today's free ones are gone.
 Future<void> showUsedUp(BuildContext context) async {
   Account.instance.logEvent('trials_used_up');
   unawaited(Account.instance.refreshMe());
   // several session balls can hit the limit at once, so only one dialog shows
   if (_usedUpOpen) return;
   _usedUpOpen = true;
+  final me = Account.instance.me.value;
+  final reset = me == null ? null : resetLine(context, me);
   try {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('No free reviews left'),
-        content: const Text(kUsedUp),
+        title: const Text('No free reviews left today'),
+        content: Text(
+          reset == null
+              ? "You've used today's free reviews. More come back tomorrow."
+              : "You've used today's free reviews. $reset.",
+        ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Close'),
-          ),
           FilledButton(
-            onPressed: () {
-              Navigator.pop(dialogContext);
-              contactAdmin(context);
-            },
-            child: const Text('Contact admin'),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('OK'),
           ),
         ],
       ),
@@ -102,70 +95,4 @@ Future<void> showUsedUp(BuildContext context) async {
   } finally {
     _usedUpOpen = false;
   }
-}
-
-/// Who is signed in, their plan, Admin when allowed, and Sign out.
-Future<void> showAccountSheet(BuildContext context) {
-  Account.instance.refreshMe();
-  final nav = Navigator.of(context);
-  return showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    builder: (sheetContext) => SafeArea(
-      child: SingleChildScrollView(
-        child: ValueListenableBuilder<Me?>(
-          valueListenable: Account.instance.me,
-          builder: (_, me, _) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.account_circle_outlined),
-                title: Text(
-                  me == null || me.name.isEmpty ? 'Signed in' : me.name,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: me == null || me.email.isEmpty
-                    ? null
-                    : Text(me.email, overflow: TextOverflow.ellipsis),
-              ),
-              ListTile(
-                leading: const Icon(Icons.workspace_premium_outlined),
-                title: Text(me == null ? 'Loading your plan' : planLine(me)),
-              ),
-              if (me != null && me.isAdmin)
-                ListTile(
-                  leading: const Icon(Icons.admin_panel_settings_outlined),
-                  title: const Text('Admin'),
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    nav.push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const AdminScreen(),
-                      ),
-                    );
-                  },
-                ),
-              if (me != null && me.left != null)
-                ListTile(
-                  leading: const Icon(Icons.mail_outline),
-                  title: const Text('Contact admin'),
-                  subtitle: const Text('Ask for premium access'),
-                  onTap: () => contactAdmin(sheetContext),
-                ),
-              ListTile(
-                leading: const Icon(Icons.logout),
-                title: const Text('Sign out'),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  Account.instance.signOut();
-                },
-              ),
-              const SizedBox(height: AppSpacing.md),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
 }
