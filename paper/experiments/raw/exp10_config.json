@@ -1,0 +1,79 @@
+[
+  {
+    "file": "test3.mp4",
+    "sha256": "2e8b0bd5867937f065458e69c80d8a1d30d5c2e0f1438dbaadd7f47259a7c8c8",
+    "source": "own phone",
+    "view": "one fixed phone behind the bowler's stumps, the same for all three clips, 1080x1920 at 60 Hz",
+    "both_stumps": true
+  },
+  {
+    "file": "test4.mp4",
+    "sha256": "3be6d3a3e67e284bcd22f8de45ff3f6749e7dda260b87ae4ac505298ab7b1baa",
+    "source": "own phone",
+    "view": "one fixed phone behind the bowler's stumps, the same for all three clips, 1080x1920 at 60 Hz",
+    "both_stumps": true
+  },
+  {
+    "file": "test5.mp4",
+    "sha256": "09b27fb88220cfb3aaaa0c04be5e51e20f495224bd618293e7c3739b5b079052",
+    "source": "own phone",
+    "view": "one fixed phone behind the bowler's stumps, the same for all three clips, 1080x1920 at 60 Hz",
+    "both_stumps": true,
+    "same_stumps_as": "test4.mp4"
+  },
+  {
+    "file": "test3-off-spin-clip.mp4",
+    "sha256": "2e8b0bd5867937f065458e69c80d8a1d30d5c2e0f1438dbaadd7f47259a7c8c8",
+    "source": "own phone",
+    "skip": "the same file as test3.mp4 (same sha256)"
+  },
+  {
+    "file": "clip1.mp4",
+    "sha256": "8176a0e3a3eb31bf6ebcaabed3ea0dd0872661ef93dadf1701db3654a14c902c",
+    "source": "internet",
+    "view": "broadcast camera behind the batter's net, 1920x1080 at 25 Hz",
+    "skip": "the near stumps are cut off at the bottom of the frame, so their bases cannot be tapped"
+  },
+  {
+    "file": "clip2.mp4",
+    "sha256": "108e809d692df2c7f5435f74e9e86ccd8fd6242fcc77beb34878cd5aac3422c3",
+    "source": "internet",
+    "view": "ground-level camera behind one set of stumps in a covered net, 1920x1080 at 25 Hz",
+    "skip": "only one set of stumps and no pitch markings, so the twelve calibration marks do not exist"
+  },
+  {
+    "file": "clip3.mp4",
+    "sha256": "7c5abe28db25d3d78e4f3d4a75595043f08b0ac950e2b8c37364b328a410dc9e",
+    "source": "internet",
+    "view": "broadcast camera behind the batter, 1920x1080 at 50 Hz",
+    "skip": "the bowler's end is out of frame and the batter hides the near stumps"
+  },
+  {
+    "file": "clip4.mp4",
+    "sha256": "957b2475cd3b5ca5ca09f7e30ef65ff0138254b59e3d3db57f0edb06f29db7c0",
+    "source": "internet",
+    "view": "broadcast camera behind the batter, 1920x1080 at 50 Hz",
+    "skip": "the bowler's end is out of frame and the batter hides the near stumps"
+  },
+  {
+    "file": "0VRP9dKPFzw.mp4",
+    "sha256": "0b1611a969b7cfe8b73a3b467a9413d6f6c2045621226c7d1ce431ec7c1326cf",
+    "source": "internet",
+    "view": "tripod behind portable stumps in an indoor net, 640x360 at 30 Hz",
+    "skip": "the near stumps' bases are below the frame, and the portable stumps' height and spacing are unknown"
+  },
+  {
+    "file": "5LpMsb5_w7s.mp4",
+    "sha256": "5983278f13388dcc4cb97f1b43e12d261851688bce57f75ea8826e235851d3d1",
+    "source": "internet",
+    "view": "tripod behind portable stumps on a base in an indoor net, screen recording of another app, 720x1280 at 30 Hz",
+    "skip": "no pitch corners, and the portable stumps' height and the distance between the sets are unknown"
+  },
+  {
+    "file": "GyG9zHZdpKM.mp4",
+    "sha256": "d517e7729e3161d1ecf6d9e9e5382dc52685e2a2fcfe60ac89d7769800b28d2b",
+    "source": "internet",
+    "view": "promotional edit of another app, cuts between screens and cameras, 1080x1920 at 50 Hz",
+    "skip": "no continuous single-camera delivery to calibrate and track"
+  }
+]

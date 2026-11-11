@@ -270,7 +270,7 @@ def main():
     rep = res[:len(ROWS)]
     with open(os.path.join(OUT, "exp4_budget_rep.csv"), "w", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["row", "type", "u_x", "u_x_unit", "c_y", "c_z", "u_pitch_mm", "u_crease_mm", "u_y_mm",
+        w.writerow(["row", "type", "u_x", "u_x_unit", "c_y", "c_z", "u_pitch_mm", "u_impact_mm", "u_y_mm",
                     "u_z_mm", "bias_y_mm", "bias_z_mm", "n_eval"])
         for r in rep:
             b = r.get("bias", np.full(4, np.nan))
@@ -316,7 +316,7 @@ def main():
         distribution=dict(n_deliveries=len(dlv), phases=2, quadrature_nodes=3, ranges="speed 60-150 km/h, length 1-10 m, "
                           "line +-0.6 m, release height 1.8-2.3 m, release y +-0.4 m, e 0.55", **summ),
         workers=a.workers, seconds=round(time.time() - t0, 1)))
-    print(f"u_c (mm) pitch/crease/y/z: {mm(uc)}  pipeline sigma: {mm(pipe_sig)}  scatter: {mm(pipe_sd)}")
+    print(f"u_c (mm) pitch/impact/y/z: {mm(uc)}  pipeline sigma: {mm(pipe_sig)}  scatter: {mm(pipe_sd)}")
     for r, s in zip(rep, share):
         print(f"  {r['row']:<30s} u_y {mm(r['ui'])[2]!s:>8} u_z {mm(r['ui'])[3]!s:>8}  share z {s[3]:.3f}")
     print(f"distribution: {summ['y']['u_c_median_mm']:.2f}/{summ['z']['u_c_median_mm']:.2f} mm median, "

@@ -1,0 +1,101 @@
+U95_y_mm,U95_z_mm,calib_fov_deg,camera,contact_x_err_mm,contact_y_err_mm,focal_err_pct,i,length_m,line_m,n_frames,n_track,reproj_px,speed_err_kmh,speed_kmh,truth,truth_y_mm,truth_z_mm,u_y_mm,u_z_mm,verdict,warnings,y_err_mm,z_err_mm
+,,90.504,bowler_ref,,,-0.007,0,2.0,-0.4,67,0,1.45,,90,not_out,-447.3,305.0,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,92.43,bowler_ref,,,-3.313,1,4.0,-0.4,68,0,2.26,,90,not_out,-507.2,497.2,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+106.9,151.7,89.448,bowler_ref,40.3,10.0,1.853,2,6.0,-0.4,68,38,2.57,0.9,90,not_out,-585.8,630.6,53.4,75.1,not_out,ball intercepted; tracked the delivery to impact and predicted the rest,37.9,29.1
+91.4,262.2,88.91,bowler_ref,47.8,21.5,2.814,3,8.0,-0.4,69,45,1.35,1.4,90,not_out,-693.0,734.6,36.8,79.7,not_out,no interception seen; the last tracked point stands in for the impact,45.2,17.4
+,,90.861,bowler_ref,,,-0.628,4,2.0,-0.2,67,0,1.99,,90,not_out,-223.6,305.0,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,91.466,bowler_ref,,,-1.672,5,4.0,-0.2,68,0,2.68,,90,not_out,-253.6,497.2,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,89.416,bowler_ref,,,1.91,6,6.0,-0.2,68,0,2.27,,90,not_out,-292.9,630.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,91.366,bowler_ref,,,-1.501,7,8.0,-0.2,69,0,1.76,,90,not_out,-346.5,734.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+117.2,149.7,90.988,bowler_ref,292.7,15.2,-0.848,8,2.0,0.0,67,29,2.99,1.1,90,out,0.0,305.0,53.2,71.1,out,no interception seen; the last tracked point stands in for the impact,45.7,88.0
+173.8,220.2,91.734,bowler_ref,555.0,48.0,-2.13,9,4.0,0.0,68,27,1.96,2.3,90,out,0.0,497.2,78.9,104.6,umpires_call,no interception seen; the last tracked point stands in for the impact,104.2,162.2
+251.6,218.4,89.454,bowler_ref,50.7,39.1,1.842,10,6.0,0.0,68,26,2.48,0.8,90,out,0.0,630.6,125.6,108.1,umpires_call,no interception seen; the last tracked point stands in for the impact,173.6,66.1
+144.0,420.3,90.886,bowler_ref,15.3,16.8,-0.671,11,8.0,0.0,69,27,2.77,0.7,90,umpires_call,0.0,734.6,58.1,127.7,umpires_call,no interception seen; the last tracked point stands in for the impact,63.1,44.8
+,,91.494,bowler_ref,,,-1.719,12,2.0,0.2,67,0,2.23,,90,not_out,223.6,305.0,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+527.3,275.9,90.539,bowler_ref,128.4,26.1,-0.068,13,4.0,0.2,68,26,2.05,0.1,90,not_out,253.6,497.2,239.3,131.0,not_out,no interception seen; the last tracked point stands in for the impact,25.1,89.7
+,,90.569,bowler_ref,,,-0.121,14,6.0,0.2,68,0,2.17,,90,not_out,292.9,630.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,89.842,bowler_ref,,,1.155,15,8.0,0.2,69,0,2.47,,90,not_out,346.5,734.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,89.887,bowler_ref,,,1.076,16,2.0,0.4,67,0,2.4,,90,not_out,447.3,305.0,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,90.042,bowler_ref,,,0.802,17,4.0,0.4,68,0,2.43,,90,not_out,507.2,497.2,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+100.6,141.8,90.66,bowler_ref,303.8,8.0,-0.279,18,6.0,0.4,68,40,1.78,0.9,90,not_out,585.8,630.6,50.2,70.2,not_out,no interception seen; the last tracked point stands in for the impact,58.5,9.3
+103.0,294.2,91.471,bowler_ref,433.0,14.3,-1.681,19,8.0,0.4,69,35,2.29,2.6,90,not_out,693.0,734.6,41.5,89.4,not_out,ball intercepted; tracked the delivery to impact and predicted the rest,44.8,11.3
+260.9,160.7,91.114,bowler_ref,540.9,30.5,-1.066,20,2.0,-0.4,61,35,2.66,2.2,105,not_out,-447.3,272.3,118.4,76.3,not_out,no interception seen; the last tracked point stands in for the impact,58.2,168.5
+,,92.314,bowler_ref,,,-3.118,21,4.0,-0.4,62,0,1.99,,105,not_out,-507.2,462.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+93.8,136.7,89.489,bowler_ref,282.2,42.3,1.779,22,6.0,-0.4,62,38,1.33,0.7,105,not_out,-585.8,624.6,46.8,67.7,not_out,no interception seen; the last tracked point stands in for the impact,77.9,8.4
+102.1,281.1,90.391,bowler_ref,130.9,8.6,0.19,23,8.0,-0.4,63,38,2.54,0.1,105,not_out,-693.0,787.8,41.2,85.4,not_out,no interception seen; the last tracked point stands in for the impact,20.0,29.7
+,,88.378,bowler_ref,,,3.773,24,2.0,-0.2,61,0,1.69,,105,not_out,-223.6,272.3,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,89.425,bowler_ref,,,1.893,25,4.0,-0.2,62,0,2.71,,105,not_out,-253.6,462.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+144.1,178.8,89.4,bowler_ref,169.3,20.6,1.939,26,6.0,-0.2,62,30,2.31,0.9,105,not_out,-292.9,624.6,71.9,88.5,not_out,no interception seen; the last tracked point stands in for the impact,73.4,20.9
+98.7,308.5,90.166,bowler_ref,120.7,6.6,0.585,27,8.0,-0.2,63,34,2.42,1.0,105,not_out,-346.5,787.8,39.8,93.7,not_out,no interception seen; the last tracked point stands in for the impact,19.9,25.5
+,,92.668,bowler_ref,,,-3.715,28,2.0,0.0,61,0,2.15,,105,out,0.0,272.3,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,90.287,bowler_ref,,,0.373,29,4.0,0.0,62,0,2.5,,105,out,0.0,462.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+165.8,199.2,91.778,bowler_ref,428.4,47.1,-2.207,30,6.0,0.0,62,23,2.57,3.5,105,out,0.0,624.6,82.8,98.6,umpires_call,no interception seen; the last tracked point stands in for the impact,104.8,102.2
+155.7,459.5,90.729,bowler_ref,32.7,3.4,-0.399,31,8.0,0.0,63,25,2.42,0.8,105,not_out,0.0,787.8,62.8,139.6,umpires_call,no interception seen; the last tracked point stands in for the impact,75.0,13.5
+,,91.385,bowler_ref,,,-1.532,32,2.0,0.2,61,0,2.21,,105,not_out,223.6,272.3,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+441.0,255.7,91.261,bowler_ref,266.8,3.4,-1.319,33,4.0,0.2,62,22,1.96,1.1,105,not_out,253.6,462.6,200.1,121.4,not_out,no interception seen; the last tracked point stands in for the impact,3.2,102.8
+,,92.558,bowler_ref,,,-3.53,34,6.0,0.2,62,0,2.22,,105,not_out,292.9,624.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+98.0,316.9,88.676,bowler_ref,2.9,22.7,3.235,35,8.0,0.2,63,30,2.36,1.5,105,not_out,346.5,787.8,39.5,96.2,not_out,ball intercepted; tracked the delivery to impact and predicted the rest,25.7,57.2
+,,88.825,bowler_ref,,,2.966,36,2.0,0.4,61,0,1.85,,105,not_out,447.3,272.3,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,89.757,bowler_ref,,,1.305,37,4.0,0.4,62,0,2.34,,105,not_out,507.2,462.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,90.567,bowler_ref,,,-0.117,38,6.0,0.4,62,0,1.69,,105,not_out,585.8,624.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+95.3,275.4,89.064,bowler_ref,95.0,10.6,2.538,39,8.0,0.4,63,38,1.86,1.7,105,not_out,693.0,787.8,38.4,83.6,not_out,no interception seen; the last tracked point stands in for the impact,0.4,19.5
+179.6,127.0,94.068,bowler_ref,84.0,15.7,-6.043,40,2.0,-0.4,57,29,2.3,3.4,120,not_out,-447.3,251.1,81.5,60.3,not_out,no interception seen; the last tracked point stands in for the impact,44.8,139.1
+,,90.378,bowler_ref,,,0.213,41,4.0,-0.4,57,26,1.63,,120,not_out,-507.2,440.1,,,no_verdict,ball intercepted; tracked the delivery to impact and predicted the rest | 3-D reconstruction discarded (did not converge); the track or the calibration is unreliable,,
+101.4,138.9,90.234,bowler_ref,279.9,31.4,0.466,42,6.0,-0.4,58,29,2.25,1.6,120,not_out,-585.8,620.6,50.6,68.8,not_out,ball intercepted; tracked the delivery to impact and predicted the rest,67.9,14.4
+101.7,291.3,88.347,bowler_ref,81.5,4.5,3.829,43,8.0,-0.4,58,31,2.54,1.9,120,not_out,-693.0,822.5,41.0,88.5,not_out,ball intercepted; tracked the delivery to impact and predicted the rest,22.7,88.7
+,,91.407,bowler_ref,,,-1.571,44,2.0,-0.2,57,0,2.95,,120,not_out,-223.6,251.1,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,89.796,bowler_ref,,,1.237,45,4.0,-0.2,57,0,2.8,,120,not_out,-253.6,440.1,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,90.695,bowler_ref,,,-0.34,46,6.0,-0.2,58,0,1.44,,120,not_out,-292.9,620.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+108.1,351.6,90.503,bowler_ref,37.9,21.6,-0.005,47,8.0,-0.2,58,26,2.98,0.7,120,not_out,-346.5,822.5,43.6,106.8,not_out,ball intercepted; tracked the delivery to impact and predicted the rest,8.0,8.3
+,,91.411,bowler_ref,,,-1.578,48,2.0,0.0,57,0,2.25,,120,out,0.0,251.1,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,91.932,bowler_ref,399.1,17.8,-2.469,49,4.0,0.0,57,15,2.3,2.8,120,out,0.0,440.1,,,umpires_call,"no interception seen; the last tracked point stands in for the impact | 3 of 24 perturbed calibration solves failed; what they lost counts as unknown, so the verdict is at most umpire's call",28.5,112.0
+133.0,174.3,89.076,bowler_ref,52.2,27.4,2.516,50,6.0,0.0,58,20,2.35,0.5,120,out,0.0,620.6,66.4,86.3,umpires_call,no interception seen; the last tracked point stands in for the impact,73.3,48.1
+125.7,425.8,91.887,bowler_ref,60.4,10.9,-2.392,51,8.0,0.0,58,19,2.04,3.5,120,not_out,0.0,822.5,50.7,129.3,umpires_call,no interception seen; the last tracked point stands in for the impact,53.0,27.5
+,,91.498,bowler_ref,,,-1.728,52,2.0,0.2,57,0,2.83,,120,not_out,223.6,251.1,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,89.077,bowler_ref,,,2.515,53,4.0,0.2,57,0,2.29,,120,not_out,253.6,440.1,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,91.474,bowler_ref,,,-1.686,54,6.0,0.2,58,0,2.5,,120,not_out,292.9,620.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,91.748,bowler_ref,,,-2.155,55,8.0,0.2,58,0,2.85,,120,not_out,346.5,822.5,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,91.545,bowler_ref,,,-1.808,56,2.0,0.4,57,0,2.62,,120,not_out,447.3,251.1,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+115.2,154.0,91.831,bowler_ref,451.7,2.6,-2.296,57,4.0,0.4,57,29,3.29,2.8,120,not_out,507.2,440.1,52.3,73.2,not_out,no interception seen; the last tracked point stands in for the impact,13.3,82.5
+,,91.286,bowler_ref,,,-1.362,58,6.0,0.4,58,0,3.21,,120,not_out,585.8,620.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+100.4,292.2,90.371,bowler_ref,97.9,20.6,0.225,59,8.0,0.4,58,31,2.33,0.5,120,not_out,693.0,822.5,40.5,88.8,not_out,no interception seen; the last tracked point stands in for the impact,14.8,8.1
+,,91.443,bowler_ref,,,-1.632,60,2.0,-0.4,53,0,3.38,,135,not_out,-447.3,236.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+104.5,139.7,90.708,bowler_ref,147.1,11.4,-0.363,61,4.0,-0.4,53,28,2.5,1.6,135,not_out,-507.2,424.7,47.4,66.3,not_out,no interception seen; the last tracked point stands in for the impact,9.8,109.1
+109.9,140.2,92.85,bowler_ref,40.4,7.2,-4.02,62,6.0,-0.4,54,26,3.01,1.2,135,not_out,-585.8,617.9,54.8,69.4,not_out,ball intercepted; tracked the delivery to impact and predicted the rest,30.2,57.9
+105.5,314.0,89.011,bowler_ref,97.0,2.6,2.632,63,8.0,-0.4,54,27,2.8,2.7,135,not_out,-693.0,846.4,42.5,95.4,not_out,ball intercepted; tracked the delivery to impact and predicted the rest,2.7,55.3
+,,89.481,bowler_ref,,,1.795,64,2.0,-0.2,53,0,2.36,,135,not_out,-223.6,236.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,90.715,bowler_ref,,,-0.374,65,4.0,-0.2,53,0,2.39,,135,not_out,-253.6,424.7,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,90.094,bowler_ref,,,0.711,66,6.0,-0.2,54,0,2.17,,135,not_out,-292.9,617.9,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+99.3,346.3,91.77,bowler_ref,299.4,31.1,-2.193,67,8.0,-0.2,54,26,2.16,3.5,135,not_out,-346.5,846.4,40.0,105.2,not_out,no interception seen; the last tracked point stands in for the impact,11.9,12.0
+,,89.488,bowler_ref,,,1.782,68,2.0,0.0,53,0,2.21,,135,out,0.0,236.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,90.841,bowler_ref,,,-0.594,69,4.0,0.0,53,0,1.94,,135,out,0.0,424.7,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+253.7,229.1,90.338,bowler_ref,408.9,49.9,0.284,70,6.0,0.0,54,15,2.26,4.1,135,out,0.0,617.9,126.6,113.4,umpires_call,no interception seen; the last tracked point stands in for the impact,118.9,17.8
+128.6,413.4,89.8,bowler_ref,55.3,9.0,1.23,71,8.0,0.0,54,14,2.25,0.6,135,not_out,0.0,846.4,51.8,125.6,umpires_call,no interception seen; the last tracked point stands in for the impact,33.9,122.6
+,,91.094,bowler_ref,,,-1.032,72,2.0,0.2,53,0,2.97,,135,not_out,223.6,236.6,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,91.572,bowler_ref,,,-1.853,73,4.0,0.2,53,0,2.51,,135,not_out,253.6,424.7,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+110.0,148.5,92.619,bowler_ref,350.7,25.6,-3.632,74,6.0,0.2,54,21,2.84,3.7,135,not_out,292.9,617.9,54.9,73.5,not_out,no interception seen; the last tracked point stands in for the impact,80.2,38.5
+98.7,323.6,93.068,bowler_ref,104.0,34.1,-4.386,75,8.0,0.2,54,27,2.39,2.7,135,not_out,346.5,846.4,39.8,98.3,not_out,no interception seen; the last tracked point stands in for the impact,52.9,53.8
+229.6,110.6,89.652,bowler_ref,137.4,22.7,1.491,76,2.0,0.4,53,25,2.1,1.0,135,not_out,447.3,236.6,104.2,52.5,not_out,no interception seen; the last tracked point stands in for the impact,32.8,132.4
+102.5,131.3,89.363,bowler_ref,80.3,0.4,2.005,77,4.0,0.4,53,26,2.14,0.9,135,not_out,507.2,424.7,46.5,62.4,not_out,no interception seen; the last tracked point stands in for the impact,4.4,92.6
+,,91.994,bowler_ref,,,-2.574,78,6.0,0.4,54,0,2.56,,135,not_out,585.8,617.9,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,90.149,bowler_ref,,,0.614,79,8.0,0.4,54,0,1.91,,135,not_out,693.0,846.4,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+142.1,131.2,89.969,bowler_ref,493.4,2.1,0.931,80,2.0,-0.4,51,23,2.49,3.7,145,not_out,-447.3,229.3,64.5,62.3,not_out,no interception seen; the last tracked point stands in for the impact,20.0,161.9
+,,91.177,bowler_ref,,,-1.174,81,4.0,-0.4,51,0,2.17,,145,not_out,-507.2,416.9,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+104.0,136.4,90.084,bowler_ref,162.1,24.4,0.729,82,6.0,-0.4,52,26,2.52,1.4,145,not_out,-585.8,616.5,51.9,67.6,not_out,no interception seen; the last tracked point stands in for the impact,60.6,30.0
+,,90.637,bowler_ref,,,-0.239,83,8.0,-0.4,52,0,2.66,,145,not_out,-693.0,858.4,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,91.193,bowler_ref,,,-1.202,84,2.0,-0.2,51,0,2.7,,145,not_out,-223.6,229.3,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,93.343,bowler_ref,,,-4.845,85,4.0,-0.2,51,0,1.97,,145,not_out,-253.6,416.9,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+166.6,196.2,91.663,bowler_ref,203.0,41.1,-2.01,86,6.0,-0.2,52,21,2.78,3.9,145,not_out,-292.9,616.5,83.2,97.1,umpires_call,no interception seen; the last tracked point stands in for the impact,84.2,53.2
+100.3,332.4,90.859,bowler_ref,61.4,5.7,-0.625,87,8.0,-0.2,52,23,2.52,1.9,145,not_out,-346.5,858.4,40.4,101.0,not_out,no interception seen; the last tracked point stands in for the impact,17.4,13.7
+,,90.629,bowler_ref,,,-0.225,88,2.0,0.0,51,0,2.68,,145,out,0.0,229.3,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,91.386,bowler_ref,,,-1.535,89,4.0,0.0,51,0,2.36,,145,out,0.0,416.9,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+162.0,186.0,92.249,bowler_ref,315.1,40.1,-3.007,90,6.0,0.0,52,15,2.26,4.6,145,out,0.0,616.5,80.8,92.1,umpires_call,no interception seen; the last tracked point stands in for the impact,92.7,47.0
+121.1,424.5,92.58,bowler_ref,372.0,37.3,-3.566,91,8.0,0.0,52,15,2.8,6.4,145,not_out,0.0,858.4,48.8,129.0,umpires_call,no interception seen; the last tracked point stands in for the impact,87.7,22.8
+,,90.959,bowler_ref,,,-0.798,92,2.0,0.2,51,0,2.62,,145,not_out,223.6,229.3,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,91.034,bowler_ref,,,-0.928,93,4.0,0.2,51,0,2.66,,145,not_out,253.6,416.9,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+,,93.57,bowler_ref,,,-5.221,94,6.0,0.2,52,0,1.88,,145,not_out,292.9,616.5,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+94.0,299.6,90.457,bowler_ref,66.8,27.0,0.075,95,8.0,0.2,52,21,1.94,1.1,145,not_out,346.5,858.4,37.9,91.0,not_out,no interception seen; the last tracked point stands in for the impact,42.4,49.4
+,,90.493,bowler_ref,,,0.012,96,2.0,0.4,51,0,2.37,,145,not_out,447.3,229.3,,,no_verdict,"no consistent ball trajectory found; check ball colour, lighting and framing",,
+100.8,134.8,89.527,bowler_ref,406.2,14.4,1.713,97,4.0,0.4,51,22,1.87,3.1,145,not_out,507.2,416.9,45.7,64.0,not_out,no interception seen; the last tracked point stands in for the impact,1.6,68.0
+109.1,133.2,89.06,bowler_ref,43.8,15.7,2.545,98,6.0,0.4,52,26,2.82,0.2,145,not_out,585.8,616.5,54.5,65.9,not_out,no interception seen; the last tracked point stands in for the impact,48.3,21.8
+96.5,313.0,91.001,bowler_ref,130.3,19.0,-0.871,99,8.0,0.4,52,27,1.84,2.2,145,not_out,693.0,858.4,38.9,95.1,not_out,no interception seen; the last tracked point stands in for the impact,30.2,15.1

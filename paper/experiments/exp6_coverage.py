@@ -6,10 +6,15 @@ tracker noise (1 px, 10 % radius, 5 % dropout), 2 px taps, plus every measuremen
 of exp4 drawn from its PDF: rolling-shutter readout, lens distortion, frame-time jitter,
 frame-rate metadata, pitch and wicket dimensions, bails. Frames carry their own
 timestamps here; the app's sampler, fixed and as submitted, is a separate configuration.
+Delivery i is filmed from the striker's end when i is even and the bowler's end when odd, and
+faces a left-hander when i // 2 is odd. The deliveries are symmetric across the pitch, so a
+left-hander's are a right-hander's mirrored; the lateral measurands (pitch_y, impact_y, y) are
+kept leg-side signed, which makes them the same quantity for either hand and either end.
 
 Per delivery the error of each measurand is kept with three 1-sigma terms:
   sigma_fit  the pipeline's own covariance (centre scatter only)
-  sigma_cal  tap noise pushed through the calibration solve and the fit (uq.cal_sigma)
+  sigma_cal  tap noise pushed through the calibration solve and the fit, the app's way
+             (uq.cal_sigma: tap noise implied by the pose residual); failed solves are counted
   sigma_mod  model error, fitted by maximum likelihood with 5-fold cross-validation; the
              form (constant, proportional to the bounce distance x_b, or both in
              quadrature) is chosen by held-out likelihood, and every delivery gets the
@@ -24,7 +29,7 @@ submitted 17 ms grid labelled with the requested time) against frame-rate metada
 59.80/60).
 sigma_cal and sigma_mod are carried over from the main run for the same delivery.
 
-    python exp6_coverage.py            # 600 deliveries, 200 in each sweep configuration
+    python exp6_coverage.py            # 1200 deliveries, 200 in each sweep configuration
     python exp6_coverage.py --quick    # 60 deliveries, 30 in the sweeps
 """
 from __future__ import annotations
@@ -39,9 +44,11 @@ import time
 import numpy as np
 from scipy.optimize import minimize
 
-from uq import (Effects, fly, REF_CAM, QTY, RATE_TEST5, taps, solve, observe, truth_q, estimate, qvec, cal_sigma,
+from uq import (Effects, fly, CAMS, QTY, RATE_TEST5, taps, solve, observe, truth_q, estimate, cal_sigma,
                 replace, OUT, save_json, CalibrationError)
 from synth import random_delivery
+from app.pipeline.reconstruction import find_bounce_split
+from app.pipeline.uncertainty import MODEL_FORMS
 
 SEED = 606
 TAP_PX = 2.0
@@ -63,13 +70,19 @@ def draw(i):
     return d, eff, rng
 
 
+def end_hand(i):
+    """Camera end and the batter's leg sign (+1 right-handed, -1 left) of delivery i."""
+    return ("striker", "bowler")[i % 2], (1.0, -1.0)[(i // 2) % 2]
+
+
 def run(args):
     """One delivery under World B, optionally with effect overrides. with_cal adds sigma_cal."""
     i, over, with_cal = args
     import cv2; cv2.setNumThreads(1)
     d, eff, rng = draw(i)
     eff = replace(eff, **over)
-    row = dict(i=i, speed_kmh=d.speed_kmh, length_m=d.length_m, line_m=d.line_m, cd=d.cd, swing_ms2=d.swing_ms2,
+    end, leg = end_hand(i)
+    row = dict(i=i, end=end, leg=leg, speed_kmh=d.speed_kmh, length_m=d.length_m, line_m=d.line_m, cd=d.cd, swing_ms2=d.swing_ms2,
                turn_ms=d.turn_ms, restitution=d.restitution, friction=d.friction, rs_s=eff.rs_s,
                rs_correct_s=eff.rs_correct_s, distortion=eff.distortion, rate_ratio=eff.rate_ratio, sampler=eff.sampler,
                ok=False, bounce=False)
@@ -77,26 +90,35 @@ def run(args):
         tr = fly(d, dt=5e-4)
     except ValueError:
         return row
-    pt = REF_CAM.pose()
+    pt = CAMS[end].pose()
     xy = taps(pt, eff, rng)
     try:
         pose = solve(pt, xy)
     except CalibrationError:
         return row
     dets = observe(tr, pt, eff, rng)
+    row["split"] = find_bounce_split(sorted(dets)) is not None      # a bounce seen in the image
     est = estimate(pose, dets)
     tq = truth_q(tr)
+    lat = ("pitch_y", "impact_y", "y")
+    tq = {q: v * leg if q in lat and v is not None else v for q, v in tq.items()}
     for q in QTY:
         row[f"truth_{q}"] = tq[q]
     if est is None:
         return row
-    row.update(ok=True, bounce=est["bounce"], x_b=est["x_b"], rms_px=est["rms_px"], fov_deg=pose.fov_deg)
+    st = tr.states
+    j = max(2, int(np.searchsorted(st[:, 0], tr.contact_t))) if np.isfinite(tr.contact_t) else None
+    vy_pre = None if j is None else (st[j - 1, 2] - st[j - 2, 2]) / (st[j - 1, 0] - st[j - 2, 0])
+    row.update(ok=True, bounce=est["bounce"], x_b=est["x_b"], rms_px=est["rms_px"], fov_deg=pose.fov_deg,
+               tap_sigma_px=pose.tap_sigma_px, est_e=est["e"], est_dvy=est["dvy"],
+               true_dvy=None if vy_pre is None else d.turn_ms - d.friction * vy_pre)
     for q in QTY:
+        est[q] = est[q] * leg if q in lat and est[q] is not None else est[q]
         row[f"est_{q}"] = est[q]
         row[f"err_{q}"] = None if est[q] is None or tq[q] is None else est[q] - tq[q]
         row[f"sfit_{q}"] = est["s_" + q]
     if with_cal:
-        sc = cal_sigma(pt, xy, dets, qvec(est), TAP_PX)
+        sc, row["cal_failed"] = cal_sigma(pt, pose, xy, dets, est)
         for k, q in enumerate(QTY):
             row[f"scal_{q}"] = float(sc[k])
     return row
@@ -106,11 +128,8 @@ def run(args):
 # model error by cross-validated maximum likelihood
 # --------------------------------------------------------------------------- #
 
-FORMS = {
-    "constant": lambda p, x: np.full_like(x, math.exp(p[0])),
-    "proportional to x_b": lambda p, x: math.exp(p[0]) * x,
-    "constant + proportional": lambda p, x: np.sqrt(math.exp(2 * p[0]) + (math.exp(p[1]) * x) ** 2),
-}
+# the app's forms (uncertainty.MODEL_FORMS), searched over log parameters
+FORMS = {k: (lambda f: lambda p, x: f(np.exp(p), x))(f) for k, f in MODEL_FORMS.items()}
 NPAR = {"constant": 1, "proportional to x_b": 1, "constant + proportional": 2}
 
 
@@ -126,22 +145,45 @@ def fit_form(form, r, s2, x):
     return res.x
 
 
-def model_error(r, s2, x, folds):
-    """Held-out log-likelihood per form, the chosen form, its full-data parameters and the
-    out-of-fold sigma_mod for every point."""
+def bias_line(r, x):
+    """Least-squares line a + c x_b through the errors and its HC1 sandwich covariance (the errors
+    are heteroscedastic). Unweighted, so the line removes the mean error itself."""
+    A = np.c_[np.ones_like(x), x]
+    inv = np.linalg.inv(A.T @ A)
+    coef = inv @ (A.T @ r)
+    e = r - A @ coef
+    return coef, inv @ (A.T @ (A * (e ** 2)[:, None])) @ inv * len(r) / max(1, len(r) - 2)
+
+
+def line_at(bl, x):
+    """Bias b(x_b) and its variance u_b^2; zero for no bias line."""
+    if bl is None:
+        return np.zeros_like(x), np.zeros_like(x)
+    A = np.c_[np.ones_like(x), x]
+    return A @ bl[0], np.einsum("ij,jk,ik->i", A, bl[1], A)
+
+
+def model_error(r, s2, x, folds, bias=False):
+    """Held-out log-likelihood per form, the chosen form, its full-data parameters (metres), the
+    out-of-fold sigma_mod for every point, and the full-data bias line (None without bias). With
+    bias, each fold fits its own line on its training part first."""
     held = {}
     oof = {}
     for form in FORMS:
         tot, m = 0.0, np.zeros_like(r)
         for f in range(folds.max() + 1):
             tr, te = folds != f, folds == f
-            p = fit_form(form, r[tr], s2[tr], x[tr])
+            bl = bias_line(r[tr], x[tr]) if bias else None
+            (b_tr, u_tr), (b_te, u_te) = line_at(bl, x[tr]), line_at(bl, x[te])
+            p = fit_form(form, r[tr] - b_tr, s2[tr] + u_tr, x[tr])
             m[te] = FORMS[form](p, x[te])
-            tot += nll(r[te], s2[te], m[te])
+            tot += nll(r[te] - b_te, s2[te] + u_te, m[te])
         held[form], oof[form] = tot, m
     best = min(held, key=held.get)
-    p = fit_form(best, r, s2, x)
-    return best, held, [float(math.exp(v)) for v in p], oof[best]
+    bl = bias_line(r, x) if bias else None
+    b, u = line_at(bl, x)
+    p = fit_form(best, r - b, s2 + u, x)
+    return best, held, [float(math.exp(v)) for v in p], oof[best], bl
 
 
 def coverage(r, s):
@@ -153,7 +195,7 @@ def coverage(r, s):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true")
-    ap.add_argument("--n", type=int, default=600)
+    ap.add_argument("--n", type=int, default=1200)
     ap.add_argument("--n-sweep", type=int, default=200)
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     a = ap.parse_args()
@@ -180,15 +222,16 @@ def main():
     folds = np.random.default_rng(SEED).permutation(len(use)) % 5
     summary = dict(n=n, fitted=sum(r["ok"] for r in main_rows), bounce_observed=len(use), forms={}, coverage={})
     for q in QTY:
-        idx = [j for j, r in enumerate(use) if r.get(f"err_{q}") is not None]
+        # a failed perturbed solve leaves sigma_cal unbounded (umpire's call in the app); nothing to fit there
+        idx = [j for j, r in enumerate(use) if r.get(f"err_{q}") is not None and math.isfinite(r[f"scal_{q}"])]
         r_ = np.array([use[j][f"err_{q}"] for j in idx])
         sf = np.array([use[j][f"sfit_{q}"] for j in idx])
         sc = np.array([use[j][f"scal_{q}"] for j in idx])
         xb = np.array([max(use[j]["x_b"], 0.0) for j in idx])
-        best, held, par, oof = model_error(r_, sf ** 2 + sc ** 2, xb, folds[idx])
+        best, held, par, oof, _ = model_error(r_, sf ** 2 + sc ** 2, xb, folds[idx])
         for j, m in zip(idx, oof):
             use[j][f"smod_{q}"] = float(m)
-        summary["forms"][q] = dict(chosen=best, params_m=par, heldout_nll={k: round(v, 2) for k, v in held.items()},
+        summary["forms"][q] = dict(chosen=best, cal_unbounded=sum(r.get(f"err_{q}") is not None for r in use) - len(idx), params_m=par, heldout_nll={k: round(v, 2) for k, v in held.items()},
                                    mean_err_mm=float(np.mean(r_) * 1000), median_abs_err_mm=float(np.median(np.abs(r_)) * 1000),
                                    median_sigma_fit_mm=float(np.median(sf) * 1000), median_sigma_cal_mm=float(np.median(sc) * 1000),
                                    median_sigma_mod_mm=float(np.median(oof) * 1000))
@@ -224,7 +267,7 @@ def main():
                    seconds=round(time.time() - t0, 1),
                    world="exp1 physics with Cd U[0.35,0.55]; 1 px centres, 10 % radius, 5 % dropout, 2 px taps; "
                          "jitter 0.5 ms; rate U[0.99673,1]; rolling shutter U[-30,30] ms; distortion U[-1,1] %; "
-                         "dL +-5 cm, dW +-10 cm, dH +-1 cm, dw +-2.5 mm, bails U[0,1.27] cm; reference camera; "
+                         "dL +-5 cm, dW +-10 cm, dH +-1 cm, dw +-2.5 mm, bails U[0,1.27] cm; both camera ends, both hands; "
                          "frames labelled with their own timestamps")
     save_json("exp6_model_error.json", summary)
     for q in ("y", "z"):

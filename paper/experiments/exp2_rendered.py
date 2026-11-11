@@ -25,7 +25,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from synth import Camera, fly, grid, truth_verdict, CREASE_X   # noqa: E402
+from synth import Camera, fly, grid, truth_verdict   # noqa: E402
 from render import render                                       # noqa: E402
 from app.pipeline.process_job import run_pipeline              # noqa: E402
 
@@ -66,8 +66,8 @@ def main():
                "calibration": cal, "batsman_handedness": "right"}
         art = Path(tempfile.mkdtemp(prefix="pdrs_exp2_"))
         row = dict(i=i, camera=CAM_NAME, speed_kmh=d.speed_kmh, length_m=d.length_m, line_m=d.line_m,
-                   truth=truth_verdict(truth), truth_y_cm=round(truth.stumps[1] * 100, 2),
-                   truth_z_cm=round(truth.stumps[2] * 100, 2), n_frames=n_frames)
+                   truth=truth_verdict(truth), truth_y_mm=round(truth.stumps[1] * 1000, 1),
+                   truth_z_mm=round(truth.stumps[2] * 1000, 1), n_frames=n_frames)
         try:
             out = run_pipeline(video_path=clip, request_json=req, artifacts_dir=art, progress=None).result
         except Exception as e:                       # noqa: BLE001
@@ -84,17 +84,18 @@ def main():
                          reproj_px=round(out["calibration"]["quality"]["reproj_error_px"], 2),
                          calib_fov_deg=round(out["calibration"]["pose"]["fov_deg"], 3),
                          focal_err_pct=round((out["calibration"]["pose"]["fx"] / cam.pose().fx - 1) * 100, 3),
-                         y_err_cm=None if y is None else round(abs(y - truth.stumps[1]) * 100, 2),
-                         z_err_cm=None if z is None else round(abs(z - truth.stumps[2]) * 100, 2),
-                         sigma_y_cm=None if pred.get("sigma_y_m") is None else round(pred["sigma_y_m"] * 100, 2),
-                         sigma_z_cm=None if pred.get("sigma_z_m") is None else round(pred["sigma_z_m"] * 100, 2),
-                         contact_x_err_cm=None if ev.get("x_m") is None else round(abs(ev["x_m"] - truth.contact[0]) * 100, 2),
-                         contact_y_err_cm=None if ev.get("y_m") is None else round(abs(ev["y_m"] - truth.contact[1]) * 100, 2),
+                         y_err_mm=None if y is None else round(abs(y - truth.stumps[1]) * 1000, 1),
+                         z_err_mm=None if z is None else round(abs(z - truth.stumps[2]) * 1000, 1),
+                         # the app's 68 and 95 % half-widths u and U95 under the calibrated rule
+                         **{f"{k}_{c}_mm": None if pred.get(f"{k}_{c}_m") is None else round(pred[f"{k}_{c}_m"] * 1000, 1)
+                            for k in ("u", "U95") for c in ("y", "z")},
+                         contact_x_err_mm=None if ev.get("x_m") is None else round(abs(ev["x_m"] - truth.contact[0]) * 1000, 1),
+                         contact_y_err_mm=None if ev.get("y_m") is None else round(abs(ev["y_m"] - truth.contact[1]) * 1000, 1),
                          speed_err_kmh=None if not out.get("metrics") else round(abs(out["metrics"]["speed_kmh"] - truth.release_speed_kmh), 1),
                          warnings=" | ".join(out["diagnostics"]["warnings"])[:200]))
         r = rows[-1]
         print(f"[{i + 1:3d}/{len(deliveries)}] {d.speed_kmh:.0f} km/h L={d.length_m} y={d.line_m:+.2f}  "
-              f"truth={r['truth']:<12} got={verdict:<12} y={r['y_err_cm']} z={r['z_err_cm']} track={r['n_track']}", flush=True)
+              f"truth={r['truth']:<12} got={verdict:<12} y={r['y_err_mm']} z={r['z_err_mm']} track={r['n_track']}", flush=True)
 
     keys = sorted({k for r in rows for k in r}, key=lambda k: (k not in rows[0], k))
     with open(os.path.join(OUT, f"exp2_rendered_{TAG}.csv"), "w", newline="") as fh:

@@ -21,9 +21,8 @@ import numpy as np
 import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "server"))
-from app.pipeline.calibration import (CameraPose, intrinsics, solve_camera_pose,       # noqa: E402
-                                      STUMP_HEIGHT_M, STUMP_OUTER_HALF_M, PITCH_LENGTH_M,
-                                      PITCH_WIDTH_M)
+from app.pipeline.calibration import (CameraPose, intrinsics, solve_camera_pose, mark_points,  # noqa: E402
+                                      PITCH_LENGTH_M, PITCH_WIDTH_M)
 from app.pipeline.reconstruction import GRAVITY, BALL_RADIUS_M                          # noqa: E402
 
 CREASE_X = 1.22          # popping crease: where the batter's pad intercepts the ball
@@ -69,8 +68,8 @@ class Camera:
             eye = np.array([PITCH_LENGTH_M + self.back_m, self.offset_m, self.height_m])
             look = np.array([PITCH_LENGTH_M - 10.0, 0.0, 0.3])
         f = look - eye; f /= np.linalg.norm(f)
-        r = np.cross([0.0, 0.0, 1.0], f); r /= np.linalg.norm(r)
-        d = np.cross(f, r)
+        r = np.cross(f, [0.0, 0.0, 1.0]); r /= np.linalg.norm(r)      # screen right, phone held upright
+        d = np.cross(f, r)                                             # screen down
         R = np.stack([r, d, f])
         return CameraPose(K=K, R=R, t=-R @ eye, reproj_error_px=0.0, fov_deg=self.fov_deg,
                           pitch_length_m=PITCH_LENGTH_M, pitch_width_m=PITCH_WIDTH_M, used_corners=True)
@@ -179,17 +178,19 @@ def observe(truth: Truth, pose: CameraPose, *, fps: float, noise_px: float, radi
     return out
 
 
+def at_striker(pose: CameraPose) -> bool:
+    """Whether the true camera stands behind the striker's stumps."""
+    return float(pose.centre_world[0]) < PITCH_LENGTH_M / 2
+
+
 def calibration_taps(pose: CameraPose, *, noise_px: float, rng: np.random.Generator,
                      fov_deg: float | None = None, pitch_length_m: float | None = PITCH_LENGTH_M):
     """The twelve marks the user taps, perturbed, and the pose the app would solve from them.
 
     Like the app, the solver gets the regulation pitch length and has to find the focal
     length itself. Pass ``fov_deg=pose.fov_deg`` or ``pitch_length_m=None`` for the ablations."""
-    w, h = STUMP_OUTER_HALF_M, STUMP_HEIGHT_M
-    side = [(-w, h), (w, h), (w, 0.0), (-w, 0.0)]
-    stump_pts = np.array([(0.0, dy, dz) for dy, dz in side] + [(PITCH_LENGTH_M, dy, dz) for dy, dz in side])
-    hw = PITCH_WIDTH_M / 2
-    corner_pts = np.array([(0.0, -hw, 0.0), (0.0, hw, 0.0), (PITCH_LENGTH_M, hw, 0.0), (PITCH_LENGTH_M, -hw, 0.0)])
+    marks = mark_points(PITCH_LENGTH_M, PITCH_WIDTH_M, at_striker(pose))
+    stump_pts, corner_pts = marks[:8], marks[8:]
     su, sv, _ = pose.project(stump_pts)
     cu, cv, _ = pose.project(corner_pts)
     stumps = [(float(a + rng.normal(0, noise_px)), float(b + rng.normal(0, noise_px))) for a, b in zip(su, sv)]

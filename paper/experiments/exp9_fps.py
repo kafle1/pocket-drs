@@ -87,7 +87,7 @@ def main():
     for f in FPS:
         for n, _, _ in SAMPLERS:
             rr = [r for r in rows if r["fps"] == f and r["sampler"] == n and r["ok"] and r["bounce"]
-                  and r.get("est_y") is not None and r.get("est_crease_y") is not None]
+                  and r.get("est_y") is not None and r.get("est_impact_y") is not None]
             ent = dict(n=len(rr), median_dets=float(np.median([r["n_dets"] for r in rows if r["fps"] == f and r["sampler"] == n
                                                                and "n_dets" in r])))
             for q in ("y", "z"):

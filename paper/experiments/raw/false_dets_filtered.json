@@ -1,7 +1,4 @@
 {
- "tag": "filtered",
- "root": ".",
- "filtered": true,
  "picks": [
   0,
   13,
@@ -28,7 +25,7 @@
   "drift": {
    "correct": 8,
    "clips": 8,
-   "fake_in_track": 0
+   "fake_in_track": 101
   },
   "top": {
    "correct": 8,

@@ -16,12 +16,13 @@ plus 0.5 ms frame-time jitter, frames labelled with their own timestamps. sigma_
 computed once per delivery on the baseline (uq.cal_sigma) and sigma_mod comes from exp6's
 cross-validated model applied at each fit's own bounce distance.
 
-Part 2, taps. The first 300 deliveries of exp6's World B, reproduced exactly (same taps,
-same detections; the unperturbed estimate is checked against exp6's). Every tap is moved
+Part 2, taps. The first 300 deliveries of exp6's World B, reproduced exactly (same camera end,
+taps and detections, lateral values leg-side signed; the unperturbed estimate is checked against exp6's). Every tap is moved
 by d = 2, 5, 10 px in a random direction, or all twelve by +-d px in v (a consistent
 high or low tap). Reported: how far the stump-plane point moves and how many verdicts
-flip, under the shipped rule (sigma_fit, k = 1) and under the full sigma with the k
-chosen in exp7 at 1 % and 5 %.
+flip, under the fit sigma at k = 1, under the full sigma with the k chosen in exp7 at 1 % and
+5 %, and under the calibrated rule the app ships (uncertainty.calibrated with the rule file:
+bias removed, U95 / 1.96 as sigma, exp7's guard k; sigma_cal carried over from exp6).
 
     python exp8_physics.py                 # both parts, then the summary
     python exp8_physics.py --part physics  # or taps; --summary-only re-reads the CSVs
@@ -37,9 +38,10 @@ import time
 
 import numpy as np
 
-from uq import (Effects, Delivery, fly, REF_CAM, QTY, taps, solve, observe, truth_q, estimate, cal_sigma,
+from uq import (Effects, Delivery, fly, REF_CAM, CAMS, QTY, taps, solve, observe, truth_q, estimate, cal_sigma,
                 replace, OUT, save_json, load_json, verdict, CalibrationError)
 from synth import random_delivery
+from app.pipeline.uncertainty import GUARD_K, MODEL_FORMS, calibrated
 
 SEED = 808
 N_PHYS = 200
@@ -100,7 +102,7 @@ def phys_job(args):
     i, row = args
     import cv2; cv2.setNumThreads(1)
     d0, w = base(i)
-    out = dict(part="physics", i=i, row=row, ok=False, bounce=False)
+    out = dict(part="physics", i=i, row=row, end="striker", ok=False, bounce=False)
     try:
         d = row_delivery(d0, w, row)
         tr = fly(d, dt=5e-4)
@@ -124,7 +126,7 @@ def phys_job(args):
         out[f"est_{q}"] = est[q]
         out[f"sfit_{q}"] = est["s_" + q]
     if row == "baseline":
-        sc = cal_sigma(pt, xy, dets, np.array([np.nan if est[q] is None else est[q] for q in QTY]), TAP_PX)
+        sc, out["cal_failed"] = cal_sigma(pt, pose, xy, dets, est)
         out.update({f"scal_{q}": float(v) for q, v in zip(QTY, sc)})
     return out
 
@@ -132,17 +134,18 @@ def phys_job(args):
 def tap_job(i):
     """exp6 World B delivery i, unperturbed and under every tap case."""
     import cv2; cv2.setNumThreads(1)
-    from exp6_coverage import draw
+    from exp6_coverage import draw, end_hand
     d, eff, rng = draw(i)
+    end, leg = end_hand(i)
     res = []
     try:
         tr = fly(d, dt=5e-4)
     except ValueError:
         return res
-    pt = REF_CAM.pose()
+    pt = CAMS[end].pose()
     xy = taps(pt, eff, rng)
     try:
-        pose = solve(pt, xy)
+        solve(pt, xy)
     except CalibrationError:
         return res
     dets = observe(tr, pt, eff, rng)
@@ -154,7 +157,7 @@ def tap_job(i):
         else:
             cases.append((kind, dpx, xy + np.array([0.0, dpx])))
     for kind, dpx, z in cases:
-        row = dict(part="taps", i=i, case=kind, d_px=dpx, ok=False)
+        row = dict(part="taps", i=i, end=end, case=kind, d_px=dpx, ok=False)
         try:
             est = estimate(solve(pt, z), dets)
         except CalibrationError:
@@ -162,7 +165,7 @@ def tap_job(i):
         if est is not None:
             row.update(ok=True, bounce=est["bounce"], x_b=est["x_b"])
             for q in QTY:
-                row[f"est_{q}"] = est[q]
+                row[f"est_{q}"] = est[q] * leg if q != "z" and est[q] is not None else est[q]
                 row[f"sfit_{q}"] = est["s_" + q]
         res.append(row)
     return res
@@ -195,15 +198,7 @@ def write(name, rows):
 def smod_fn():
     """exp6's chosen model-error form per measurand, as a function of x_b (metres)."""
     me = load_json("exp6_model_error.json")["forms"]
-    def f(q, xb):
-        p, form = me[q]["params_m"], me[q]["chosen"]
-        xb = max(xb, 0.0)
-        if form == "constant":
-            return p[0]
-        if form == "proportional to x_b":
-            return p[0] * xb
-        return math.hypot(p[0], p[1] * xb)
-    return f
+    return lambda q, xb: float(MODEL_FORMS[me[q]["chosen"]](me[q]["params_m"], max(xb, 0.0)))
 
 
 def chosen_k():
@@ -221,6 +216,15 @@ def sigmas(r, scal, smod):
     return sf, full
 
 
+def app_rule(r, scal):
+    """(estimates, U95 / 1.96 each, k) of the calibrated rule the app applies to one fit; lateral values are
+    leg-side signed already, so the leg sign is +1."""
+    c = calibrated(r["end"], 1.0, est_of(r), {q: fnum(r.get(f"sfit_{q}")) for q in QTY},
+                   {q: scal.get(q) or 0.0 for q in QTY}, max(fnum(r.get("x_b")) or 0.0, 0.0), r["bounce"] == "True")
+    return ({q: c[q]["value"] if q in c else None for q in QTY}, {q: c[q]["sigma"] if q in c else 0.0 for q in QTY},
+            GUARD_K)
+
+
 def est_of(r):
     return {q: fnum(r.get(f"est_{q}")) for q in QTY}
 
@@ -233,15 +237,16 @@ def cov(e, s):
 def summarise_physics(ks):
     rows = read("exp8_physics.csv")
     smod = smod_fn()
-    scal = {r["i"]: {q: fnum(r.get(f"scal_{q}")) for q in QTY} for r in rows if r["row"] == "baseline"}
+    scal = {r["i"]: {q: float(r.get(f"scal_{q}") or 0.0) for q in QTY} for r in rows if r["row"] == "baseline"}
     zero = {q: 0.0 for q in QTY}
     out = {}
     for name in ROWS:
         rr = [r for r in rows if r["row"] == name and r["ok"] == "True" and r["bounce"] == "True"
-              and all(fnum(r.get(f"est_{q}")) is not None for q in ("crease_y", "y", "z"))]
+              and all(fnum(r.get(f"est_{q}")) is not None for q in ("impact_y", "y", "z"))]
         ent = dict(n=len(rr))
         agree = {"fit k=1": 0}
         agree.update({f"full k={ks[a]}": 0 for a in ks if ks[a] is not None})
+        agree["calibrated (app)"] = 0
         ump = dict.fromkeys(agree, 0)
         for q in ("pitch_y", "y", "z"):
             e, sf_, sfull = [], [], []
@@ -260,8 +265,11 @@ def summarise_physics(ks):
             tv = verdict(tru, zero, 0.0)
             sf, full = sigmas(r, scal.get(r["i"], {}), smod)
             for key in agree:
-                s, k = (sf, 1.0) if key == "fit k=1" else (full, float(key.split("=")[1]))
-                v = verdict(est_of(r), s, k)
+                if key == "calibrated (app)":
+                    v = verdict(*app_rule(r, scal.get(r["i"], {})))
+                else:
+                    s, k = (sf, 1.0) if key == "fit k=1" else (full, float(key.split("=")[1]))
+                    v = verdict(est_of(r), s, k)
                 agree[key] += v == tv
                 ump[key] += v == "umpires_call"
         ent["agree_pct"] = {k: 100 * v / max(len(rr), 1) for k, v in agree.items()}
@@ -274,14 +282,15 @@ def summarise_taps(ks):
     rows = read("exp8_taps.csv")
     smod = smod_fn()
     ref = {r["i"]: r for r in read("exp6_worldb.csv")}
-    scal = {i: {q: fnum(r.get(f"scal_{q}")) for q in QTY} for i, r in ref.items()}
-    base = {r["i"]: r for r in rows if r["case"] == "none" and r["ok"] == "True"}
+    scal = {i: {q: float(r.get(f"scal_{q}") or 0.0) for q in QTY} for i, r in ref.items()}
+    base = {r["i"]: r for r in rows if r["case"] == "none" and r["ok"] == "True" and fnum(r.get("est_y")) is not None}
     # the unperturbed fit must be exp6's fit, bit for bit up to float printing
     mism = sum(1 for i, r in base.items() if i in ref and any(
         (fnum(r.get(f"est_{q}")) is None) != (fnum(ref[i].get(f"est_{q}")) is None) or
         (fnum(r.get(f"est_{q}")) is not None and abs(fnum(r[f"est_{q}"]) - fnum(ref[i][f"est_{q}"])) > 1e-9) for q in QTY))
     rules = {"fit k=1": None}
     rules.update({f"full k={ks[a]}": ks[a] for a in ks if ks[a] is not None})
+    rules["calibrated (app)"] = "app"
     out = dict(n_deliveries=len(base), mismatch_vs_exp6=mism, cases={})
     for kind, dpx in TAP_CASES:
         key = f"{kind} {dpx:+g} px" if kind == "v shift" else f"{kind} {dpx:g} px"
@@ -294,12 +303,14 @@ def summarise_taps(ks):
                 fails += 1
                 continue
             dy.append(abs(fnum(r["est_y"]) - fnum(b["est_y"]))); dz.append(abs(fnum(r["est_z"]) - fnum(b["est_z"])))
-            dc.append(abs(fnum(r["est_crease_y"]) - fnum(b["est_crease_y"])))
+            dc.append(abs(fnum(r["est_impact_y"]) - fnum(b["est_impact_y"])))
             for name, k in rules.items():
                 sb_fit, sb_full = sigmas(b, scal.get(r["i"], {}), smod)
                 sr_fit, sr_full = sigmas(r, scal.get(r["i"], {}), smod)
                 if k is None:
                     va, vb = verdict(est_of(r), sr_fit, 1.0), verdict(est_of(b), sb_fit, 1.0)
+                elif k == "app":
+                    va, vb = (verdict(*app_rule(x, scal.get(r["i"], {}))) for x in (r, b))
                 else:
                     va, vb = verdict(est_of(r), sr_full, k), verdict(est_of(b), sb_full, k)
                 flips[name] += va != vb
@@ -310,7 +321,7 @@ def summarise_taps(ks):
                                  p90_dy_mm=float(np.percentile(dy, 90) * 1000) if dy else None,
                                  median_dz_mm=float(np.median(dz) * 1000) if dz else None,
                                  p90_dz_mm=float(np.percentile(dz, 90) * 1000) if dz else None,
-                                 median_dcrease_mm=float(np.median(dc) * 1000) if dc else None,
+                                 median_dimpact_mm=float(np.median(dc) * 1000) if dc else None,
                                  flips={k: int(v) for k, v in flips.items()},
                                  out_notout_flips={k: int(v) for k, v in hard.items()},
                                  flip_pct={k: 100 * v / max(n, 1) for k, v in flips.items()})

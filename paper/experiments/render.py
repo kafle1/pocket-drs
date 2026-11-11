@@ -4,15 +4,14 @@ the geometry end to end, not the detector's robustness to clutter, which the rea
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from synth import Truth, Camera, CREASE_X
-from app.pipeline.calibration import (CameraPose, STUMP_HEIGHT_M, STUMP_LATERAL_DX_M, STUMP_OUTER_HALF_M,
-                                      PITCH_LENGTH_M, PITCH_WIDTH_M)
+from synth import Truth, Camera, CREASE_X, at_striker
+from app.pipeline.calibration import (CameraPose, STUMP_HEIGHT_M, STUMP_LATERAL_DX_M,
+                                      PITCH_LENGTH_M, PITCH_WIDTH_M, mark_points)
 from app.pipeline.reconstruction import BALL_RADIUS_M
 
 BAIL_Z = STUMP_HEIGHT_M + 0.012
@@ -72,9 +71,7 @@ def render(truth: Truth, cam: Camera, path: Path, *, fps: float, ball_bgr=(40, 4
         writer.write(frame)
     writer.release()
 
-    w, h = STUMP_OUTER_HALF_M, STUMP_HEIGHT_M
-    side = [(-w, h), (w, h), (w, 0.0), (-w, 0.0)]
-    marks = [(0.0, dy, dz) for dy, dz in side] + [(PITCH_LENGTH_M, dy, dz) for dy, dz in side] + pitch
+    marks = mark_points(PITCH_LENGTH_M, PITCH_WIDTH_M, at_striker(pose))
     projected = [pose.project_one(*m) for m in marks]
     if any(q is None for q in projected):
         raise ValueError("a calibration mark is behind the camera for this placement")

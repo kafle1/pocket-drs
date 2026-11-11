@@ -6,7 +6,7 @@ ICC rule applied to the true path (k = 0, sigma = 0), under three 1-sigma sets:
   fit          the pipeline's own covariance, as shipped
   fit+cal      plus tap noise through the calibration (exp6 sigma_cal)
   full         plus the cross-validated model error (exp6 sigma_mod, out of fold)
-  calibrated   exp6_calibrate: z bias removed from the estimate, sigma scaled so its Gaussian
+  calibrated   exp6_calibrate: bias removed from each estimate, sigma scaled so its Gaussian
                95 % interval is the held-out conformal U95 (U95 / 1.96), the conservative
                choice when the tails are heavier than Gaussian
 
@@ -21,18 +21,25 @@ from which every OUT call on the grid has specific risk <= alpha. The closed-for
 are printed next to it: 1 - Phi(k) = alpha for one binding test, and
 1 - Phi(k)^4 = alpha when all four tests sit on their boundaries at once.
 
-    python exp7_risk.py      # needs raw/exp6_worldb.csv; takes seconds
+The calibrated set's k at alpha = 5 % is added as guard_k to exp6_calibrate's rule
+(raw/exp6_rule.json), and the whole rule is written to the app's file (uncertainty.RULE_PATH).
+
+    python exp7_risk.py      # needs raw/exp6_worldb.csv and exp6_calibrate's output; takes seconds
 """
 from __future__ import annotations
 
 import csv
+import json
+import math
 import os
 import time
 
 import numpy as np
 from scipy.stats import beta, norm
 
-from uq import QTY, OUT, verdict, specific_risk, save_json
+from uq import QTY, OUT, verdict, specific_risk, save_json, load_json
+from app.pipeline.uncertainty import RULE_PATH
+GUARD_ALPHA = "0.05"
 
 K_GRID = np.round(np.arange(0.0, 3.0001, 0.05), 2)
 ALPHAS = (0.01, 0.05)
@@ -48,10 +55,7 @@ def fnum(v):
 
 
 def load_cal():
-    path = os.path.join(OUT, "exp6_calibrated.csv")
-    if not os.path.exists(path):
-        return {}
-    with open(path, newline="") as fh:
+    with open(os.path.join(OUT, "exp6_calibrated.csv"), newline="") as fh:
         return {int(r["i"]): r for r in csv.DictReader(fh)}
 
 
@@ -64,17 +68,19 @@ def load_rows():
                 continue
             est = {q: fnum(r[f"est_{q}"]) for q in QTY}
             tru = {q: fnum(r[f"truth_{q}"]) for q in QTY}
-            if any(est[q] is None for q in ("crease_y", "y", "z")) or any(tru[q] is None for q in ("crease_y", "y", "z")):
+            # no stump-plane crossing gives umpire's call or a clear fail, as in the app, so those rows stay
+            if est["impact_y"] is None or any(tru[q] is None for q in ("impact_y", "y", "z")):
                 continue
             sf = {q: fnum(r[f"sfit_{q}"]) or 0.0 for q in QTY}
-            sc = {q: fnum(r.get(f"scal_{q}")) or 0.0 for q in QTY}
+            sc = {q: float(r.get(f"scal_{q}") or 0.0) for q in QTY}     # inf when a perturbed solve failed
             sm = {q: fnum(r.get(f"smod_{q}")) or 0.0 for q in QTY}
             sig = {"fit": sf,
                    "fit+cal": {q: float(np.hypot(sf[q], sc[q])) for q in QTY},
                    "full": {q: float(np.sqrt(sf[q] ** 2 + sc[q] ** 2 + sm[q] ** 2)) for q in QTY}}
-            c = cal.get(int(r["i"]), {})
-            sig["calibrated"] = {q: (fnum(c.get(f"U95_{q}")) or sig["full"][q] * 1.96) / 1.96 for q in QTY}
-            est_c = dict(est, z=est["z"] - (fnum(c.get("bias_z")) or 0.0))
+            # exp6_calibrate leaves out a quantity whose sigma_cal is unbounded: no bias, infinite U95, as in the app
+            c = {k: fnum(v) for k, v in cal[int(r["i"])].items()}
+            sig["calibrated"] = {q: math.inf if c.get(f"U95_{q}") is None else c[f"U95_{q}"] / 1.96 for q in QTY}
+            est_c = {q: None if est[q] is None else est[q] - (c.get(f"bias_{q}") or 0.0) for q in QTY}
             zero = {q: 0.0 for q in QTY}
             rows.append(dict(i=int(r["i"]), est=est, est_c=est_c, sig=sig, truth=verdict(tru, zero, 0.0)))
     return rows
@@ -115,6 +121,7 @@ def curve(rows, sset):
             missed_out_given_true_out_pct=100 * mo / n_true_out if n_true_out else 0.0,
             true_out_to_ump_pct=100 * sum(t[j] == "out" and v[j] == "umpires_call" for j in range(n)) / n_true_out
             if n_true_out else 0.0,
+            true_out_called_out=sum(t[j] == "out" and v[j] == "out" for j in range(n)),
             max_specific_false_out_pct=100 * max(sp_fo) if sp_fo else 0.0,
             mean_specific_false_out_pct=100 * float(np.mean(sp_fo)) if sp_fo else 0.0,
             max_specific_missed_out_pct=100 * max(sp_mo) if sp_mo else 0.0,
@@ -161,15 +168,27 @@ def main():
                                 at_k_specific=at(cur, kk) if kk is not None else None)
         summary["chosen"][s] = ch
         summary["at_k"][s] = {f"{k:g}": at(cur, k) for k in (0.0, 1.0, 1.645, 1.96, 2.0, 2.326, 2.5, 3.0)}
-    summary["shipped"] = at([r for r in table if r["sigma_set"] == "fit"], 1.0)
-    # the shipped rule decides on the fit sigma; score its OUT calls with the full sigma too
-    sp = [specific_risk(r["est"], r["sig"]["full"])[0] for r in rows if verdict(r["est"], r["sig"]["fit"], 1.0) == "out"]
+    guard_k = summary["chosen"]["calibrated"][GUARD_ALPHA]["k_specific"]
+    if guard_k is None:
+        raise SystemExit(f"no guard factor on the grid keeps the calibrated specific risk under {GUARD_ALPHA}")
+    # the shipped rule: calibrated U95 / 1.96 at guard_k; its OUT calls are also scored with the uncalibrated full sigma
+    summary["shipped"] = at([r for r in table if r["sigma_set"] == "calibrated"], guard_k)
+    shipped_outs = [r for r in rows if verdict(r["est_c"], r["sig"]["calibrated"], guard_k) == "out"]
+    sp = [specific_risk(r["est"], r["sig"]["full"])[0] for r in shipped_outs]
     summary["shipped"]["max_specific_false_out_full_sigma_pct"] = 100 * max(sp) if sp else 0.0
     summary["shipped"]["mean_specific_false_out_full_sigma_pct"] = 100 * float(np.mean(sp)) if sp else 0.0
     summary["shipped"]["outs_over_5pct_full_sigma"] = int(sum(x > 0.05 for x in sp))
-    sp = [specific_risk(r["est_c"], r["sig"]["calibrated"])[0] for r in rows if verdict(r["est"], r["sig"]["fit"], 1.0) == "out"]
+    sp = [specific_risk(r["est_c"], r["sig"]["calibrated"])[0] for r in shipped_outs]
     summary["shipped"]["max_specific_false_out_cal_sigma_pct"] = 100 * max(sp) if sp else 0.0
     summary["shipped"]["outs_over_5pct_cal_sigma"] = int(sum(x > 0.05 for x in sp))
+    # the rule before this revision, fit sigma and k = 1, with its OUT calls scored under the calibrated U95 / 1.96
+    sp = [specific_risk(r["est_c"], r["sig"]["calibrated"])[0] for r in rows if verdict(r["est"], r["sig"]["fit"], 1.0) == "out"]
+    summary["former"] = dict(outs=len(sp), max_specific_false_out_cal_sigma_pct=100 * max(sp) if sp else 0.0,
+                             outs_over_5pct_cal_sigma=int(sum(x > 0.05 for x in sp)))
+    rule = load_json("exp6_rule.json")
+    rule["guard_k"] = guard_k
+    with open(RULE_PATH, "w") as fh:
+        json.dump(rule, fh, indent=2)
     summary["seconds"] = round(time.time() - t0, 1)
     save_json("exp7_risk.json", summary)
 
@@ -183,7 +202,7 @@ def main():
                                          f"{r['false_out_joint_cp95_pct']:.2f}%) missed {r['missed_out']}")
             print(f"{s:8s} alpha {a:>4s}: k_spec {c['k_specific']} k_glob {c['k_global_joint']}{tail}")
     r = summary["shipped"]
-    print(f"shipped (fit, k=1): agree {r['agree_pct']:.1f}% ump {r['ump_pct']:.1f}% false out {r['false_out']} "
+    print(f"shipped (calibrated, k={guard_k}): agree {r['agree_pct']:.1f}% ump {r['ump_pct']:.1f}% false out {r['false_out']} "
           f"max spec {r['max_specific_false_out_pct']:.1f}% (full sigma {r['max_specific_false_out_full_sigma_pct']:.1f}%, "
           f"{r['outs_over_5pct_full_sigma']} outs over 5 %)")
     print(f"{summary['seconds']} s")

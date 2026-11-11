@@ -70,7 +70,7 @@ def draw_trial(args):
         return nan
     tq = truth_q(tr)
     t = np.array([np.nan if tq[k] is None else tq[k] for k in QTY])
-    return np.concatenate([qvec(est) - t, [est["s_" + k] for k in QTY]])
+    return np.concatenate([qvec(est) - t, [np.nan if est["s_" + k] is None else est["s_" + k] for k in QTY]])
 
 
 def stats(e):

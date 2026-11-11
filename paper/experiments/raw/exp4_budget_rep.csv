@@ -1,20 +1,20 @@
-row,type,u_x,u_x_unit,c_y,c_z,u_pitch_mm,u_crease_mm,u_y_mm,u_z_mm,bias_y_mm,bias_z_mm,n_eval
-calibration taps,B: 2 px per coordinate (real clips: 2.05-10.55 px reprojection),2.0,px,0.00148418,0.00238287,5.965,2.781,2.968,4.766,,,24
-ball centre,B: 1 px per coordinate (assumed),1.0,px,0.00727697,0.0351835,3.247,5.632,7.277,35.183,,,66
-frame-time jitter,B: 0.5 ms per frame (assumed; PTS jitter measures the muxer only),0.5,ms,0.00571733,0.0315781,0.152,2.268,2.859,15.789,,,33
-frame phase,"B: release instant U[0, T] against the frame clock",4.811252,ms,8.96605e-05,0.00051722,0.007,0.344,0.431,2.488,1.518,8.713,8
-submitted frame sampler,"B: effect of the submitted 17 ms request grid (fixed since), RMS over phases",,,nan,nan,0.8,13.33,16.698,86.419,0.672,3.945,8
-bounce split,A: split index from 20 noisy draws x effect of k+-1,0.5,P(k moves),nan,nan,0.0,0.0,0.0,0.0,,,22
-frame rate 59.80 vs 60 Hz,"B: container rate over timestamp rate, U[0.99673, 1] (test5.mp4)",0.001889,rate_ratio,0.0791305,0.523953,0.017,0.115,0.149,0.989,-0.129,-0.855,40
-"rolling shutter, uncorrected","B: readout 0-30 ms, either direction (assumed)",0.017321,rs_s,-0.0199686,-0.119265,0.014,0.542,0.681,3.966,0.027,0.15,40
-lens distortion,B: +-1 % radial at the corner (assumed),0.005774,distortion,0.0115001,-0.127572,0.082,0.071,0.066,0.737,-0.0,0.001,40
-pitch length L,"B: +-5 cm marking, rectangular",0.028868,dL,-2.14385e-06,-0.000896972,0.002,0.013,0.001,0.026,0.0,0.0,40
-pitch width W,"B: +-10 cm, corners are unmarked",0.057735,dW,0.0232889,-0.213788,1.367,1.367,1.345,12.346,-0.018,0.207,40
-stump height H,B: +-1 cm set depth,0.005774,dH,0.0500896,-0.287372,0.264,0.279,0.289,1.66,-0.001,-0.003,40
-wicket half-width w,B: +-2.5 mm stump spacing,0.001443,dw,0.0045662,-0.0804392,0.007,0.008,0.007,0.116,-0.0,0.0,40
-bails tapped as top,"B: 0-1.27 cm, Law 8.3.1, uncorrected",0.007332,top_tap,0.0497201,-0.288396,0.333,0.353,0.365,2.114,0.316,-1.829,40
-restitution e,"B: model, U[0.40, 0.70] (James et al. 2004 pitch range)",0.086603,restitution,-0.00878642,-0.0649975,0.034,0.659,0.827,5.877,-0.199,-0.281,40
-drag Cd,"B: model, U[0.35, 0.55] (Mehta 2005), not modelled",0.453689,cd,-0.00811621,-0.0430345,0.014,2.937,3.67,18.951,-3.59,-18.453,40
-swing Cs,"B: model, U[-0.3, 0.3] (Mehta 2005), not modelled",0.173205,cs,0.221623,-0.00316538,14.823,28.007,38.238,46.54,-6.423,-37.045,40
-seam deviation,"B: model, U[-2, 2] deg off the seam",1.154701,seam,-0.00115808,0.000658913,0.158,1.131,1.43,0.982,-0.212,-0.385,40
-friction at contact,"B: model, U[0.05, 0.20] speed loss",0.05,friction,0.0103769,0.0542436,0.038,0.591,0.748,4.082,0.22,1.084,40
+row,type,u_x,u_x_unit,c_y,c_z,u_pitch_mm,u_impact_mm,u_y_mm,u_z_mm,bias_y_mm,bias_z_mm,n_eval
+calibration taps,B: 2 px per coordinate (real clips: 2.05-10.55 px reprojection),2.0,px,0.0014853,0.00238664,5.964,2.785,2.971,4.773,,,24
+ball centre,B: 1 px per coordinate (assumed),1.0,px,0.00716689,0.0346175,3.246,4.728,7.167,34.618,,,66
+frame-time jitter,B: 0.5 ms per frame (assumed; PTS jitter measures the muxer only),0.5,ms,0.00571733,0.031578,0.152,1.865,2.859,15.789,,,33
+frame phase,"B: release instant U[0, T] against the frame clock",4.811252,ms,8.96604e-05,0.00051722,0.007,1.315,0.431,2.488,1.518,8.713,8
+submitted frame sampler,"B: effect of the submitted 17 ms request grid (fixed since), RMS over phases",,,nan,nan,0.854,6.177,10.386,48.797,-4.719,-25.141,8
+bounce split,A: split index from 20 noisy draws x effect of k+-1,0.25,P(k moves),nan,nan,0.0,0.0,0.0,0.0,,,22
+frame rate 59.80 vs 60 Hz,"B: container rate over timestamp rate, U[0.99673, 1] (test5.mp4)",0.001889,rate_ratio,0,0,0.0,0.0,0.0,0.0,0.0,0.0,40
+"rolling shutter, uncorrected","B: readout 0-30 ms, either direction (assumed)",0.017321,rs_s,0.0199686,0.119265,0.014,1.763,0.681,3.966,0.027,0.15,40
+lens distortion,B: +-1 % radial at the corner (assumed),0.005774,distortion,0.0114997,-0.127575,0.082,0.093,0.066,0.737,-0.0,0.001,40
+pitch length L,"B: +-5 cm marking, rectangular",0.028868,dL,-2.13757e-06,-0.000896923,0.002,0.002,0.001,0.026,0.0,0.0,40
+pitch width W,"B: +-10 cm, corners are unmarked",0.057735,dW,0.0232835,-0.213798,1.369,1.471,1.345,12.347,-0.019,0.207,40
+stump height H,B: +-1 cm set depth,0.005774,dH,0.0501017,-0.287294,0.264,0.272,0.289,1.66,-0.001,-0.003,40
+wicket half-width w,B: +-2.5 mm stump spacing,0.001443,dw,0.00457218,-0.0804084,0.007,0.008,0.007,0.116,-0.0,-0.0,40
+bails tapped as top,"B: 0-1.27 cm, Law 8.3.1, uncorrected",0.007332,top_tap,0.0497257,-0.288368,0.333,0.344,0.365,2.114,0.317,-1.829,40
+restitution e,"B: model, U[0.40, 0.70] (James et al. 2004 pitch range)",0.086603,restitution,-0.00878641,-0.0649975,0.034,0.488,0.827,5.877,-0.199,-0.281,40
+drag Cd,"B: model, U[0.35, 0.55] (Mehta 2005), not modelled",0.453689,cd,-0.00811621,-0.0430345,0.014,3.107,3.67,18.951,-3.59,-18.453,40
+swing Cs,"B: model, U[-0.3, 0.3] (Mehta 2005), not modelled",0.173205,cs,0.221623,-0.00316536,14.823,10.469,38.238,46.54,-6.423,-37.045,40
+seam deviation,"B: model, U[-2, 2] deg off the seam",1.154701,seam,-0.00115808,0.000658913,0.158,5.973,1.43,0.982,-0.212,-0.385,40
+friction at contact,"B: model, U[0.05, 0.20] speed loss",0.05,friction,0.0103769,0.0542436,0.038,1.832,0.748,4.082,0.22,1.084,40

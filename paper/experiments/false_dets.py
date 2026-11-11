@@ -10,11 +10,9 @@ adds one fake 90 px box at confidence 0.95 to the learned detector's output on a
   top      fixed near the top edge, on the middle half of the frames
 
 The rendered clips and injected boxes are the only inputs; no real clip is used, so no limit of
-the false-detection filter is tuned on the exp3 clips. --root runs another checkout of the code
-(for the code before the filter: git archive 0893393 server | tar -x -C DIR), with the learned
-detector's weights always taken from this checkout.
+the false-detection filter is tuned on the exp3 clips.
 
-Usage:  $PY false_dets.py [--root DIR] [--tag NAME]
+Usage:  $PY false_dets.py
 """
 from __future__ import annotations
 
@@ -29,10 +27,8 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-ROOT = Path(sys.argv[sys.argv.index("--root") + 1]).resolve() if "--root" in sys.argv else REPO
-TAG = sys.argv[sys.argv.index("--tag") + 1] if "--tag" in sys.argv else "filtered"
-sys.path[:0] = [str(ROOT / "server"), str(HERE)]
-import app.pipeline.process_job as pj                  # noqa: E402  (ROOT's copy, imported before synth adds this one)
+sys.path[:0] = [str(REPO / "server"), str(HERE)]
+import app.pipeline.process_job as pj                  # noqa: E402
 from app.pipeline.reconstruction import BALL_RADIUS_M  # noqa: E402
 from synth import Camera, fly, grid, truth_verdict     # noqa: E402
 from render import render                              # noqa: E402
@@ -40,8 +36,6 @@ from render import render                              # noqa: E402
 WEIGHTS = REPO / "server" / "models" / "cricket_ball.pt"
 if not WEIGHTS.exists():
     sys.exit(f"needs the learned detector's weights at {WEIGHTS}")
-pj.YOLO_WEIGHTS = WEIGHTS
-FILTERED = hasattr(pj, "drop_impossible")
 SCENARIOS = ("clean", "static", "drift", "top")
 PICKS = (0, 13, 26, 39, 52, 65, 78, 91)
 FAKE_R = 90.0
@@ -82,16 +76,17 @@ def rec_track(frames, times_ms, detector, *a):
 
 
 pj._track = rec_track
-if FILTERED:
-    _orig_drop = pj.drop_impossible
+_orig_drop = pj.drop_impossible
 
-    def rec_drop(dets, pose, fps):
-        kept = _orig_drop(dets, pose, fps)
-        log.append((ctx["times"][ctx["call"]], dets, kept))
-        ctx["call"] += 1
-        return kept
 
-    pj.drop_impossible = rec_drop
+def rec_drop(dets, pose, fps):
+    kept = _orig_drop(dets, pose, fps)
+    log.append((ctx["times"][ctx["call"]], dets, kept))
+    ctx["call"] += 1
+    return kept
+
+
+pj.drop_impossible = rec_drop
 
 
 def one(clip, req, truth, pose, scen, i):
@@ -128,8 +123,8 @@ def one(clip, req, truth, pose, scen, i):
     row = dict(scenario=scen, i=i, truth=truth_verdict(truth), verdict=(out.get("lbw") or {}).get("decision"),
                track_from=chosen, n_track=len(pts), fake_in_track=sum(1 for p in pts if p["radius_px"] == FAKE_R),
                y_err_cm=err("y_at_stumps_m", 1), z_err_cm=err("z_at_stumps_m", 2),
-               **{f"{k}_dets": (n[k] if FILTERED else None) for k in ("ball", "fake", "other")},
-               **{f"{k}_dropped": (n[k + "_dropped"] if FILTERED else None) for k in ("ball", "fake", "other")},
+               **{f"{k}_dets": n[k] for k in ("ball", "fake", "other")},
+               **{f"{k}_dropped": n[k + "_dropped"] for k in ("ball", "fake", "other")},
                note=note[:80])
     print(json.dumps(row), flush=True)
     return row
@@ -158,16 +153,16 @@ def main():
                "calibration": cal, "batsman_handedness": "right"}
         jobs.append((clip, req, truth, i))
     rows = [one(clip, req, truth, pose, scen, i) for scen in SCENARIOS for clip, req, truth, i in jobs]
-    with open(HERE / "raw" / f"false_dets_{TAG}.csv", "w", newline="") as fh:
+    with open(HERE / "raw" / "false_dets_filtered.csv", "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
     summary = {s: {"correct": sum(r["verdict"] == r["truth"] for r in rows if r["scenario"] == s),
                    "clips": sum(r["scenario"] == s for r in rows),
                    "fake_in_track": sum(r["fake_in_track"] for r in rows if r["scenario"] == s)} for s in SCENARIOS}
-    meta = dict(tag=TAG, root="." if ROOT == REPO else ROOT.name, filtered=FILTERED, picks=PICKS, fake_radius_px=FAKE_R,
+    meta = dict(picks=PICKS, fake_radius_px=FAKE_R,
                 weights_sha1=hashlib.sha1(WEIGHTS.read_bytes()).hexdigest(), summary=summary)
-    (HERE / "raw" / f"false_dets_{TAG}.json").write_text(json.dumps(meta, indent=1) + "\n")
+    (HERE / "raw" / "false_dets_filtered.json").write_text(json.dumps(meta, indent=1) + "\n")
     print(json.dumps(summary))
 
 

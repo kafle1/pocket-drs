@@ -46,7 +46,7 @@ def macros_defined():
     return not missing
 
 
-LATEX_BUILTIN = {"IEEEPARstart", "IEEEkeywords", "Delta", "Phi", "Theta", "Big", "Bigl", "Bigr", "IEEEtran"}
+LATEX_BUILTIN = {"IEEEPARstart", "IEEEkeywords", "Delta", "Phi", "Theta", "Sigma", "Big", "Bigl", "Bigr", "IEEEtran"}
 
 
 def literal_numbers():

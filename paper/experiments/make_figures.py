@@ -48,7 +48,7 @@ def fig_geometry():
     """Side view of the model: two parabolas, the contact point on the ground and the camera."""
     fig, ax = plt.subplots(figsize=(3.4, 1.9))
     g, R = 9.81, 0.036
-    xb, tb = 6.0, 0.0
+    xb = 6.0
     v_pre = np.array([-30.0, -4.5]); v_post = np.array([-27.0, 2.5])
     t = np.linspace(-0.42, 0.0, 60)
     ax.plot(xb + v_pre[0] * t, R + v_pre[1] * t - 0.5 * g * t ** 2, color=BLUE, lw=1.4)
@@ -77,14 +77,14 @@ def fig_coverage():
     g = [r for r in load("exp1_geometry.csv") if r["estimator"] == "anchored" and r["ok"] == "True" and r["bounce_observed"] == "True"]
     fig, axes = plt.subplots(1, 2, figsize=(3.4, 1.7))
     for ax, c, name in ((axes[0], "y", "lateral $y$"), (axes[1], "z", "vertical $z$")):
-        ratio = np.array([fl(r, f"{c}_err_cm") / max(fl(r, f"sigma_{c}_cm"), 1e-3) for r in g])
+        ratio = np.array([fl(r, f"{c}_err_mm") / max(fl(r, f"sigma_{c}_mm"), 1e-2) for r in g])
         ratio = ratio[np.isfinite(ratio)]
         xs = np.linspace(0, 4, 200)
         emp = [np.mean(ratio <= x) for x in xs]
         ax.plot(xs, emp, color=BLUE, lw=1.4, label="observed")
         from math import erf
         ax.plot(xs, [erf(x / math.sqrt(2)) for x in xs], color=GREY, ls="--", lw=1, label="Gaussian")
-        ax.set_xlabel(f"$|$error$| / \\sigma$, {name}"); ax.set_ylabel("Fraction of deliveries")
+        ax.set_xlabel(f"$|\\varepsilon| / \\sigma$, {name}"); ax.set_ylabel("Fraction of deliveries")
         ax.set_ylim(0, 1.02); ax.set_xlim(0, 4)
         ax.legend(frameon=False, loc="lower right")
     fig.subplots_adjust(wspace=0.3)
@@ -98,7 +98,7 @@ def fig_risk():
     cur = load("exp7_risk_curve.csv")
     chosen = json.load(open(os.path.join(RAW, "exp7_risk.json")))["chosen"]
     fig, axes = plt.subplots(1, 2, figsize=(3.4, 1.7))
-    for sset, col, lab in (("fit", GREY, "pipeline $\\sigma$"), ("calibrated", BLUE, "calibrated $\\sigma$")):
+    for sset, col, lab in (("fit", GREY, "pipeline $\\sigma$"), ("calibrated", BLUE, "calibrated $U_{95}/1.96$")):
         rr = [r for r in cur if r["sigma_set"] == sset]
         k = [fl(r, "k") for r in rr]
         axes[0].plot(k, [fl(r, "max_specific_false_out_pct") for r in rr], color=col, lw=1.2, label=lab)
@@ -111,8 +111,8 @@ def fig_risk():
             for ax in axes:
                 ax.axvline(kk, color=ORANGE, lw=0.8, ls=ls)
     axes[0].set_yscale("log"); axes[0].set_ylim(0.1, 100)
-    axes[0].set_xlabel("Guard factor $k$"); axes[0].set_ylabel("Max. specific false-out risk (%)")
-    axes[1].set_xlabel("Guard factor $k$"); axes[1].set_ylabel("Share of deliveries (%)")
+    axes[0].set_xlabel("Guard factor $\\kappa$"); axes[0].set_ylabel("Max. specific false-out risk (%)")
+    axes[1].set_xlabel("Guard factor $\\kappa$"); axes[1].set_ylabel("Share of deliveries (%)")
     axes[1].text(0.1, 84, "agreement", fontsize=6); axes[1].text(1.6, 22, "umpire's call", fontsize=6)
     axes[0].legend(frameon=False, loc="lower left")
     fig.subplots_adjust(wspace=0.45)

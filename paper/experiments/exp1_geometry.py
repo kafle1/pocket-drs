@@ -39,8 +39,8 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from synth import (Camera, Delivery, calibration_taps, fly, observe, random_delivery,   # noqa: E402
-                   truth_verdict, CREASE_X)
+from synth import (Camera, calibration_taps, fly, observe, random_delivery,   # noqa: E402
+                   truth_verdict)
 from app.pipeline.reconstruction import (reconstruct, predict_stump_plane, bounce_sigma, position_sigma,  # noqa: E402
                                          _linear_parabola, _fit_flight, _flight_as_trajectory,
                                          _flight_covariance, Reconstruction, Trajectory, find_bounce_split,
@@ -152,39 +152,39 @@ def unanchored_estimate(pose, dets) -> Reconstruction | None:
     return Reconstruction(tr, J @ cov12 @ J.T, max(rms_pre, rms_post), [])
 
 
-def evaluate(rec, truth):
-    """Errors and verdict for one reconstruction."""
+def evaluate(rec, truth, t_last):
+    """Errors and verdict for one reconstruction; impact is read at the last detection (t_last, in
+    the fit's time base), as the app does."""
     pred = predict_stump_plane(rec) if rec is not None else None
     if pred is None:
         return dict(ok=False, verdict="no_verdict", **{f"verdict_k{kk:g}": "no_verdict" for kk in K_VALUES if kk != K_SHIPPED},
-                    bounce_observed=None, y_err_cm=None, z_err_cm=None, sigma_y_cm=None, sigma_z_cm=None,
-                    contact_x_err_cm=None, contact_y_err_cm=None, speed_err_kmh=None, rms_px=None,
-                    restitution=None, est_y_cm=None, est_z_cm=None, est_pitch_y_cm=None, pitch_sigma_cm=None,
-                    est_crease_y_cm=None, crease_sigma_cm=None)
+                    bounce_observed=None, y_err_mm=None, z_err_mm=None, sigma_y_mm=None, sigma_z_mm=None,
+                    contact_x_err_mm=None, contact_y_err_mm=None, speed_err_kmh=None, rms_px=None,
+                    restitution=None, est_y_mm=None, est_z_mm=None, est_pitch_y_mm=None, pitch_sigma_mm=None,
+                    est_impact_y_mm=None, impact_sigma_mm=None)
     tr = rec.trajectory
     _, sy = bounce_sigma(rec)
-    t_crease = tr.t_b + (CREASE_X - tr.x_b) / tr.v_post[0] if abs(tr.v_post[0]) > 1e-6 else None
-    crease = tr.position(np.array([t_crease]))[0] if t_crease is not None else None
-    crease_sigma = position_sigma(rec, t_crease)[1] if t_crease is not None else 0.0
+    impact = tr.position(np.array([t_last]))[0]
+    impact_sigma = position_sigma(rec, t_last)[1]
     # the verdict at the shipped band widening and at the others, for the operating curve
     verdicts = {}
     for kk in K_VALUES:
         verdicts[kk] = decide(leg_sign=1.0,
                               pitch_y=float(tr.y_b) if tr.bounce_observed else None, pitch_sigma=sy,
-                              impact_y=float(crease[1]) if crease is not None else None, impact_sigma=crease_sigma,
+                              impact_y=float(impact[1]), impact_sigma=impact_sigma,
                               stump_y=pred.y, stump_z=pred.z, sigma_y=pred.sigma_y, sigma_z=pred.sigma_z, k=kk).decision
     by_k = {f"verdict_k{kk:g}": v for kk, v in verdicts.items() if kk != K_SHIPPED}
-    cx = np.nan if not np.isfinite(truth.contact[0]) else abs(tr.x_b - truth.contact[0]) * 100
-    cy = np.nan if not np.isfinite(truth.contact[0]) else abs(tr.y_b - truth.contact[1]) * 100
+    cx = np.nan if not np.isfinite(truth.contact[0]) else abs(tr.x_b - truth.contact[0]) * 1000
+    cy = np.nan if not np.isfinite(truth.contact[0]) else abs(tr.y_b - truth.contact[1]) * 1000
     speed = float(np.linalg.norm(tr.velocity(0.0))) * 3.6
     return dict(ok=True, verdict=verdicts[K_SHIPPED], **by_k, bounce_observed=tr.bounce_observed,
-                y_err_cm=abs(pred.y - truth.stumps[1]) * 100, z_err_cm=abs(pred.z - truth.stumps[2]) * 100,
-                sigma_y_cm=pred.sigma_y * 100, sigma_z_cm=pred.sigma_z * 100,
-                contact_x_err_cm=cx, contact_y_err_cm=cy,
+                y_err_mm=abs(pred.y - truth.stumps[1]) * 1000, z_err_mm=abs(pred.z - truth.stumps[2]) * 1000,
+                sigma_y_mm=pred.sigma_y * 1000, sigma_z_mm=pred.sigma_z * 1000,
+                contact_x_err_mm=cx, contact_y_err_mm=cy,
                 speed_err_kmh=abs(speed - truth.release_speed_kmh), rms_px=rec.rms_px,
-                restitution=tr.restitution, est_y_cm=pred.y * 100, est_z_cm=pred.z * 100,
-                est_pitch_y_cm=tr.y_b * 100 if tr.bounce_observed else None, pitch_sigma_cm=sy * 100,
-                est_crease_y_cm=None if crease is None else crease[1] * 100, crease_sigma_cm=crease_sigma * 100)
+                restitution=tr.restitution, est_y_mm=pred.y * 1000, est_z_mm=pred.z * 1000,
+                est_pitch_y_mm=tr.y_b * 1000 if tr.bounce_observed else None, pitch_sigma_mm=sy * 1000,
+                est_impact_y_mm=impact[1] * 1000, impact_sigma_mm=impact_sigma * 1000)
 
 
 def run_cell(name, cam_name, cfg, n, seed, cam=None):
@@ -219,13 +219,13 @@ def run_cell(name, cam_name, cfg, n, seed, cam=None):
                     calib_reproj_px=round(pose.reproj_error_px, 2), calib=calib,
                     calib_fov_deg=round(pose.fov_deg, 3), calib_focal_err_pct=round((pose.fx / pose_true.fx - 1) * 100, 3),
                     calib_length_m=round(pose.pitch_length_m, 3), calib_used_corners=pose.used_corners,
-                    truth_y_cm=round(truth.stumps[1] * 100, 3), truth_z_cm=round(truth.stumps[2] * 100, 3),
-                    truth_crease_y_cm=round(truth.crease[1] * 100, 3),
+                    truth_y_mm=round(truth.stumps[1] * 1000, 3), truth_z_mm=round(truth.stumps[2] * 1000, 3),
+                    truth_impact_y_mm=round(truth.crease[1] * 1000, 3),
                     truth_contact_x_m=round(float(truth.contact[0]), 4) if np.isfinite(truth.contact[0]) else None,
-                    truth_contact_y_cm=round(float(truth.contact[1]) * 100, 3) if np.isfinite(truth.contact[0]) else None)
+                    truth_contact_y_mm=round(float(truth.contact[1]) * 1000, 3) if np.isfinite(truth.contact[0]) else None)
         for est_name, rec in (("anchored", reconstruct(pose, dets)), ("parabola", parabola_estimate(pose, dets)),
                               ("unanchored", unanchored_estimate(pose, dets))):
-            r = evaluate(rec, truth)
+            r = evaluate(rec, truth, dets[-1][0] - dets[0][0])
             rows.append(dict(base, estimator=est_name, **{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}))
     return rows
 
@@ -245,14 +245,17 @@ def main():
         for calib in ("app", "pin_fov"):
             cells.append((f"fov70 calib={calib}", "striker_fov70", dict(BASE, calib=calib), N, 102, fov70))
     else:
-        # one-factor sweeps around the reference camera
+        # the reference once, then one-factor sweeps and camera placements around it; a sweep
+        # value equal to the reference is that same run, not a second copy of it
+        cells.append(("reference", "striker_ref", dict(BASE), N, seed))
         for key, values in SWEEPS.items():
             for val in values:
-                cfg = dict(BASE); cfg[key] = val
-                cells.append((f"{key}={val}", "striker_ref", cfg, N, seed))
-        # camera placements at the reference noise
+                if val != BASE[key]:
+                    cfg = dict(BASE); cfg[key] = val
+                    cells.append((f"{key}={val}", "striker_ref", cfg, N, seed))
         for cam_name in CAMERAS:
-            cells.append((f"camera={cam_name}", cam_name, dict(BASE), N, seed))
+            if cam_name != "striker_ref":
+                cells.append((f"camera={cam_name}", cam_name, dict(BASE), N, seed))
     rows = []
     with mp.get_context("spawn").Pool(WORKERS) as pool:
         for cell in pool.imap(_cell, cells):          # imap keeps the cell order
@@ -283,11 +286,11 @@ def _report(cell):
         agree = sum(1 for r in rs if r["verdict"] == r["truth"])
         false_out = sum(1 for r in rs if r["verdict"] == "out" and r["truth"] != "out")
         ump = sum(1 for r in rs if r["verdict"] == "umpires_call")
-        y = np.median([r["y_err_cm"] for r in ok]) if ok else float("nan")
-        z = np.median([r["z_err_cm"] for r in ok]) if ok else float("nan")
+        y = np.median([r["y_err_mm"] for r in ok]) if ok else float("nan")
+        z = np.median([r["z_err_mm"] for r in ok]) if ok else float("nan")
         print(f"{name:<22s} {cam:<13s} {est:<9s} n={len(rs):3d} ok={len(ok):3d} "
               f"agree={agree/len(rs)*100:5.1f}% false_out={false_out:2d} ump={ump:3d} "
-              f"median y={y:5.1f}cm z={z:5.1f}cm", flush=True)
+              f"median y={y:5.0f}mm z={z:5.0f}mm", flush=True)
 
 
 if __name__ == "__main__":
