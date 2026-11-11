@@ -26,31 +26,23 @@ Bounce-Anchored Reconstruction for Leg-Before-Wicket Review}
 
 \begin{abstract}
 We measure where a cricket ball would cross the plane of the stumps, with a stated uncertainty, from one
-phone clip. The application is leg-before-wicket review in club and net cricket, where
-broadcast ball tracking from several calibrated high-speed cameras is not available. One phone cannot
-triangulate, and gravity's curvature is a weak depth cue when the ball flies along the optical axis. We anchor the fit on the bounce: the contact pixel
-back-projects onto the calibrated ground plane to a metric point, after which both parabolas are linear in
-the pixels. All accuracy and coverage figures are simulated. The rule the app ships is built to avoid false
-outs: on \RiskN{} simulated deliveries it calls \RiskCalFalseOutFive{} not-outs out, calls
-\RiskCalOutRecallFive\% of true outs out and returns \RiskCalOutToUmpFive\% of them as umpire's call. Its
-agreement with the true verdict, \RiskCalAgreeFive\%, shows little skill: always saying not out scores
-\RiskAlwaysNotOutPct\% on the same deliveries. Its guard factor is chosen in sample; under independent
-normal tests with $\sigma = w_{95}/1.96$ the modelled risk is bounded at 5\,\% for any delivery only from a
-factor of \RiskBoundFourFive, and the held-out one-sided tails at that level run from \CalExceedMin\% to
-\CalExceedMax\%. The uncalibrated estimator, scored on its own covariance with a guard factor of 1, has
-median stump-plane errors of \GeoMedYAll{} and \GeoMedZAll~mm over \GeoBalls{} balls and \GeoSettings{}
-error settings and agrees in \GeoAgreeAll\% of runs, against \GeoAlwaysNotOutPct\% for always saying not
-out; on World~B its covariance covers \CovBFitYOne\% and \CovBFitZOne\% of errors at one sigma. Calibrated per camera
-end on the \CalPooledN{} deliveries with a bounce fit (\CalExcluded{} excluded), the 95\,\% half-width covers
+phone clip, for leg-before-wicket review in club and net cricket. One phone cannot triangulate, so we anchor
+the fit on the bounce, whose pixel back-projects onto the calibrated ground plane. All accuracy and coverage
+figures are simulated. On \RiskN{} simulated deliveries the shipped rule calls \RiskCalFalseOutFive{}
+not-outs out, calls \RiskCalOutRecallFive\% of true outs out and returns \RiskCalOutToUmpFive\% as umpire's
+call. Its \RiskCalAgreeFive\% agreement with the true verdict shows little skill: always saying not out
+scores \RiskAlwaysNotOutPct\%. Its guard factor is chosen in sample; held-out one-sided tails, nominally
+5\%, run from \CalExceedMin\% to \CalExceedMax\%. Uncalibrated, median stump-plane errors are
+\GeoMedYAll{} and \GeoMedZAll\,mm, but the covariance covers only \CovBFitYOne\% and \CovBFitZOne\% of
+lateral and height errors at one sigma. Calibrated per camera end, the 95\% half-width covers
 \CalYCovNinetyfive\% and \CalZCovNinetyfive\% of held-out errors, as split-conformal calibration ensures by
 construction. On \EteN{} rendered clips from the striker's end the app agrees on \EteAgree{} (always not
-out: \EteNotOutTruth) with no false out; its 95\,\% half-width covers \EteCoverNinetyfiveY\% of lateral
-errors but \EteCoverZLenTwo{} of \EteCoverZLenTwoN{} height errors at 2~m; from the bowler's end it agrees on
-\EteBowlerAgree{} of \EteBowlerN{} with \EteBowlerNoVerdict{} no verdict. The app declines \RealDeclinedRuns{} of the
-\RealRuns{} real-clip analyses. The three real clips ran on a
-pose from the stumps alone; on the two with the pitch length free, a mode the simulation never tests, it
-fitted lengths of \RealTestFourLength{} and \RealTestFiveLength~m, and no real delivery has been
-measured with a reference.
+out: \EteNotOutTruth) with no false out, but its 95\% half-width covers only \EteCoverZLenTwo{} of
+\EteCoverZLenTwoN{} height errors for balls pitched at 2\,m. From the bowler's end it agrees on
+\EteBowlerAgree{} and returns no verdict on \EteBowlerNoVerdict. The app declines \RealDeclinedRuns{} of
+the \RealRuns{} real-clip analyses, and with the pitch length free, a mode never simulated, it fits lengths
+of \RealTestFourLength{} and \RealTestFiveLength\,m on two real clips. No real delivery has been measured
+with a reference.
 % WITNESS-PLATE RESULT: once measured balls exist, replace the last sentence with their coverage.
 \end{abstract}
 
@@ -61,8 +53,8 @@ monocular 3-D reconstruction, camera calibration, smartphone instrumentation, pr
 
 \section{Introduction}
 
-\IEEEPARstart{T}{his} paper measures one quantity from one phone clip: the point where a delivered cricket
-ball would cross the plane of the stumps, with its uncertainty. That point decides the leg-before-wicket law,
+\IEEEPARstart{W}{e} measure one quantity from one phone clip: the point where a delivered cricket
+ball would cross the plane of the stumps, with its uncertainty. That point decides leg-before-wicket (LBW) appeals,
 the most contested adjudication in cricket: an umpire must
 judge in real time whether a ball that struck the batter's pad would have gone on to hit the stumps.
 Broadcast ball-tracking systems such as Hawk-Eye, whose tennis system Owens et al.\ describe~\cite{owens2003hawkeye},
@@ -70,35 +62,35 @@ triangulate the ball from several synchronised, calibrated high-speed cameras, a
 Their error is not shown with the call~\cite{collins2008hawkeye}, and they are confined to televised
 cricket. A commercial app offers ball tracking and LBW review
 from one phone~\cite{fulltrack2026}, but its website states no accuracy or uncertainty. Club, school and
-age-group matches, and net sessions, ask the same questions without a characterised instrument.
+age-group matches and net sessions have the same need but no characterised instrument.
 
 One camera cannot triangulate, but a cricket delivery is a constrained scene: a ball of known radius flies
 ballistically over a plane of known geometry, past stumps of regulation height, and touches the plane once.
 In simulation these constraints make the scale observable whenever the bounce is seen.
 
-The instrument is a consumer camera of unknown intrinsics, the reference artefacts are the stumps and
-the pitch dimensions the Laws of Cricket fix, and the verdict is a statement of conformity against a limit the Laws
-set, with a band for the measurement's own uncertainty~\cite{carullo2024conformity}. We have
-not found a reported instrument that combines one uncalibrated phone camera, an uncertainty propagated
-to a measurand the camera never observes, and an acceptance band widened by it.
+The instrument is a consumer camera with unknown intrinsics. Its reference artefacts are the stumps and
+the pitch dimensions the Laws of Cricket fix, and the verdict is a statement of conformity to a limit the Laws
+set, with a band for the measurement's own uncertainty~\cite{carullo2024conformity}. We know
+of no reported instrument that combines one uncalibrated phone camera, an uncertainty propagated
+to an unobserved measurand, and an acceptance band widened by that uncertainty.
 
 Gravity~\cite{ribnick2009projectiles} and the ball's apparent size~\cite{vanzandycke2022ball3d} give depth
 only weakly from behind the stumps (Section~\ref{sec:geometry}). We use the bounce as an anchor: at contact
 the ball's centre is one radius above the calibrated ground plane, so the contact pixel back-projects to a
 metric point, and the velocities on either side become linear in the pixels. The paper makes three
 contributions. We formulate delivery reconstruction as a bounce-anchored
-two-parabola fit with a free post-contact horizontal velocity, so seam and spin deviation off the pitch is
-estimated (median error \GeoMedDevErr~m/s in simulation, for a true lateral kick drawn from $-2$ to
-2~m/s), and an estimated restitution coefficient bounded to
+two-parabola fit with a free post-contact horizontal velocity, which estimates seam and spin deviation off the pitch
+(median error \GeoMedDevErr\,m/s in simulation, for a true lateral kick drawn from $-2$ to
+2\,m/s), and a restitution coefficient bounded to
 the physical range (Section~\ref{sec:method}). We propagate the fit's covariance to the stump-plane
-crossing, calibrate it per camera end on held-out simulated data and widen the umpire's-call band by it
+crossing, calibrate it per camera end on held-out simulated data and widen the umpire's-call band by the result
 (Section~\ref{sec:decision}). We evaluate against exact simulated truth, against the same split without
 the anchor, on rendered clips, and on three real clips (Section~\ref{sec:results}).
 
 The system is meant for coaching and training review, not officiating, and it fails in known places: a
 yorker leaves too few post-contact frames, a camera at the bowler's end sees the decisive arc foreshortened,
-and on the real clips the calibration from the stumps alone, a mode the simulation never tests, gives
-implausible scale. No result here is checked against an independent measurement of a real ball. The system began as the author's undergraduate final-year project
+and on two real clips the calibration from the stumps alone with the pitch length free, a mode the
+simulation never tests, gives implausible scale. No result here is checked against an independent measurement of a real ball. The system began as the author's final-year undergraduate project
 at Phoenix College of Management, Lincoln University College; the method, evaluation and results reported
 here are new.
 
@@ -107,42 +99,42 @@ here are new.
 \subsection{Vision-based measurement}
 
 We treat the phone as a measuring instrument in the sense of Shirmohammadi and
-Ferrero~\cite{shirmohammadi2014camera}, as others have on smartphones~\cite{zhu2022smartphone6dof}, and
+Ferrero~\cite{shirmohammadi2014camera}, as others have done with smartphones~\cite{zhu2022smartphone6dof}, and
 calibrate it from the pitch itself. Ball and object trajectories have been measured with stereo
 rigs~\cite{zhang2010tabletennis}, from one view~\cite{huang2025monotraj}, with a steered
 mirror~\cite{wang2024quasi1d}, from moving platforms~\cite{guo2026pose}, for tennis speed and
 spin~\cite{zhu2026tennis}, and a ball-racket rebound model has been built for a table-tennis
-robot~\cite{sun2024rebound}. These fix scale with a second
-view, a known range or a controlled setting, not from a phone looking down twenty metres of pitch at a ball
-a few pixels wide.
+robot~\cite{sun2024rebound}. These works fix scale with a second
+view, a known range or a controlled setting; a phone looking down twenty metres of pitch at a ball
+a few pixels wide has none of these.
 
 The uncertainty of such results has been propagated through stereo
 triangulation~\cite{dileo2011covariance,ezebili2024uncertainty} and as a first-order linearised binocular
 covariance~\cite{he2026binocular}, the tool we also use. Where a learned component sits in the chain, the
 guidance is to quantify what it contributes~\cite{alosman2021mluq,buchicchio2025uq}, by a GUM
 model~\cite{angrisani2025mlgum} or Monte Carlo~\cite{angrisani2026mlmodel}. We do neither for the detector
-and report results with it in the loop separately; we sweep the extrinsic calibration error
-of~\cite{wang2024extrinsicerror}.
+and report results with it in the loop separately; we sweep the extrinsic calibration error studied
+in~\cite{wang2024extrinsicerror}.
 
 \subsection{Ball tracking from one view}
 
 Ribnick et al.~\cite{ribnick2009projectiles} estimate a projectile from one view using gravity, with a
-parabola's parameters linear after cross-multiplying; our solves have that form with three unknowns. Van
+parabola's parameters linear after cross-multiplying; our linear solves have that form with three unknowns. Van
 Zandycke and De Vleeschouwer~\cite{vanzandycke2022ball3d} recover depth from the ball's known size, a cue we
 use only when the contact is not observed. Monocular 3-D ball trajectories
 have been recovered in badminton~\cite{liu2022monotrack}, tennis~\cite{ertner2024synthnet} and table tennis~\cite{kienzle2025spin}, by lifting
 a 2-D track to 3-D~\cite{ponglertnapakorn2025ball} or by learning 3-D position from 2-D labels under the
-laws of motion~\cite{kienzle2024physics}. TT3D~\cite{gossard2025tt3d} is the nearest in idea: it
+laws of motion~\cite{kienzle2024physics}. TT3D~\cite{gossard2025tt3d} is the closest in idea: it
 reconstructs table-tennis flights from one broadcast camera by choosing the bounce state that minimises the
 reprojection error. These works report accuracy; none that we found propagates an uncertainty to the
-reconstructed point and tests its coverage. Dedicated 2-D ball trackers~\cite{tarashima2023wasb,raj2025tracknetv4} were not compared with our detector. Closest to
+reconstructed point and tests its coverage. We did not compare our detector with dedicated 2-D ball trackers~\cite{tarashima2023wasb,raj2025tracknetv4}. Nearest to
 our setting, Ghimire et al.~\cite{ghimire2026cricket} estimate a cricket ball's trajectory from one calibrated
 camera by Kalman filtering under a ballistic model and then detect the bounce on the filtered track. There
 the bounce comes out of the trajectory; here it makes the trajectory observable.
 
 The synthetic generator integrates the equations of a spinning sphere under drag and
-lift~\cite{robinson2013projectile} with swing as reviewed by Mehta~\cite{mehta2005swing}. Law 36 of the MCC Laws~\cite{mcc2017laws} defines leg before wicket, and the ICC playing
-conditions~\cite{icc2023drs} the umpire's-call bands.
+lift~\cite{robinson2013projectile}, with swing modelled as reviewed by Mehta~\cite{mehta2005swing}. Law~36 of the MCC Laws~\cite{mcc2017laws} defines leg before wicket, and the ICC playing
+conditions~\cite{icc2023drs} define the umpire's-call bands.
 
 \section{Geometry and Observability}
 \label{sec:geometry}
@@ -156,22 +148,22 @@ optical axis and its depth is the least observable coordinate.}
 \label{fig:geometry}
 \end{figure}
 
-We use a right-handed pitch frame with origin at the striker's stumps: $x$ runs down the pitch toward the
+We use a right-handed pitch frame with origin at the striker's stumps: $x$ runs down the pitch towards the
 bowler, $y$ across it, $z$ up (Fig.~\ref{fig:geometry}). A pinhole camera with square pixels, focal length
 $f$ in pixels, principal point $(c_x, c_y)$ and pose $(R_\mathrm{c}, \mathbf{t})$ maps a world point
 $\mathbf{p}$ to camera coordinates $\mathbf{p}_c = R_\mathrm{c}\mathbf{p} + \mathbf{t}$
-and to the pixel $(u, v) = (f x_c / z_c + c_x,\ f y_c / z_c + c_y)$. The stumps are $h_s = 0.711$~m high, the bails reach $h_b = 0.724$~m, and
-the outer edges of a three-stump set are $\pm w_o = 0.1143$~m from the middle stump; the pitch is
-$L = 20.12$~m long and $3.05$~m wide; the ball has radius $R = 0.036$~m.
+and to the pixel $(u, v) = (f x_c / z_c + c_x,\ f y_c / z_c + c_y)$. The stumps are $h_s = 0.711$\,m high, the bails reach $h_b = 0.724$\,m, and
+the outer edges of a three-stump set are $\pm w_o = 0.1143$\,m from the middle stump; the pitch is
+$L = 20.12$\,m long and $3.05$\,m wide; the ball has radius $R = 0.036$\,m.
 
-Before the contact the ball is a projectile with six unknowns, linear in the pixels once the depth is
+Before contact the ball is a projectile with six unknowns, linear in the pixels once the depth is
 cross-multiplied out~\cite{ribnick2009projectiles}. Its scale is fixed only by $g$: a trajectory twice as
 far and twice as fast projects to the same pixels except for the gravitational sag, a small correction seen
 from behind the stumps, so the fit is ill-conditioned along depth and speed. The ball's pixel radius gives
-depth $d = fR/r$ with error $d^2 \delta r / (fR)$: at 15~m and $f = 950$~px, half a pixel is 3~m. At the
+depth $d = fR/r$ with error $d^2 \delta r / (fR)$: at 15\,m and $f = 950$\,px, half a pixel is 3\,m. At the
 contact instant $t_b$, however, the centre is at $(x_b, y_b, R)$, and the ray through the contact pixel
-meets the plane $z = R$ at one metric point. Given that anchor each side has three unknown velocities, a
-linear system over-determined from two frames, and the anchor pins metres while $g$ pins time.
+meets the plane $z = R$ at one metric point. Given that anchor, each side has three unknown velocities, a
+linear system over-determined from two frames; the anchor fixes length and $g$ fixes time.
 
 \section{Method}
 \label{sec:method}
@@ -180,9 +172,9 @@ linear system over-determined from two frames, and the anchor pins metres while 
 
 The user taps the four corners of each stump set and the four pitch corners, which lie at
 $(0, \pm w_o, \{0, h_s\})$, $(L, \pm w_o, \{0, h_s\})$, $(0, \pm 1.525, 0)$ and $(L, \pm 1.525, 0)$.
-SQPnP~\cite{terzakis2020sqpnp} solves the pose over a sweep of focal length and, unless it is pinned, pitch
-length from 2 to 25~m, and the best pose is refined by least squares on the pixels. The pitch corners, off
-the stump plane, break the near-degenerate trade-off of focal length against length. An implausible pose is
+SQPnP~\cite{terzakis2020sqpnp} solves the pose over a sweep of focal length and of pitch
+length from 2 to 25\,m (unless the length is pinned), and the best pose is refined by least squares on the pixels. The pitch corners, off
+the stump plane, break the near-degenerate trade-off of focal length against pitch length. An implausible pose is
 rejected with a request to re-tap. The tap order, striker's stumps first, fixes the frame, and the
 batter's handedness fixes which sign of $y$ is the leg side. Section~S0 of the supplement gives the tolerances.
 
@@ -196,12 +188,12 @@ model~\cite{fischler1981ransac}, with a second pass that stitches the far side o
 reversal of horizontal image travel marks the bat or pad and ends the track (details in Section~S0). The
 output is a list of $(t_i, u_i, v_i, r_i, c_i)$: the frame's own decode timestamp, pixel centre, pixel
 radius and a tracker confidence $c_i \in (0, 1]$, 0.4 times the detector score plus 0.6 times the
-tightness of the track fit; residuals are weighted by $w_i = \sqrt{\max(c_i, 0.05)}$.
+tightness of the track fit. Residuals are weighted by $w_i = \sqrt{\max(c_i, 0.05)}$.
 
 \subsection{Finding the contact and initialising}
 
-A contact is the split of the track into two arcs, each fitted by a quadratic in $t$ per pixel
-coordinate, that at least halves the residual of one quadratic over the whole track. The contact pixel,
+The track is split into the two arcs that fit best, each a quadratic in $t$ per pixel
+coordinate; the split is a contact if it at least halves the residual of one quadratic over the whole track. The contact pixel,
 where the arcs meet, back-projects to $(x_b, y_b, R)$; four further anchor candidates are tried, the
 velocities on each side come from the linear solves above, and the best refined fit is kept (Section~S0).
 
@@ -217,7 +209,7 @@ taking $\mathbf{v}^-$ for $\tau < 0$ and $\mathbf{v}^+$ for $\tau \geq 0$. The r
 weighted pixel residuals $w_i (u_i - \hat{u}_i)$ and $w_i (v_i - \hat{v}_i)$ of every frame with three soft
 priors: $(e - 0.55)/0.15$, $(v_x^+ - v_x^-)/4$ and $(v_y^+ - v_y^-)/2$, in units chosen so that each prior
 is worth about one pixel of disagreement. The free post-contact horizontal velocity measures deviation and friction
-loss; on a short post-contact arc the priors keep the problem determined. The cost is minimised with a soft-L1 loss at a scale of 2~px by SciPy's bounded trust-region reflective
+loss; on a short post-contact arc the priors keep the problem determined. The cost is minimised with a soft-L1 loss at a scale of 2\,px by SciPy's bounded trust-region reflective
 method~\cite{virtanen2020scipy}, with $t_b$ bounded to the track's span, $e$ to
 $[0.25, 0.85]$, and velocities to physical ranges. The pixel radii are not used.
 
@@ -225,10 +217,10 @@ The covariance of the estimate is the linearised $(J^\top \Sigma^{-1} J)^{-1}$, 
 unweighted-loss residuals at the solution and $\Sigma$ diagonal: $\hat{\sigma}^2$ for the pixel rows, the
 residual variance per degree of freedom of the pixel residuals alone, and unit variance for the three prior
 rows, whose spreads are already in their units~\cite{seber1989nonlinear}; when $\hat{\sigma}$ is not
-1~px the prior rows are left unscaled. It
-is a first-order approximation and Section~\ref{sec:coverage} measures how far it can be trusted.
+1\,px the prior rows are left unscaled. This covariance
+is a first-order approximation, and Section~\ref{sec:coverage} measures how far it can be trusted.
 
-A full toss, or a clip cut before the pitch, has no split; the single parabola is then solved
+A full toss, or a clip cut before the ball pitches, has no split; the single parabola is then solved
 linearly~\cite{ribnick2009projectiles}, refined with the apparent-size residual and flagged.
 
 \subsection{Prediction and decision}
@@ -236,11 +228,11 @@ linearly~\cite{ribnick2009projectiles}, refined with the apparent-size residual 
 
 The post-contact parabola is continued to the stump plane $x = 0$; if it would touch down again first, a
 further bounce with the same $e$ is applied. The crossing $(y^\star, z^\star)$ and its covariance follow
-from~\eqref{eq:model} and a numerical Jacobian of the crossing with respect to $\boldsymbol{\theta}$, giving
-$\sigma_y$ and $\sigma_z$. The impact point, in the app and in every experiment, is the model position at
+from~\eqref{eq:model} and the crossing's numerical Jacobian in $\boldsymbol{\theta}$, giving
+$\sigma_y$ and $\sigma_z$. The impact point, in the app and in all experiments, is the model position at
 the last tracked frame.
 
-Law 36~\cite{mcc2017laws} is applied as three tests. The ball must not have pitched outside the line of the
+Law~36~\cite{mcc2017laws} is applied as three tests. The ball must not have pitched outside the line of the
 leg stump; when no bounce is seen this test is not applied. It must have struck the batter in line with the
 stumps (we cannot see whether a shot was offered, so impact outside either line counts as not in line); and
 it must be projected to hit the stumps, meaning $|y^\star| \leq w_o$ and $z^\star \leq h_b$ for the centre.
@@ -250,9 +242,9 @@ band~\cite{jcgm106,carullo2024conformity}: a test is passed only if the centre i
 inside its limit, and failed only if it is more than $R + \kappa\sigma$ outside ($\kappa\sigma$ with no
 radius on the pitching line); anything in between is umpire's call. The guard band therefore adds an
 umpire's call on pitching that the playing conditions do not have. In the app $\sigma = w_{95}/1.96$, with
-$w_{95}$ the calibrated 95\,\% half-width of that quantity under the rule for the clip's camera end
+$w_{95}$ the calibrated 95\% half-width of that quantity under the rule for the clip's camera end
 (Section~\ref{sec:coverage}), and $\kappa = \RiskCalKFive$ (Section~\ref{sec:kcurve}), a value chosen in
-sample. Experiment~1 scores the uncalibrated estimator, $\sigma$ from the fit's own covariance and
+sample. Experiment~1 scores the uncalibrated estimator, with $\sigma$ from the fit's own covariance and
 $\kappa = 1$; Experiments~2 and~3 run the app. In Experiment~1 a fit that fails (it stops on a parameter
 bound, has too few detections, or sees a bounce that no anchored fit holds) or gives no stump crossing
 returns no verdict, which counts as a disagreement; so does the unanchored baseline's
@@ -264,26 +256,26 @@ crossing returns umpire's call if the pitching and impact tests pass, and not ou
 
 \subsection{Experiment 1: synthetic deliveries with exact truth}
 
-A generator integrates each delivery at 1~kHz with physics richer than the estimator's: drag with $C_d =
-0.5$ on a 0.16~kg ball, swing~\cite{mehta2005swing} of $-2$ to 2~m\,s$^{-2}$ before contact, a friction loss
-of 5 to 20\,\% and a lateral kick of $-2$ to 2~m/s at contact, and restitution from 0.40 to 0.70. Release speed is drawn from 60 to 150~km/h, the aimed
+A generator integrates each delivery at 1\,kHz with physics richer than the estimator's: drag with $C_d =
+0.5$ on a 0.16\,kg ball, swing~\cite{mehta2005swing} of $-2$ to 2\,m/s$^2$ before contact, a friction loss
+of 5 to 20\% and a lateral kick of $-2$ to 2\,m/s at contact, and restitution from 0.40 to 0.70. Release speed is drawn from 60 to 150\,km/h, the aimed
 pitching length (the drag-free target; drag moves the true contact further from the stumps) from 1 to
-10~m, line from $-0.6$ to $0.6$~m, release height from 1.8 to 2.3~m. The batter's pad intercepts the ball at
-the popping crease, 1.22~m from the stumps, so detections stop there and the estimator must predict the rest; the
+10\,m, line from $-0.6$ to $0.6$\,m and release height from 1.8 to 2.3\,m. The batter's pad intercepts the ball at
+the popping crease, 1.22\,m from the stumps, so detections stop there and the estimator must predict the rest; the
 true crossing is the integrated trajectory continued untouched, and the true verdict follows from the true
-contact, crease and stump-plane points by the same Law 36 tests with $\kappa = 0$. The estimated impact is
+contact, crease and stump-plane points by the same Law~36 tests with $\kappa = 0$. The estimated impact is
 read at the last tracked frame, at or before the crease.
 
 Observations are the projections of the true positions at the frame rate, with Gaussian pixel noise on the
 centre, 10\% multiplicative noise on the radius, a dropout probability per frame, and the calibration taps
 perturbed by Gaussian noise before the pose is re-solved, so the estimator never receives the true camera; the focal length is solved from the taps with $L$ fixed.
 The real detector's centre error has not been measured, so we do not know which noise row a real clip sits in.
-The reference configuration is 60~Hz, 1~px centre noise, 5\% dropout, 2~px tap noise, all physical effects
-on, and an upright phone 2.8~m behind the striker's stumps at 1.7~m height. Each factor is swept in turn over
+The reference configuration is 60\,Hz, 1\,px centre noise, 5\% dropout, 2\,px tap noise, all physical effects
+on, and an upright phone 2.8\,m behind the striker's stumps at 1.7\,m height. Each factor is swept in turn over
 the same \GeoBalls{} random deliveries, so rows differ only in that factor, and six camera placements are
-tested at the reference noise: three positions at the striker's end, a lateral offset of 1.5~m, and two
+tested at the reference noise: three positions at the striker's end, a lateral offset of 1.5\,m, and two
 placements at the bowler's end (Table~S2 of the supplement); frame timing is tested separately
-(Table~S1). Counting the reference setting once, this is \GeoSettings{} distinct settings and \GeoRuns{}
+(Table~S1). Counting the reference setting once, this gives \GeoSettings{} distinct settings and \GeoRuns{}
 runs. At the reference setting \RefNotOutBalls{} of the \GeoBalls{} balls are truly not out,
 \RefOutBalls{} out and \RefUmpBalls{} umpire's call, so always saying not out agrees
 \RefAlwaysNotOutPct\% of the time; the true verdict, and so this trivial rate, moves with the
@@ -293,32 +285,32 @@ one ball are not independent, so confidence bounds are taken over balls.
 \textbf{World~B.} The uncertainty experiments use a second set of \CovBN{} deliveries, drawn the same way,
 half filmed from the reference camera and half from the same placement behind the bowler's stumps, half
 of each to a left-handed batter, with lateral quantities signed to the leg side. $C_d$ is drawn from 0.35
-to 0.55 and every input of
-the uncertainty budget (Table~S4) drawn from its probability density: tap noise, frame-time jitter and frame-rate
+to 0.55, and every input of
+the uncertainty budget (Table~S4) is drawn from its probability density: tap noise, frame-time jitter and frame-rate
 metadata, rolling-shutter readout, lens distortion, and pitch, stump and bail dimensions.
-Two baselines get identical detections. The unanchored one uses the same split but fits a free
+Two baselines receive identical detections. The unanchored one uses the same split but fits a free
 six-parameter parabola with the apparent-size cue to each side, so the anchor is the only thing it lacks;
 without a usable split it falls back to a single parabola over the whole track, the second baseline.
 
 \subsection{Experiment 2: rendered clips through the full pipeline}
 
-To include detection and association error, the fixed 100-delivery grid of five speeds (90 to 145~km/h),
-five lines ($0, \pm 0.2, \pm 0.4$~m) and four lengths (2, 4, 6 and 8~m) is rendered by our own renderer to 1080 by 1920 portrait
-clips at 60~Hz with a flat pitch, stumps, creases and a motion-smeared ball, and each clip is submitted to the
-production job with the calibration marks perturbed by \EteTapPx~px, from the reference camera and again from the bowler's end. This tests
+To include detection and association error, a fixed 100-delivery grid of five speeds (90 to 145\,km/h),
+five lines ($0, \pm 0.2, \pm 0.4$\,m) and four lengths (2, 4, 6 and 8\,m) is rendered by our own renderer to 1080 by 1920 portrait
+clips at 60\,Hz, with a flat pitch, stumps, creases and a motion-smeared ball. Each clip is submitted to the
+production job with the calibration marks perturbed by \EteTapPx\,px, once from the reference camera and once from the bowler's end. This experiment tests
 the geometry end to end, not the detector's robustness to clutter.
 
 \subsection{Experiment 3: real clips}
 
-Three phone clips of net deliveries are analysed (Table~\ref{tab:real}). Their frames show one outdoor
-net lane from one fixed viewpoint, titled off-spin, leg-spin and off-spin.
+Three phone clips of net deliveries are analysed (Table~\ref{tab:real}). The clips, titled off-spin, leg-spin and off-spin,
+show one outdoor net lane from one fixed viewpoint.
 For all three the solved pose puts the camera behind the bowler's stumps, so the bowler's-end rule applies.
-The clips are 1080 by 1920 portrait H.264 at a nominal 60~Hz, and each decoded frame's own timestamp is
+The clips are 1080 by 1920 portrait H.264 at a nominal 60\,Hz, and each decoded frame's own timestamp is
 used. No metric truth exists for these clips; we report the output with its stated uncertainty, half-rate
 consistency and independent checks. Each clip is analysed on all sampled frames, on the even frames only
 and on the odd frames only. The halves share calibration and detector, so their spread measures
 only frame-level noise, not repeatability in the sense of the VIM.
-All revision numbers come from a pinned software environment. In it test5 tracks fewer points than in
+All numbers in this revision come from a pinned software environment. In it, test5 tracks fewer points than in
 the submitted version; the submitted environment cannot be rebuilt, so we could not trace the cause.
 
 Agreement is the share of deliveries returned in their true class; a false out is a not-out returned as
@@ -332,7 +324,7 @@ out, a missed out the reverse. Errors are absolute differences, reported as medi
 \begin{table*}[t]
 \centering
 \caption{Experiment 1. Three estimators on identical synthetic detections, the same \GeoPerCell{} deliveries
-in every row, one factor varied from the reference configuration (60~Hz, 1~px, 2~px taps, 5\% dropout, physics on).
+in every row, one factor varied from the reference configuration (60\,Hz, 1\,px, 2\,px taps, 5\% dropout, physics on).
 Errors (mm) are at the stump-plane crossing; false out counts not-out deliveries returned as out.}
 \label{tab:sweeps}
 \scriptsize
@@ -342,49 +334,49 @@ Errors (mm) are at the stump-plane crossing; false out counts not-out deliveries
 
 Table~\ref{tab:sweeps} gives the controlled result for the uncalibrated estimator, with the trivial rate
 of always saying not out in each row. At the reference configuration the anchored estimator agrees with the
-true verdict in \RefAgree\% of deliveries (95\,\% CI \RefAgreeLo{} to \RefAgreeHi\%), an interval that
-contains the trivial \RefAlwaysNotOutPct\%, against \RefAgreeUnanch\% without the anchor and
-\RefAgreeParabola\% for the single parabola, with median stump-plane errors of \RefMedY~mm laterally and
-\RefMedZ~mm vertically. Agreement measures little here; what the estimator offers is few false outs, none
-in any row of Table~\ref{tab:sweeps}, while calling true outs out (below). Over all \GeoRuns{} runs the anchored fit returns no
+true verdict in \RefAgree\% of deliveries, against \RefAgreeUnanch\% without the anchor and
+\RefAgreeParabola\% for the single parabola, with median stump-plane errors of \RefMedY\,mm laterally and
+\RefMedZ\,mm vertically. Its 95\% CI, \RefAgreeLo{} to \RefAgreeHi\%,
+contains the trivial \RefAlwaysNotOutPct\%. Agreement measures little here. The estimator makes few false outs, none
+in any row of Table~\ref{tab:sweeps}, while still calling true outs out (below). Over all \GeoRuns{} runs the anchored fit returns no
 verdict on \GeoNoVerdict{} and the unanchored one on \GeoNoVerdictUnanch; over the \GeoBothVerdictN{} runs
 where both return a verdict they agree in \GeoAgreeBothVerdict\% and \GeoAgreeBothVerdictUnanch\%.
-On the \GeoPairN{} deliveries where both fits used the split, median errors are \GeoPairMedYA{} and
-\GeoPairMedZA~mm anchored against \GeoPairMedYU{} and \GeoPairMedZU~mm unanchored, 90th percentiles
-\GeoPairPNineZeroYA{} and \GeoPairPNineZeroZA{} against \GeoPairPNineZeroYU{} and \GeoPairPNineZeroZU~mm,
+On the \GeoPairN{} deliveries where both used the split, median errors are \GeoPairMedYA{} and
+\GeoPairMedZA\,mm anchored against \GeoPairMedYU{} and \GeoPairMedZU\,mm unanchored, 90th percentiles
+\GeoPairPNineZeroYA{} and \GeoPairPNineZeroZA{} against \GeoPairPNineZeroYU{} and \GeoPairPNineZeroZU\,mm,
 and agreement \GeoPairAgreeA\% against \GeoPairAgreeU\%. A short post-contact arc cannot fix its own
 scale: the unanchored fit falls back on \GeoUnanchFallbackShortPct\% of deliveries pitched within
-\GeoShortLength~m of the stumps and \GeoUnanchFallbackLongPct\% of the rest, the anchored fit on
-\GeoAnchFallbackShortPct\% of the short ones. The anchor buys full and yorker-length deliveries and the
-lower 90th percentiles above; the median gains less.
+\GeoShortLength\,m of the stumps and \GeoUnanchFallbackLongPct\% of the rest, the anchored fit on
+\GeoAnchFallbackShortPct\% of the short ones. The anchor gains full and yorker-length deliveries and the
+lower 90th percentiles; the median gains less.
 
 Pooled over all runs the anchored estimator agrees in \GeoAgreeAll\%, with median errors of \GeoMedYAll{}
-and \GeoMedZAll~mm. Across the sweeps its agreement lies between \SweepAgreeMin\% and \SweepAgreeMax\%, and
+and \GeoMedZAll\,mm. Across the sweeps its agreement lies between \SweepAgreeMin\% and \SweepAgreeMax\%, and
 the unanchored fit's between \SweepAgreeMinUnanch\% and \SweepAgreeMaxUnanch\%; frame rate, tap error
 (Table~S8) and dropped frames change it little. Pixel noise on the ball centre costs most: agreement falls
-from \NoiseZeroAgree\% at zero noise to \NoiseThreeAgree\% at 3~px and \NoiseFiveAgree\% at 5~px,
+from \NoiseZeroAgree\% at zero noise to \NoiseThreeAgree\% at 3\,px and \NoiseFiveAgree\% at 5\,px,
 both below the trivial rate; both bowler's-end placements are also below it. Umpire's calls rise
 from \NoiseZeroUmp{} to \NoiseFiveUmp{} while false outs stay at zero in every row of the table. Switching on unmodelled
-drag, swing, friction and spin moves agreement from \PhysOffAgree\% to \PhysOnAgree\% while the trivial
-rate moves from \PhysOffAlwaysNotOutPct\% to \PhysOnAlwaysNotOutPct\%, and moves the median errors from
-\PhysOffMedY{} and \PhysOffMedZ~mm to \PhysOnMedY{} and \PhysOnMedZ~mm: the constant-velocity model absorbs
+drag, swing, friction and spin moves agreement from \PhysOffAgree\% to \PhysOnAgree\%, while the trivial
+rate moves from \PhysOffAlwaysNotOutPct\% to \PhysOnAlwaysNotOutPct\%. Median errors move from
+\PhysOffMedY{} and \PhysOffMedZ\,mm to \PhysOnMedY{} and \PhysOnMedZ\,mm: the constant-velocity model absorbs
 drag into an average speed over the short arc and the free post-contact velocity absorbs friction and spin.
 
-Pooled over the \GeoRuns{} runs, \GeoFalseOut{} of \GeoNotOut{} not-out runs were returned as out
+Pooled over the \GeoRuns{} runs, \GeoFalseOut{} of \GeoNotOut{} not-out runs are returned as out
 (\GeoFalseOutPct\%), against \GeoFalseOutUnanch{} unanchored. They come from \GeoFalseOutDistinct{} distinct
 balls, \GeoFalseOutBowler{} of the runs from the bowler's-end cameras; counted over balls, the one-sided
-95\,\% upper bound on the share of not-out balls ever called out is \GeoFalseOutUpperBall\%. Of \GeoOut{}
-out runs, \GeoOutCalledOut{} were called out (\GeoOutCalledOutPct\%; \GeoOutCalledOutUnanch{} unanchored),
-\GeoOutToUmpPct\% came back as umpire's call and \GeoMissedOut{} as not out. The contact point is located to
-\GeoMedContactX~mm along the pitch and \GeoMedContactY~mm across it. On World~B, the deviation off the
-pitch is off by a median \GeoMedDevErr~m/s (true kick $-2$ to 2~m/s) and the restitution by
-\GeoMedRestErr. The release speed is off by a median \GeoMedSpeedErr~km/h here and \EteMedSpeedErr~km/h on
-rendered clips, which have no drag: the fit returns an average speed over the tracked arc, which drag
-holds below the release speed. We do not report speed as a result. Behind the striker's stumps agreement
-is \CamStrikerMinAgree\% to \CamStrikerMaxAgree\% (\CamStrikerSideAgree\% with a 1.5~m side offset); from
+95\% upper bound on the share of not-out balls ever called out is \GeoFalseOutUpperBall\%. Of \GeoOut{}
+out runs, \GeoOutCalledOut{} are called out (\GeoOutCalledOutPct\%; \GeoOutCalledOutUnanch{} unanchored),
+\GeoOutToUmpPct\% come back as umpire's call and \GeoMissedOut{} as not out. The contact point is located to a median
+\GeoMedContactX\,mm along the pitch and \GeoMedContactY\,mm across it. On World~B, the median error is
+\GeoMedDevErr\,m/s in the deviation off the pitch (true kick $-2$ to 2\,m/s) and
+\GeoMedRestErr{} in the restitution. The median release-speed error is \GeoMedSpeedErr\,km/h here but \EteMedSpeedErr\,km/h on
+the rendered clips, which fly without drag: the fit returns the average speed over the tracked arc, which drag
+holds below release speed. We do not report speed as a result. Behind the striker's stumps agreement
+is \CamStrikerMinAgree\% to \CamStrikerMaxAgree\% (\CamStrikerSideAgree\% with a 1.5\,m side offset); from
 the bowler's end it is \CamBowlerRefAgree\% and \CamBowlerSideAgree\%, below the trivial rate, with median
-vertical errors of \CamBowlerRefMedZ{} and \CamBowlerSideMedZ~mm,
-because the decisive arc is 15 to 20~m away (Table~S2).
+vertical errors of \CamBowlerRefMedZ{} and \CamBowlerSideMedZ\,mm,
+as the decisive arc is 15 to 20\,m away (Table~S2).
 
 \subsection{Uncertainty budget and coverage}
 \label{sec:coverage}
@@ -395,7 +387,7 @@ because the decisive arc is 15 to 20~m away (Table~S2).
 \CovBN{} World~B deliveries with a fit, $w_{68} = \sigma$ and $w_{95} = 1.96\sigma$. Calibrated rows: the
 \CalStrikerYN{} striker's-end and \CalBowlerYN{} bowler's-end deliveries with a bounce fit
 (\CalStrikerExcluded{} and \CalBowlerExcluded{} excluded), half-widths of their end's rule fitted on the
-other four folds. Row 1 has no 95\,\% figure (--).}
+other four folds. Row 1 has no 95\% figure (--).}
 \label{tab:coverage}
 \scriptsize
 \setlength{\tabcolsep}{2pt}
@@ -405,62 +397,62 @@ other four folds. Row 1 has no 95\,\% figure (--).}
 Each input of Table~S4 (supplement), Type A or Type B, was propagated through the calibration solve and
 the anchored fit following JCGM~100~\cite{jcgm100}, all inputs taken as uncorrelated, although the pitch,
 stump and bail dimensions enter one pose solve. The measurement groups alone give \BudRepMeasY{} and
-\BudRepMeasZ~mm on a representative delivery, against a pipeline sigma of \BudRepPipeSigmaY{} and
-\BudRepPipeSigmaZ~mm; the covariance leaves out the flight model, whose largest input is swing. A Monte
+\BudRepMeasZ\,mm on a representative delivery, against a pipeline $\sigma$ of \BudRepPipeSigmaY{} and
+\BudRepPipeSigmaZ\,mm; the covariance leaves out the flight model, whose largest input is swing. A Monte
 Carlo propagation in the manner of JCGM~101~\cite{jcgm101} ($M = \McM$) gives a lateral standard deviation
-of \McUY~mm against the linear \McUcY~mm and a vertical 95\,\% interval of $[\McLowZ, \McHighZ]$~mm against
-the linear $[\McGumLowZ, \McGumHighZ]$~mm, because swing of either sign leaves the fit low. It did not reach
-the JCGM~101 tolerance (twice the batch standard deviation \McTwoSdBatch~mm against \McTol~mm) and is stable
-only at one significant digit (Table~S5), but its gaps to the linear budget, up to \McDHighZ~mm, are far
+of \McUY\,mm against the linear \McUcY\,mm and a vertical 95\% interval of $[\McLowZ, \McHighZ]$\,mm against
+the linear $[\McGumLowZ, \McGumHighZ]$\,mm, because swing of either sign leaves the fit low. The Monte Carlo run did not reach
+the JCGM~101 tolerance (twice the batch standard deviation \McTwoSdBatch\,mm against \McTol\,mm) and is stable
+only at one significant digit (Table~S5). Its gaps to the linear budget, up to \McDHighZ\,mm, are far
 larger, so the linear budget serves only to rank the inputs.
 
-Table~\ref{tab:coverage} tests the stated sigma against the simulated error $\varepsilon$. Rolling shutter is
+Table~\ref{tab:coverage} tests the stated $\sigma$ against the simulated error $\varepsilon$. Rolling shutter is
 not the cause of the fit-only shortfall (Table~S6). The missing term is model error $\sigma_\mathrm{mod}$, fitted per
 camera end and quantity by maximum likelihood as a function of the bounce-to-stump distance $x_b$, with its
 form (constant, proportional to $x_b$, or the two in quadrature) chosen by held-out likelihood. In the
 app's rule the term is \CalStrikerYForm{} in $y$ and \CalStrikerZForm{} in $z$ at the striker's end, and
 \CalBowlerYForm{} in $y$ and \CalBowlerZForm{} in $z$ at the bowler's end (Table~S10). Swing, the largest
 flight-model input, explains \CalStrikerYSwingRsq\% and \CalBowlerYSwingRsq\% of the lateral error's
-variance at the two ends; the model term absorbs it and no swing parameter is fitted. With the model term
+variance at the two ends; the model term absorbs swing, and no swing parameter is fitted. With the model term
 and before any coverage factor, one-sigma coverage is \CovBFullYOne\% in $y$ and \CovBFullZOne\% in $z$
-against a nominal 68.3\,\%, so the height now over-covers.
+against a nominal 68.3\%, so the height now over-covers.
 
 Two further steps are each fitted on four folds and tested on the fifth. First, for each end and quantity,
 no bias is compared with a bias line $b = a + c\,x_b$ by held-out likelihood. The line wins for height and for
 the pitching point at both ends; no lateral or impact bias is applied. For height it is chosen in
-\CalBowlerZBiasFolds{} of five folds at the bowler's end but in only \CalStrikerZBiasFolds{} at the striker's.
-The bowler's-end height line, $a = \CalBowlerZBiasA \pm \CalBowlerZBiasUA$~mm
-and $c = \CalBowlerZBiasC \pm \CalBowlerZBiasUC$~mm/m, is subtracted and its standard uncertainty $u_b$,
-median \CalBowlerZBiasMedU~mm, is added to $\sigma$; it moves the mean height error from
-\CalBowlerZMeanBefore{} to \CalBowlerZMeanAfter~mm. Its evidence is the held-out selection alone; we make no
-claim of significance. Coverage here selects the bias inside each training fold; the shipped rule takes the
+\CalBowlerZBiasFolds{} of 5 folds at the bowler's end but in only \CalStrikerZBiasFolds{} at the striker's.
+The bowler's-end height line, $a = \CalBowlerZBiasA \pm \CalBowlerZBiasUA$\,mm
+and $c = \CalBowlerZBiasC \pm \CalBowlerZBiasUC$\,mm/m, is subtracted and its standard uncertainty $u_b$,
+median \CalBowlerZBiasMedU\,mm, is added to $\sigma$ in quadrature. The correction moves the mean height error from
+$\CalBowlerZMeanBefore$ to $\CalBowlerZMeanAfter$\,mm. Its evidence is the held-out selection alone; we make no
+claim of significance. The coverage reported here selects the bias inside each training fold; the shipped rule takes the
 higher held-out likelihood summed over all five. Second, split-conformal coverage factors~\cite{vovk2005alrw,angelopoulos2023gentle},
-the 68.3 and 95\,\% quantiles of $|\varepsilon|/\sigma$ on the training folds, are set per end and per third
-of $x_b$. $k_{95}$ spans \CalStrikerYKNinetyfive{} in $y$ and \CalStrikerZKNinetyfive{} in $z$ at the
+the 68.3 and 95\% quantiles of $|\varepsilon|/\sigma$ on the training folds, are set per end and per third
+of $x_b$. The factor $k_{95}$ spans \CalStrikerYKNinetyfive{} in $y$ and \CalStrikerZKNinetyfive{} in $z$ at the
 striker's end and \CalBowlerYKNinetyfive{} and \CalBowlerZKNinetyfive{} at the bowler's end. Only
 deliveries with a bounce fit enter: \CalStrikerYN{} at the striker's end and \CalBowlerYN{} at the bowler's
 (\CalStrikerExcluded{} and \CalBowlerExcluded{} excluded, of which \DenStrikerNotFitted{} and \DenBowlerNotFitted{} failed fits). Held out, pooled over both ends, the half-widths
 cover \CalYCovSixtyeight\% [\CalYCovSixtyeightLo, \CalYCovSixtyeightHi] and
 \CalYCovNinetyfive\% [\CalYCovNinetyfiveLo, \CalYCovNinetyfiveHi] in $y$ and \CalZCovSixtyeight\%
 [\CalZCovSixtyeightLo, \CalZCovSixtyeightHi] and \CalZCovNinetyfive\% [\CalZCovNinetyfiveLo,
-\CalZCovNinetyfiveHi] in $z$ (binomial 95\,\% intervals); by end and third see Table~S10. Split-conformal
+\CalZCovNinetyfiveHi] in $z$ (binomial 95\% intervals; by end and third in Table~S10). Split-conformal
 factors give coverage near nominal by construction when calibration and test errors are exchangeable, so
-these figures check the implementation and the calibration set, not the simulator's physics. A fit that saw no
-bounce is outside what the rule was fitted on: it gets no bias correction, the largest model term and the widest factor of its end.
+these figures check the implementation and the calibration set, not the simulator's physics. A fit that sees no
+bounce lies outside the rule's training data: it gets no bias correction, the largest model term and its end's widest factor.
 
 The instrument therefore outputs the crossing $(y, z)$ with half-widths $w_{68} = k_{68}\sigma$ and
 $w_{95} = k_{95}\sigma$, where $\sigma^2 = \sigma_\mathrm{fit}^2 + \sigma_\mathrm{cal}^2 + u_b^2 +
 \sigma_\mathrm{mod}^2$. These are half-widths of intervals calibrated on simulated errors, not the
 standard and expanded uncertainties $u$ and $U_{95}$ of JCGM~100. Median $w_{95}$ is
-\CalStrikerYMedUNinetyfive{} and \CalStrikerZMedUNinetyfive~mm at the striker's end and
-\CalBowlerYMedUNinetyfive{} and \CalBowlerZMedUNinetyfive~mm at the bowler's end. The constants hold under
+\CalStrikerYMedUNinetyfive{} and \CalStrikerZMedUNinetyfive\,mm at the striker's end and
+\CalBowlerYMedUNinetyfive{} and \CalBowlerZMedUNinetyfive\,mm at the bowler's end. The constants hold under
 the simulator's physics; Table~\ref{tab:real} applies the bowler's-end rule to the real clips with
 $\sigma_\mathrm{cal}$ from each clip's own taps.
 
 \subsection{Choosing the guard band from false-out risk}
 \label{sec:kcurve}
 
-Following JCGM~106~\cite{jcgm106}, the specific risk of an OUT call is the probability, given the estimate,
+Following JCGM~106~\cite{jcgm106}, the specific risk of an out call is the probability, given the estimate,
 that the true verdict is not out, $1 - \prod_i \Phi((m_i + R_i)/\sigma_i)$ over the signed margins $m_i$
 of the four limits (pitching line, impact line, stump edge, top of the bails), with $R_i = R$ except on the
 pitching line. Two approximations enter: the product treats the four tests as independent, although the
@@ -469,16 +461,16 @@ rate of not-outs. Fig.~S1 of the supplement traces the risk on the \RiskN{} Worl
 verdict, \RiskTruthOut{} of them truly out, with each end's rule applied and $\sigma_i = w_{95}/1.96$ from
 the held-out calibration. That $\sigma_i$ assumes normal errors; the intervals are calibrated, but the
 held-out one-sided tail beyond $1.645\sigma_i$ runs from \CalExceedMin\% to \CalExceedMax\% across ends and
-quantities against the 5\,\% a normal law gives (Section~S11). The former rule, fit sigma and $\kappa = 1$,
+quantities against the 5\% a normal law gives (Section~S11). The former rule, the fit's own $\sigma$ with $\kappa = 1$,
 makes out calls whose modelled risk reaches \RiskFormerMaxSpecCal\%, with \RiskFormerOutsOverFiveCal{}
-above 5\,\%. The app's $\kappa = \RiskCalKFive$ is the smallest factor that keeps every out call on these
-deliveries at or below 5\,\% (largest \RiskShippedMaxSpecCal\%), and $\kappa = \RiskCalKOne$ keeps them
-below 1\,\%. Both are chosen in sample, on the deliveries the risk is reported on, so they do not bound the
+above 5\%. The app's $\kappa = \RiskCalKFive$ is the smallest factor that keeps every out call on these
+deliveries at or below 5\% (largest \RiskShippedMaxSpecCal\%), and $\kappa = \RiskCalKOne$ keeps them
+below 1\%. Both are chosen in sample, on the deliveries the risk is reported on, so they do not bound the
 risk of a new delivery. The factors that bound the modelled risk for any delivery, under independent normal
 tests with this $\sigma_i$ and all four limits binding at once, are \RiskBoundFourFive{} and
 \RiskBoundFourOne; with the tails above, even they do not bound the true risk.
 
-The rule is for avoiding false outs, and that is what it does on these deliveries: \RiskCalFalseOutFive{}
+The rule is built to avoid false outs, and on these deliveries it makes \RiskCalFalseOutFive{}
 false outs and \RiskCalMissedOutFive{} missed outs, with \RiskCalOutRecallFive\% of true outs called out and
 \RiskCalOutToUmpFive\% returned as umpire's call. Its agreement, \RiskCalAgreeFive\% (\RiskFitKOneAgree\%
 under the former rule), is below the \RiskAlwaysNotOutPct\% of always saying not out.
@@ -487,26 +479,25 @@ under the former rule), is below the \RiskAlwaysNotOutPct\% of always saying not
 
 Through the production job, with the learned detector, RANSAC association, the calibration re-solved
 from perturbed taps and the app's calibrated rule, the pipeline agrees with the true verdict on \EteAgree{} of \EteN{} deliveries with
-\EteFalseOut{} false outs and \EteMissedOut{} missed outs; every other disagreement is an umpire's call.
+\EteFalseOut{} false outs and \EteMissedOut{} missed outs; every disagreement is an umpire's call.
 Always saying not out would agree on \EteNotOutTruth. These clips are filmed from the striker's end.
-The median stump-plane error is \EteMedY~mm laterally and \EteMedZ~mm vertically, below Experiment~1's
-because the grid flies without drag, swing or spin, against a median $w_{68}$ of \EteMedUY{} and
-\EteMedUZ~mm and $w_{95}$ of \EteMedUNinetyfiveY{} and \EteMedUNinetyfiveZ~mm. The 95\,\% half-width covers
-\EteCoverNinetyfiveY\% of lateral and \EteCoverNinetyfiveZ\% of height errors, \EteCoverZLenTwo{} of
-\EteCoverZLenTwoN{} at 2~m. The calibration transfers badly in both directions: laterally the median
-$w_{68}$ is several times the median error, too wide, and at 2~m the height half-width is too narrow.
-From the bowler's end the same deliveries agree on \EteBowlerAgree{} (always not out: \EteBowlerNotOutTruth)
-with \EteBowlerFalseOut{} false outs; \EteBowlerNoVerdict{} get no verdict. In \EteBowlerNoTrack{} no anchored fit is accepted, and because the
-tracker keeps only a track this fit explains, the app reports them as no ball track; \EteBowlerNoVerdictShort{} of the
-\EteBowlerNoVerdict{} are pitched at 2 or 4~m. Its $w_{95}$ covers \EteBowlerCoverNinetyfiveY\% and \EteBowlerCoverNinetyfiveZ\% of lateral and height errors.
-The contact point is located to \EteMedContactX~mm along the pitch. Only \EteNotOutTruth{} of
-the deliveries are not out, so no false out among them bounds the false-out rate only below
-\EteFalseOutUpper\% (one-sided 95\,\%).
+The median stump-plane error is \EteMedY\,mm laterally and \EteMedZ\,mm vertically, below Experiment~1's
+because the grid flies without drag, swing or spin. The median $w_{68}$ is \EteMedUY{} and
+\EteMedUZ\,mm and the median $w_{95}$ \EteMedUNinetyfiveY{} and \EteMedUNinetyfiveZ\,mm. The 95\% half-width covers
+\EteCoverNinetyfiveY\% of lateral and \EteCoverNinetyfiveZ\% of height errors, and \EteCoverZLenTwo{} of the
+\EteCoverZLenTwoN{} height errors at 2\,m. The calibration transfers badly in both directions: laterally the median
+$w_{68}$ is several times the median error, too wide, and at 2\,m the height half-width is too narrow.
+From the bowler's end the app agrees on \EteBowlerAgree{} of the same deliveries (always not out: \EteBowlerNotOutTruth)
+with \EteBowlerFalseOut{} false outs; \EteBowlerNoVerdict{} get no verdict. In \EteBowlerNoTrack{} of these no anchored fit is accepted; because the
+tracker keeps only a track that this fit explains, the app reports them as having no ball track. Of the
+\EteBowlerNoVerdict, \EteBowlerNoVerdictShort{} are pitched at 2 or 4\,m. The bowler's-end $w_{95}$ covers \EteBowlerCoverNinetyfiveY\% and \EteBowlerCoverNinetyfiveZ\% of lateral and height errors.
+From the striker's end the contact point is located to a median \EteMedContactX\,mm along the pitch. Only \EteNotOutTruth{} of
+the deliveries are not out, so zero false outs among them bound the false-out rate only to below
+\EteFalseOutUpper\% (one-sided 95\%).
 
-All disagreements lie within 0.2~m of the middle-stump line and come back as umpire's call: \EteOutToUmp{} true outs
-and \EteNotOutToUmp{} not-out (Table~S3). Most are pitched at 2~m; a yorker is intercepted 0.8~m after it
-pitches, so the post-contact arc holds one or two frames, the stated $\sigma$ is wide and the system
-declines the call.
+All striker's-end disagreements lie within 0.2\,m of the middle-stump line and come back as umpire's call: \EteOutToUmp{} true outs
+and \EteNotOutToUmp{} not-outs (Table~S3). Most are pitched at 2\,m; a yorker is intercepted 0.8\,m after it
+pitches, so the post-contact arc holds one or two frames, the stated $\sigma$ is wide, hence umpire's call.
 
 \subsection{Real footage}
 
@@ -516,7 +507,7 @@ declines the call.
 alone (test3 with the pitch length pinned, test4 and test5 free), analysed on all frames and on the even and odd frames alone; no truth
 exists. The $\pm$ half-width is $w_{95}$ of the bowler's-end rule (Section~\ref{sec:coverage}), with the
 height bias removed. A free pitch length lies outside the calibrated domain. $\infty$: crossing
-lost under perturbed taps. --: declined, no output. Halves are tracked separately, so their tracks can sum to more.}
+lost under perturbed taps. --: declined, no output. Halves are tracked separately, so their points can sum to more than the full-rate track's.}
 \label{tab:real}
 \scriptsize
 \setlength{\tabcolsep}{3.5pt}
@@ -524,38 +515,38 @@ lost under perturbed taps. --: declined, no output. Halves are tracked separatel
 \end{table*}
 
 All three clips ran on a pose solved from the stumps alone: on each the app warns that the pitch corners
-disagree with the stumps and leaves them out, and a stumps-only pose does not fix scale (Table~S9). test3
-pins the pitch length at \RealTestThreeLength~m; test4 and test5 leave it free and fit
-\RealTestFourLength{} and \RealTestFiveLength~m, the last near the 2~m lower limit of the search.
+disagree with the stumps and leaves the corners out, and a stumps-only pose does not fix scale (Table~S9). test3
+pins the pitch length at \RealTestThreeLength\,m; test4 and test5 leave it free and fit
+\RealTestFourLength{} and \RealTestFiveLength\,m, the second near the 2\,m lower limit of the search.
 No simulation leaves $L$ free. All three clips show the same net, so these lengths point to a
 collapsed calibration. Only \RealClipsUsed{} of
 \RealClipsFound{} candidate clips could be calibrated at all.
 
 The app declines \RealDeclinedRuns{} of the \RealRuns{} analyses; every one it answers sees the bounce. On test3 only the even frames give a result, umpire's call; the decoded stream ends after
-\RealTestThreeFramesUsed{} of \RealTestThreeFramesAsked{} requested frames, and on all and odd frames no anchored fit is accepted. On test4 the full-rate and odd-frame fits see the bounce
-\RealTestFourPitchMin{} to \RealTestFourPitchMax~mm outside off and return umpire's call (crossing lost under
-perturbed taps) and not out (impact outside off); the even frames are declined. On test5 only the even frames give a result: not out,
-the bounce \RealTestFivePitchMin~mm and the impact outside off; the full-rate fit of \RealTestFiveTrack{}
-points, on \RealTestFiveFramesUsed{} of \RealTestFiveFramesAsked{} requested frames, is refused: no anchored fit is accepted.
+\RealTestThreeFramesUsed{} of \RealTestThreeFramesAsked{} requested frames, and on the full-rate and odd frames no anchored fit is accepted. On test4 the full-rate and odd-frame fits see the bounce
+\RealTestFourPitchMin{} to \RealTestFourPitchMax\,mm outside off and return umpire's call (crossing lost under
+perturbed taps) and not out (impact outside off), respectively; the even frames are declined. On test5 only the even frames give a result: not out,
+with the bounce \RealTestFivePitchMin\,mm outside off and the impact outside off. The full-rate fit of \RealTestFiveTrack{}
+points, on \RealTestFiveFramesUsed{} of \RealTestFiveFramesAsked{} requested frames, is declined because no anchored fit is accepted.
 
 Independent checks (Table~S9) use physics the fit does not impose. Only test4's full-rate fit allows the gravity check:
-the fitted acceleration before the bounce is \RealTestFourGrav~m\,s$^{-2}$ [\RealTestFourGravLo,
-\RealTestFourGravHi], which excludes 9.81~m\,s$^{-2}$. On \SimGravN{} simulated bowler's-end deliveries the
-same fit gives a median of \SimGravMed~m\,s$^{-2}$, but its interval contains 9.81~m\,s$^{-2}$ on only
-\SimGravCoverPct\% and it gives \RealTestFourGrav~m\,s$^{-2}$ or more on \SimGravHighPct\%, so it cannot tell a
+the fitted acceleration before the bounce is \RealTestFourGrav\,m/s$^2$ [\RealTestFourGravLo,
+\RealTestFourGravHi], which excludes 9.81\,m/s$^2$. On \SimGravN{} simulated bowler's-end deliveries the
+same fit gives a median of \SimGravMed\,m/s$^2$, but its interval contains 9.81\,m/s$^2$ on only
+\SimGravCoverPct\% and it gives \RealTestFourGrav\,m/s$^2$ or more on \SimGravHighPct\%, so it cannot tell a
 wrong scale from noise. The apparent size, which that fit does not use, puts the ball at a median
 \RealTestFourSizeRatio{} of the reconstructed depth, within twice its uncertainty on
 \RealTestFourSizeWithinTwo\% of frames: the size check says the scale is off on this clip. The batter plays the ball
-in all three clips, so no outcome can be seen, and no delivery has been measured with a tape.
+in all three clips, so no outcome can be seen. No delivery has been measured with a tape.
 % WITNESS-PLATE RESULT: measured bounce and stump-plane points for real balls go here, as a new subsection.
 
 \section{Limitations}
 
 \textbf{No independent reference.} Every accuracy number and the calibration come from our own simulator
-and renderer. Rendered from the bowler's end, the app agrees on \EteBowlerAgree{} of \EteBowlerN{} clips with
-\EteBowlerNoVerdict{} no verdict, and it declines \RealDeclinedRuns{} of the \RealRuns{} real-clip analyses. The size
-check finds the scale off on the one real clip that allows it; the gravity check is too noisy to decide. Two ran with the pitch length free, which no simulation tests, and fitted
-a few metres; only \RealClipsUsed{} of \RealClipsFound{} candidate clips could be calibrated. Time comes from the phone's clock, unchecked. Repeatability over repeated deliveries and
+and renderer. On clips rendered from the bowler's end the app agrees on \EteBowlerAgree{} of \EteBowlerN{},
+with no verdict on \EteBowlerNoVerdict, and declines \RealDeclinedRuns{} of the \RealRuns{} real-clip analyses. The size
+check finds the scale off on the one real clip that allows it; the gravity check is too noisy to decide. Two real clips ran with the pitch length free, which no simulation tests, and fitted
+a few metres; only \RealClipsUsed{} of \RealClipsFound{} candidate clips could be calibrated. Frame times come from the phone's clock, unchecked. Repeatability over repeated deliveries and
 reproducibility across phones, operators and calibrations are not measured.
 
 \textbf{One baseline family.} Both baselines share our detections and split; a filter-based
@@ -563,15 +554,15 @@ tracker~\cite{ghimire2026cricket} was not reimplemented.
 
 \textbf{The calibration is the simulator's.} A real pitch, ball or phone may need a different bias line,
 model term and coverage factors; on rendered clips the lateral half-width is too wide and the height
-half-width too narrow at 2~m. The guard factor is chosen in sample, and the risk bound assumes normal tails
+half-width too narrow at 2\,m. The guard factor is chosen in sample, and the risk bound assumes normal tails
 the held-out errors do not have. An ambiguous contact split makes the solution multimodal.
 
 \textbf{The estimator ignores drag, swing, friction and spin.} Swing with a side-force coefficient of 0.3
-moves the median lateral error from \PhysBaselineMedY{} to \PhysSwingCsZeroThreeMedY~mm and biases the
-height by \PhysSwingCsZeroThreeMeanZ~mm; a pitch with restitution 0.40 biases it by
-\PhysRestitutionZeroFourZeroMeanZ~mm (Table~S7).
+moves the median lateral error from \PhysBaselineMedY{} to \PhysSwingCsZeroThreeMedY\,mm and biases the
+height by $\PhysSwingCsZeroThreeMeanZ$\,mm; a pitch with restitution 0.40 biases it by
+\PhysRestitutionZeroFourZeroMeanZ\,mm (Table~S7).
 
-\textbf{The contact must be seen, and calibration is manual.} A full toss, or a hidden contact, falls back
+\textbf{The contact must be seen, and calibration is manual.} A full toss or a hidden contact falls back
 to the flagged single-parabola fit. With no bounce seen the pitching test is not applied, which favours
 out when a bounce outside leg was missed. Twelve taps are required; detecting the marks would remove them.
 
@@ -584,17 +575,17 @@ avoid false outs: on \RiskN{} simulated deliveries it makes \RiskCalFalseOutFive
 \RiskCalOutRecallFive\% of true outs out and returns \RiskCalOutToUmpFive\% as umpire's call, and its
 agreement, \RiskCalAgreeFive\%, is below the \RiskAlwaysNotOutPct\% of always saying not out. Its guard
 factor is chosen in sample. The uncalibrated estimator agrees in \GeoAgreeAll\% of runs against a trivial
-\GeoAlwaysNotOutPct\%, with median stump-plane errors of \GeoMedYAll{} and \GeoMedZAll~mm. On rendered clips from the striker's end the lateral half-width is too wide and the
-height half-width covers \EteCoverZLenTwo{} of \EteCoverZLenTwoN{} balls pitched at 2~m. The real clips ran
+\GeoAlwaysNotOutPct\%, with median stump-plane errors of \GeoMedYAll{} and \GeoMedZAll\,mm. On rendered clips from the striker's end the lateral half-width is too wide and the
+height half-width covers \EteCoverZLenTwo{} of \EteCoverZLenTwoN{} balls pitched at 2\,m. The real clips ran
 on an untested calibration mode that gave implausible scale, and no real delivery has been measured with a
 reference.
 % WITNESS-PLATE RESULT: replace the last clause with the measured coverage once it exists.
-It is a coaching aid, not a replacement for a multi-camera rig.
+The system is a coaching aid, not a replacement for a multi-camera rig.
 
 \section*{Acknowledgments and Declarations}
 
 The idea, design and experiments are the author's. The author used Claude, a large language model from Anthropic, to help draft and revise the text from the author's code,
-results and notes and to write parts of the released code and scripts; the author checked all of it and
+results and notes, and to write parts of the released code and scripts; the author checked all of it and
 is responsible for the content. Code, raw results and the scripts that regenerate every number are at
 \url{https://github.com/kafle1/pocket-drs} (AGPL-3.0). The author declares no competing interests and received no
 funding. The real clips were recorded at net sessions with the consent of those present and contain no
@@ -605,7 +596,7 @@ identifiable personal data at the resolution used.
 
 \begin{IEEEbiographynophoto}{Niraj Kafle}
 received the Bachelor of Information Technology (Hons.) degree from Lincoln University College, Malaysia,
-at its Kathmandu partner, Phoenix College of Management. He is an independent researcher in Kathmandu,
+through its Kathmandu partner, Phoenix College of Management. He is an independent researcher in Kathmandu,
 working on open-source measurement systems built from equipment people already own.
 \end{IEEEbiographynophoto}
 
