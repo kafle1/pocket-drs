@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Strict = ConfigDict(extra="forbid")
+STUMP_MARKS_MISSING = "Only one stump corner can be left unmarked. Mark the other corners and send it again."
 
 
 class ApiError(BaseModel):
@@ -61,8 +62,8 @@ class Calibration(BaseModel):
     stumps_m: StumpDimensions = Field(default_factory=StumpDimensions)
     # the frame the marks were tapped on
     frame_ms: int | None = Field(default=None, ge=0, le=86_400_000)
-    # eight stump corners: striker TL, TR, BR, BL, then bowler TL, TR, BR, BL
-    stump_quads_norm: list[Point2D]
+    # eight stump corners: striker TL, TR, BR, BL, then bowler TL, TR, BR, BL; one may be null when the pads hide it
+    stump_quads_norm: list[Point2D | None]
     # optional four popping-crease ends, clockwise on the screen from the striker end
     crease_marks_norm: list[Point2D] | None = None
 
@@ -70,9 +71,12 @@ class Calibration(BaseModel):
     def _marks_present(self):
         if len(self.stump_quads_norm) != 8:
             raise ValueError("calibration.stump_quads_norm needs 8 points")
+        if self.stump_quads_norm.count(None) > 1:
+            raise ValueError(STUMP_MARKS_MISSING)
         if self.crease_marks_norm is not None and len(self.crease_marks_norm) != 4:
             raise ValueError("calibration.crease_marks_norm needs 4 points")
-        if any(not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0) for p in self.stump_quads_norm + (self.crease_marks_norm or [])):
+        marks = [p for p in self.stump_quads_norm if p is not None] + (self.crease_marks_norm or [])
+        if any(not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0) for p in marks):
             raise ValueError("calibration marks must be in [0, 1]")
         return self
 

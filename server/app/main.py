@@ -43,6 +43,7 @@ from .models import (
     JobStatus,
     JobStatusResponse,
     ProgressInfo,
+    STUMP_MARKS_MISSING,
 )
 from .three_d_viewer import render_html
 
@@ -545,6 +546,8 @@ async def create_job(request: Request):
         except ValueError as e:
             # full validation detail goes to the log only; the client gets one plain sentence
             _log.warning("Invalid job request: %s", e)
+            if STUMP_MARKS_MISSING in str(e):
+                return _err(400, "stump_marks_missing", STUMP_MARKS_MISSING)
             return _err(400, "bad_request")
         # shielded, so an upload timeout can't leave a row behind that nothing will ever finish
         with anyio.CancelScope(shield=True):
