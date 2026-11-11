@@ -42,9 +42,9 @@ sys.path.insert(0, HERE)
 from synth import (Camera, calibration_taps, fly, observe, random_delivery,   # noqa: E402
                    truth_verdict)
 from app.pipeline.reconstruction import (reconstruct, predict_stump_plane, bounce_sigma, position_sigma,  # noqa: E402
-                                         _linear_parabola, _fit_flight, _flight_as_trajectory,
+                                         _linear_parabola, _fit_flight, flight_trajectory,
                                          _flight_covariance, Reconstruction, Trajectory, find_bounce_split,
-                                         _numeric_jacobian, GRAVITY, BALL_RADIUS_M, RESTITUTION_PRIOR)
+                                         _numeric_jacobian, GRAVITY, BALL_RADIUS_M, LEATHER)
 from app.pipeline.decision import decide                                                # noqa: E402
 from app.pipeline.calibration import CalibrationError                                   # noqa: E402
 
@@ -90,7 +90,7 @@ def parabola_estimate(pose, dets) -> Reconstruction | None:
     if fit is None:
         return None
     theta, cov6, rms = fit
-    return Reconstruction(_flight_as_trajectory(theta), _flight_covariance(theta, cov6), rms, [])
+    return Reconstruction(flight_trajectory(theta), _flight_covariance(theta, cov6), rms, [])
 
 
 def _side_fit(pose, side):
@@ -117,7 +117,7 @@ def _unanchored_params(th12, ts_pre, ts_post, t_split):
     v_post = np.array([post[3], post[4], post[5] - GRAVITY * tau])
     tp = t_b - ts_pre
     v_pre = np.array([pre[3], pre[4], pre[5] - GRAVITY * tp])
-    e = -v_post[2] / v_pre[2] if v_pre[2] < -0.05 and v_post[2] > 0 else RESTITUTION_PRIOR
+    e = -v_post[2] / v_pre[2] if v_pre[2] < -0.05 and v_post[2] > 0 else LEATHER.restitution[1]
     return np.array([t_b, x_b, y_b, *v_pre, v_post[0], v_post[1], e])
 
 

@@ -45,7 +45,7 @@ from crlb import (OUT, CAMERAS, PRIOR, truth_theta, positions, frame_times, setu
                   dp_dtheta, pixel_jac, measurand_grad, lin_bound)
 from synth import Delivery, calibration_taps, fly, observe, random_delivery                 # noqa: E402
 from app.pipeline.reconstruction import (reconstruct, predict_stump_plane, _stump_plane_point,  # noqa: E402
-                                         _theta_of, RESTITUTION_PRIOR, RESTITUTION_BOUNDS)
+                                         _theta_of, LEATHER)
 from app.pipeline.calibration import CalibrationError                                      # noqa: E402
 
 QUICK = "--quick" in sys.argv
@@ -54,7 +54,7 @@ M = 40 if QUICK else 400          # noise draws per configuration
 CHUNK = 20 if QUICK else 50
 N_B = 60 if QUICK else 400        # deliveries per Part B cell
 F_SCALE = 2.0
-C_PRI = np.array([RESTITUTION_PRIOR / 0.15, 0.0, 0.0])   # PRIOR @ theta - C_PRI = the solver's prior rows
+C_PRI = np.array([LEATHER.restitution[1] / 0.15, 0.0, 0.0])   # PRIOR @ theta - C_PRI = the solver's prior rows
 POSE = CAMERAS["striker_ref"].pose()
 ESTS = ["solver", "rob_pri", "lin_pri", "ml", "ml_free"]
 
@@ -91,8 +91,8 @@ def fit_replica(pose, t, u, v, theta0, loss, priors, bounded=True):
             parts.append(PRIOR @ th - C_PRI)
         return np.concatenate(parts)
 
-    lower = np.array([t.min(), -10.0, -3.0, -60.0, -15.0, -25.0, -60.0, -15.0, RESTITUTION_BOUNDS[0]])
-    upper = np.array([t.max(), 35.0, 3.0, 60.0, 15.0, -0.05, 60.0, 15.0, RESTITUTION_BOUNDS[1]])
+    lower = np.array([t.min(), -10.0, -3.0, -60.0, -15.0, -25.0, -60.0, -15.0, LEATHER.restitution[0]])
+    upper = np.array([t.max(), 35.0, 3.0, 60.0, 15.0, -0.05, 60.0, 15.0, LEATHER.restitution[2]])
     x0 = np.clip(theta0, lower + 1e-6, upper - 1e-6)
     if not bounded:
         lower, upper = -np.inf, np.inf
