@@ -46,7 +46,7 @@ from ..models import ApiError, CreateJobRequest
 from .calibration import CalibrationError, fitting_length, solve_camera_pose
 from .decision import NOT_OUT, OUT, UMPIRES_CALL, decide
 from .overlay import build_overlay
-from .reconstruction import BALLS, sample_path, speed_sigma
+from .reconstruction import BALLS, GRAVITY, sample_path, speed_sigma
 from .tracking import ColourMotionDetector, YoloDetector, align, corridor_mask, drop_impossible, to_ref
 from .trajectory import MAX_GAP_S, find_ball
 from .uncertainty import GUARD_K, QTY, calibrated, calibration_sigma, camera_end, measurands, stability
@@ -359,8 +359,9 @@ def _review(req, video_path: Path, result: dict, warnings: list[str], report: Pr
         side, (u, lim) = max(wide.items(), key=lambda kv: kv[1][0] / kv[1][1])
         raise NoCall("range_too_wide", f"{side} is known only to within {100 * u:.0f} cm, more than half the stumps' "
                      f"{'height' if side.startswith('How high') else 'width'}.", STRAIGHT_FILM)
-    if not tr.bounce_observed:
-        raise NoCall("bounce_not_seen", "The bounce wasn't seen, so the path can't be checked against real deliveries.",
+    # no bounce is a full toss only if, run backwards, the flight meets the ground behind the bowler's crease
+    if not tr.bounce_observed and float(tr.position(tr.t_b + 2 * tr.v_pre[2] / GRAVITY)[0, 0]) < pose.pitch_length_m - 1.22:
+        raise NoCall("bounce_not_seen", "The ball bounced before it was first seen, so where it pitched isn't known.",
                      "Keep the whole pitch in view so the bounce is filmed.")
     calls = {verdict(m).decision for m in variants} | {v.decision}
     if {OUT, NOT_OUT} <= calls:

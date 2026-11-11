@@ -36,6 +36,8 @@ from scipy.optimize import least_squares
 from .calibration import CameraPose
 
 GRAVITY = 9.81
+MISFIT_RATIO = 4.0    # a fit this many times rougher than the track's own scatter is the wrong model
+MIN_RMS_PX = 0.3      # pixel noise floor for the bounce-or-not test, so near-zero residuals don't decide it
 
 
 @dataclass(frozen=True)
@@ -386,13 +388,13 @@ def reconstruct(pose: CameraPose, dets: list[Detection], *, ball: Ball = LEATHER
         theta0 = np.array([bounce.t_b - t0, bounce.x_b, bounce.y_b, *bounce.v_pre, *bounce.v_post[:2], e0])
         fit = _fit_bounce(pose, dets, theta0, f_scale=f_scale_px, ball=ball)
         if fit is None:
-            return None
+            return _flight(pose, dets, ball, f_scale_px)
         tr = _unpack(fit[0], True, ball)
         dt = float(np.median(np.diff([d[0] for d in dets])))
         notes.append(f"bounce from the tracker, t_b={tr.t_b:.3f}s, e={tr.restitution:.2f}")
         if split is None or abs(split[1] - tr.t_b) > 2 * dt:
             notes.append("the image track alone puts the bounce elsewhere")
-        return Reconstruction(tr, fit[1], fit[2], notes)
+        return _likelier(Reconstruction(tr, fit[1], fit[2], notes), _flight(pose, dets, ball, f_scale_px), dets)
 
     if split is not None:
         k, t_b, u_b, v_b = split
@@ -409,25 +411,52 @@ def reconstruct(pose: CameraPose, dets: list[Detection], *, ball: Ball = LEATHER
             fit = _fit_bounce(pose, dets, theta0, f_scale=f_scale_px, ball=ball)
             if fit is not None and (best is None or fit[2] < best[2]):
                 best = fit
-        if best is not None:
-            theta, cov, rms = best
-            tr = _unpack(theta, True, ball)
-            notes.append(f"bounce anchored at frame {k}, t_b={tr.t_b:.3f}s, e={tr.restitution:.2f}")
-            return Reconstruction(tr, cov, rms, notes)
-        return None         # a bounce was seen, so the single parabola below would model the wrong flight
+        flight = _flight(pose, dets, ball, f_scale_px)
+        if best is None:
+            return _misfit_check(flight, dets)
+        theta, cov, rms = best
+        tr = _unpack(theta, True, ball)
+        notes.append(f"bounce anchored at frame {k}, t_b={tr.t_b:.3f}s, e={tr.restitution:.2f}")
+        return _likelier(Reconstruction(tr, cov, rms, notes), flight, dets)
     if split_rank:
         return None
+    return _flight(pose, dets, ball, f_scale_px, in_air=False)
 
-    # no contact in the window: one parabola, scale from gravity and apparent size
+
+def _flight(pose: CameraPose, dets: list[Detection], ball: Ball, f_scale_px: float, in_air: bool = True) -> Reconstruction | None:
+    """One flight with no contact, scale from gravity and apparent size. As a rival to a bounce fit
+    (in_air) it is None when it passes under the ground before the last detection: the ball bounced in view."""
     th0 = _linear_parabola(pose, dets)
-    if th0 is None:
-        return None
-    fit = _fit_flight(pose, dets, th0, f_scale=f_scale_px, radius_weight=0.3, ball=ball)
+    fit = None if th0 is None else _fit_flight(pose, dets, th0, f_scale=f_scale_px, radius_weight=0.3, ball=ball)
     if fit is None:
         return None
     theta, cov6, rms = fit
-    notes.append("no bounce in the tracked window; single-parabola fit")
-    return Reconstruction(flight_trajectory(theta, ball), _flight_covariance(theta, cov6, ball), rms, notes)
+    tr = flight_trajectory(theta, ball)
+    if in_air and tr.t_b < dets[-1][0] - 0.5 * float(np.median(np.diff([d[0] for d in dets]))):
+        return None
+    return Reconstruction(tr, _flight_covariance(theta, cov6, ball), rms, ["no bounce in the tracked window; single-flight fit"])
+
+
+def _likelier(bounce: Reconstruction, flight: Reconstruction | None, dets: list[Detection]) -> Reconstruction | None:
+    """Bounce or no bounce by BIC over the 2n pixel rows: the bounce's 3 extra parameters must buy their keep."""
+    if flight is None:
+        return bounce
+    n = 2 * len(dets)
+    bic = lambda rec, p: n * math.log(max(rec.rms_px, MIN_RMS_PX) ** 2) + p * math.log(n)
+    if bic(flight, 6) <= bic(bounce, 9):
+        flight.notes.append(f"a bounce fits no better (rms {bounce.rms_px:.2f} against {flight.rms_px:.2f} px)")
+        return _misfit_check(flight, dets)
+    return _misfit_check(bounce, dets)
+
+
+def _misfit_check(rec: Reconstruction | None, dets: list[Detection]) -> Reconstruction | None:
+    """None when neither model is clearly right and the chosen one misses the pixels by over MISFIT_RATIO
+    times the track's own scatter (the robust spread of its second differences), as an unmodelled swing does."""
+    if rec is None:
+        return None
+    d2 = np.concatenate([np.diff([d[1] for d in dets], 2), np.diff([d[2] for d in dets], 2)])
+    scatter = 1.4826 * float(np.median(np.abs(d2 - np.median(d2)))) / math.sqrt(6.0)
+    return None if rec.rms_px > MISFIT_RATIO * max(scatter, MIN_RMS_PX) else rec
 
 
 def _anchor_candidates(pose: CameraPose, dets: list[Detection], k: int, t_b: float, u_b: float, v_b: float,
