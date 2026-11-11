@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
 import '../account/account.dart';
+import '../utils/app_settings.dart';
 import 'analysis_result.dart';
 
 // The public server. Override at build time with
@@ -18,25 +19,42 @@ const String kServerUrl = String.fromEnvironment(
   defaultValue: 'https://pocketdrs-saarathi.centralindia.cloudapp.azure.com',
 );
 
-/// One analysis request. [stumps] is the 8 normalised stump taps: striker
+/// The calibration block of a request. [stumps] is the 8 normalised stump taps: striker
 /// TL, TR, BR, BL then bowler TL, TR, BR, BL.
+Map<String, Object?> calibrationJson({
+  required List<Offset> stumps,
+  required double pitchLengthM,
+  required StumpSize stumpSize,
+}) => {
+  'stump_quads_norm': [
+    for (final p in stumps) {'x': p.dx, 'y': p.dy},
+  ],
+  // taps alone can't recover scale, so the player's pitch length sets it
+  'pitch_dimensions_m': {'width': 3.05, 'length': pitchLengthM},
+  // regulation is the server's own default, so only other stumps are named
+  if (stumpSize != StumpSize.regulation)
+    Assumed.stumpDimensions: {
+      'height': stumpSize.heightM,
+      'width': stumpSize.widthM,
+    },
+};
+
+/// One analysis request.
 Map<String, Object?> jobRequest({
   required List<Offset> stumps,
   required String handedness,
   required int startMs,
   required int endMs,
-  required int maxFrames,
   required double pitchLengthM,
+  required StumpSize stumpSize,
 }) => {
   'segment': {'start_ms': startMs, 'end_ms': endMs},
-  'calibration': {
-    'stump_quads_norm': [
-      for (final p in stumps) {'x': p.dx, 'y': p.dy},
-    ],
-    // taps alone can't recover scale, so the player's pitch length sets it
-    'pitch_dimensions_m': {'width': 3.05, 'length': pitchLengthM},
-  },
-  'tracking': {'sample_fps': 60, 'max_frames': maxFrames},
+  'calibration': calibrationJson(
+    stumps: stumps,
+    pitchLengthM: pitchLengthM,
+    stumpSize: stumpSize,
+  ),
+  'tracking': {'sample_fps': 60, 'max_frames': 240},
   'batsman_handedness': handedness,
 };
 
@@ -61,8 +79,7 @@ const _serverOff = 'The server is off right now. Try again later.';
 const _oddReply =
     'Got an unexpected reply from the server. Try again in a minute.';
 const kSignInAgain = 'Please sign in again to keep going.';
-const kUsedUp =
-    'No free reviews left on this account or this phone. Contact the admin for premium access.';
+const kUsedUp = "You've used today's free reviews. More come back tomorrow.";
 
 class ApiException implements Exception {
   final ApiErrorKind kind;
@@ -120,16 +137,18 @@ String _jobErrorMessage(String? code) => switch (code) {
   'VIDEO_DECODE_FAILED' =>
     "The server couldn't read this video. Try another clip.",
   'CALIBRATION_DEGENERATE' =>
-    "The stump marks don't line up. Mark the tops and bottoms of both sets of stumps again.",
+    "The stump marks don't line up with each other. Zoom in and move the marks onto the corners.",
   _ =>
     'Something went wrong checking this ball. Try again, or try another clip.',
 };
 
 /// A job the server finished with an error; retrying the same clip won't help.
 class JobFailedException implements Exception {
-  JobFailedException(this.code, this.message);
+  JobFailedException(this.code, this.message, {this.worstMark});
   final String? code;
   final String message;
+  // the stump mark that disagrees with the others, 0..7, when the marks were the problem
+  final int? worstMark;
   @override
   String toString() => message;
 }
@@ -232,20 +251,21 @@ class PocketDrsApi {
 
     // a 401 means the server refused it, so the one resend can't make a second job
     final (code, body) = await _send(
-      (abort) => http.AbortableMultipartRequest(
-        'POST',
-        _u('/v1/jobs'),
-        abortTrigger: abort,
-      )
-        ..headers['Idempotency-Key'] = idempotencyKey
-        ..fields['request_json'] = jsonEncode(requestJson)
-        ..files.add(
-          http.MultipartFile.fromBytes(
-            'video_file',
-            videoBytes,
-            filename: videoFilename.isEmpty ? 'video.mp4' : videoFilename,
-          ),
-        ),
+      (abort) =>
+          http.AbortableMultipartRequest(
+              'POST',
+              _u('/v1/jobs'),
+              abortTrigger: abort,
+            )
+            ..headers['Idempotency-Key'] = idempotencyKey
+            ..fields['request_json'] = jsonEncode(requestJson)
+            ..files.add(
+              http.MultipartFile.fromBytes(
+                'video_file',
+                videoBytes,
+                filename: videoFilename.isEmpty ? 'video.mp4' : videoFilename,
+              ),
+            ),
       Duration(seconds: uploadSeconds),
     );
     _throwForStatus(code, jobGone: false);
@@ -312,7 +332,9 @@ class PocketDrsApi {
     }
   }
 
-  /// Polls [jobId] until it finishes and returns a result with a ball track.
+  Future<void> deleteAccount() => _json('DELETE', Assumed.deleteAccountPath);
+
+  /// Polls [jobId] until it finishes and returns its result, a call or the server's reason for none.
   Future<AnalysisResult> waitForResult(
     String jobId, {
     required bool Function() cancelled,
@@ -355,17 +377,6 @@ class PocketDrsApi {
           try {
             final result = await getJobResult(jobId);
             unawaited(Account.instance.refreshMe());
-            // a tracked ball with no call still gets the result screen and its reason
-            if (result.overlay?.hasPath != true) {
-              Account.instance.logEvent('analysis_completed', {
-                'decision': 'none',
-              });
-              // the server's warnings say why no ball was tracked
-              final why = result.warnings.isEmpty
-                  ? 'No ball found. Check the ball is clearly visible, or re-mark the stumps.'
-                  : result.warnings.join('\n');
-              throw StateError('$why\n$notCounted');
-            }
             Account.instance.logEvent('analysis_completed', {
               'decision': switch (result.lbw?.decision) {
                 LbwDecisionKey.out => 'out',
@@ -376,11 +387,7 @@ class PocketDrsApi {
             });
             return result;
           } catch (e) {
-            if (e is StateError ||
-                !_isTransient(e) ||
-                ++transient >= maxTransient) {
-              rethrow;
-            }
+            if (!_isTransient(e) || ++transient >= maxTransient) rethrow;
             await Future.delayed(_backoff(transient));
           }
         }
@@ -391,6 +398,7 @@ class PocketDrsApi {
         throw JobFailedException(
           status.errorCode,
           '${_jobErrorMessage(status.errorCode)} $notCounted',
+          worstMark: status.worstMark,
         );
       }
       final ms = attempt < 10 ? 500 : (attempt < 30 ? 800 : 1200);
@@ -490,12 +498,14 @@ class JobStatus {
     required this.pct,
     required this.stage,
     this.errorCode,
+    this.worstMark,
   });
 
   final String status;
   final int? pct;
   final String? stage;
   final String? errorCode;
+  final int? worstMark;
 
   static JobStatus fromJson(Map<String, Object?> json) {
     final status = json['status'];
@@ -513,11 +523,14 @@ class JobStatus {
 
     final err = json['error'];
     final code = err is Map ? err['code'] : null;
+    final details = err is Map ? err['details'] : null;
+    final worst = details is Map ? details[Assumed.worstMark] : null;
     return JobStatus(
       status: status,
       pct: pct,
       stage: stage,
       errorCode: code is String ? code : null,
+      worstMark: worst is int && worst >= 0 && worst < 8 ? worst : null,
     );
   }
 }
