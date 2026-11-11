@@ -265,6 +265,7 @@ _MESSAGES = {
     "not_configured": "This server isn't set up for the website yet.",
     "save_failed": "The server couldn't save the video. Try again.",
     "internal_error": "Something went wrong on the server. Try again.",
+    "app_outdated": "Update Pocket DRS to keep reviewing.",
 }
 
 
@@ -522,6 +523,13 @@ async def _receive_upload(request: Request, video_path: Path) -> dict[str, Any]:
     return req
 
 
+def _outdated(req: dict[str, Any]) -> bool:
+    # fields only apps from before the request rewrite send
+    tracking, cal = req.get("tracking"), req.get("calibration")
+    return ((isinstance(tracking, dict) and bool({"sample_fps", "max_frames"} & tracking.keys()))
+            or (isinstance(cal, dict) and bool({"stump_quads_px", "crease_marks_px"} & cal.keys())))
+
+
 @app.post("/v1/jobs", response_model=CreateJobResponse)
 async def create_job(request: Request):
     # _cap_upload has checked the sign-in and holds a queue slot for this upload
@@ -530,6 +538,8 @@ async def create_job(request: Request):
     took, submitted = False, False
     try:
         req_dict = await _receive_upload(request, paths.video_path)
+        if _outdated(req_dict):
+            return _err(426, "app_outdated")
         try:
             CreateJobRequest.model_validate(req_dict)
         except ValueError as e:
