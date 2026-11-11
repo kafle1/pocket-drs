@@ -1,7 +1,7 @@
 """Accounts, free reviews and admin, kept in one SQLite file.
 
-A free account gets FREE_ANALYSES reviews, counted per account and per device. A use is taken
-when a job is accepted and given back once if that job fails."""
+A free account gets DAILY_FREE_REVIEWS a day, counted per account and per phone from the jobs
+table. A job that fails or gets no call doesn't count, and each job row goes after a day."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,17 +19,16 @@ import google.auth.transport.requests
 from google.auth.exceptions import TransportError
 from google.oauth2 import id_token
 
-FREE_ANALYSES = 5
+DAILY_FREE_REVIEWS = 5
 FIREBASE_PROJECT = "pocket-drs-app"
-CONTACT_EMAIL = "kafleniraj@gmail.com"
 _DEVICE_RE = re.compile(r"[A-Za-z0-9_-]{8,128}")
 _EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
-# nepal has no daylight saving, so "today" for the owner is a fixed offset
-_NPT = timezone(timedelta(hours=5, minutes=45))
+_DAY_S = 24 * 3600
+_BACKUPS_KEPT = 7
 
 
 def admin_emails() -> set[str]:
-    raw = os.environ.get("ADMIN_EMAILS", CONTACT_EMAIL)
+    raw = os.environ.get("ADMIN_EMAILS", "")
     return {e.strip().lower() for e in raw.split(",") if e.strip()}
 
 
@@ -43,8 +41,21 @@ def clean_email(email: str | None) -> str | None:
     return e if len(e) <= 254 and _EMAIL_RE.fullmatch(e) else None
 
 
+def day_start(now: int) -> int:
+    # one midnight for everyone, UTC; the clients show the reset in the phone's own time
+    return now - now % _DAY_S
+
+
 class AuthError(Exception):
     pass
+
+
+class Refused(Exception):
+    """A job this account can't start now, with the HTTP status and body to answer with."""
+
+    def __init__(self, status: int, error: str, **extra: Any):
+        super().__init__(error)
+        self.status, self.body = status, {"error": error, **extra}
 
 
 # google's signing keys rotate slowly; keep each response for an hour instead of fetching it per call
@@ -98,26 +109,25 @@ def verify_token(auth_header: str | None) -> dict[str, Any]:
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
   email TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', photo_url TEXT NOT NULL DEFAULT '',
-  plan TEXT NOT NULL DEFAULT 'free', used INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS devices (
-  device_id TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0,
-  last_email TEXT NOT NULL DEFAULT '', last_seen INTEGER NOT NULL);
+  plan TEXT NOT NULL DEFAULT 'free', created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS jobs (
-  job_id TEXT PRIMARY KEY, email TEXT NOT NULL, device_id TEXT NOT NULL,
-  charged INTEGER NOT NULL, refunded INTEGER NOT NULL DEFAULT 0,
+  job_id TEXT PRIMARY KEY, email TEXT NOT NULL, device_id TEXT NOT NULL, charged INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'queued', decision TEXT, created_at INTEGER NOT NULL, idem_key TEXT);
 CREATE INDEX IF NOT EXISTS jobs_email ON jobs(email);
 CREATE INDEX IF NOT EXISTS jobs_created ON jobs(created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_idem ON jobs(email, idem_key) WHERE idem_key IS NOT NULL;
+-- phones are counted from jobs now, and the old table kept every phone's id for ever
+DROP TABLE IF EXISTS devices;
 """
-_KEY_TTL_S = 24 * 3600
+# a review counts unless it failed or got no call
+_COUNTED = ("SELECT COUNT(*) FROM jobs WHERE charged=1 AND status!='failed' AND IFNULL(decision,'')!='none' "
+            "AND created_at>=? AND ")
 
 
 class Accounts:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._path = str(path)
+        self._path = path
         with closing(self._db()) as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript(_SCHEMA)
@@ -148,85 +158,95 @@ class Accounts:
             return "admin"
         return "premium" if stored == "premium" else "free"
 
-    def _touch(self, db: sqlite3.Connection, ident: dict[str, Any], device_id: str | None, now: int) -> None:
+    def _touch(self, db: sqlite3.Connection, ident: dict[str, Any], now: int) -> None:
         db.execute(
             "INSERT INTO users(email, name, photo_url, created_at, last_seen) VALUES(?,?,?,?,?) "
             "ON CONFLICT(email) DO UPDATE SET name=excluded.name, photo_url=excluded.photo_url, "
             "last_seen=excluded.last_seen",
             (ident["email"], ident["name"], ident["photo_url"], now, now))
-        if device_id:
-            db.execute(
-                "INSERT INTO devices(device_id, last_email, last_seen) VALUES(?,?,?) "
-                "ON CONFLICT(device_id) DO UPDATE SET last_email=excluded.last_email, last_seen=excluded.last_seen",
-                (device_id, ident["email"], now))
 
-    def _me(self, db: sqlite3.Connection, email: str, device_id: str | None) -> dict[str, Any]:
+    def _me(self, db: sqlite3.Connection, email: str, device_id: str, now: int) -> dict[str, Any]:
         u = db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-        d = db.execute("SELECT used FROM devices WHERE device_id=?", (device_id,)).fetchone() if device_id else None
         plan = self._plan(email, u["plan"] if u else None)
-        used = u["used"] if u else 0
-        device_used = d["used"] if d else 0
-        free = plan == "free"
+        start = day_start(now)
+        # the phone counts too, so a second account on the same phone doesn't start the day afresh
+        used = max(db.execute(_COUNTED + "email=?", (start, email)).fetchone()[0],
+                   db.execute(_COUNTED + "device_id=?", (start, device_id)).fetchone()[0])
         return {
             "email": email, "name": u["name"] if u else "", "photo_url": u["photo_url"] if u else "",
-            "plan": plan, "is_admin": plan == "admin", "free_limit": FREE_ANALYSES,
-            "used": used, "remaining": max(FREE_ANALYSES - used, 0) if free else None,
-            "device_used": device_used,
-            "device_remaining": max(FREE_ANALYSES - device_used, 0) if free else None,
-            "contact_email": CONTACT_EMAIL,
+            "plan": plan, "is_admin": plan == "admin", "daily_limit": DAILY_FREE_REVIEWS,
+            "remaining": max(DAILY_FREE_REVIEWS - used, 0) if plan == "free" else None,
+            "resets_at": start + _DAY_S,
         }
 
-    def me(self, ident: dict[str, Any], device_id: str | None) -> dict[str, Any]:
+    def me(self, ident: dict[str, Any], device_id: str) -> dict[str, Any]:
+        now = int(time.time())
         with closing(self._db()) as db:
-            self._touch(db, ident, device_id, int(time.time()))
-            return self._me(db, ident["email"], device_id)
+            self._touch(db, ident, now)
+            return self._me(db, ident["email"], device_id, now)
 
     def take_use(self, ident: dict[str, Any], device_id: str, job_id: str, key: str | None,
-                 alive: Callable[[str], bool]) -> str | None:
-        """Record the job and take one free use if needed. Returns the job id to answer with (an earlier
-        one for a repeated retry key), or None when no free use is left."""
+                 alive: Callable[[str], bool]) -> str:
+        """Record the job and return the id to answer with (an earlier one for a repeated retry key),
+        or raise Refused when the account has a job running or no free review left today."""
         now = int(time.time())
+        email = ident["email"]
         with self._write() as db:
-            self._touch(db, ident, device_id, now)
+            self._touch(db, ident, now)
             row = db.execute("SELECT job_id, status, created_at FROM jobs WHERE email=? AND idem_key=?",
-                             (ident["email"], key)).fetchone() if key else None
+                             (email, key)).fetchone() if key else None
             if row is not None:
-                if row["status"] != "failed" and now - row["created_at"] < _KEY_TTL_S and alive(row["job_id"]):
+                if row["status"] != "failed" and now - row["created_at"] < _DAY_S and alive(row["job_id"]):
                     return row["job_id"]
-                # a failed job gave its use back and an expired or wiped one can't be polled, so start afresh
+                # a failed job doesn't count and an expired or wiped one can't be polled, so start afresh
                 db.execute("UPDATE jobs SET idem_key=NULL WHERE job_id=?", (row["job_id"],))
-            m = self._me(db, ident["email"], device_id)
-            charged = 1 if m["plan"] == "free" else 0
-            if charged and (m["remaining"] == 0 or m["device_remaining"] == 0):
-                return None
-            db.execute("INSERT INTO jobs(job_id, email, device_id, charged, created_at, idem_key) "
-                       "VALUES(?,?,?,?,?,?)", (job_id, ident["email"], device_id, charged, now, key))
-            if charged:
-                db.execute("UPDATE users SET used=used+1 WHERE email=?", (ident["email"],))
-                db.execute("UPDATE devices SET used=used+1 WHERE device_id=?", (device_id,))
+            live = db.execute("SELECT job_id FROM jobs WHERE email=? AND status IN ('queued','running')",
+                              (email,)).fetchone()
+            if live is not None:
+                raise Refused(409, "job_in_progress", job_id=live["job_id"])
+            m = self._me(db, email, device_id, now)
+            if m["remaining"] == 0:
+                raise Refused(402, "daily_limit_reached", resets_at=m["resets_at"])
+            db.execute("INSERT INTO jobs(job_id, email, device_id, charged, created_at, idem_key) VALUES(?,?,?,?,?,?)",
+                       (job_id, email, device_id, int(m["plan"] == "free"), now, key))
             return job_id
 
     def record(self, job_id: str, status: str, decision: str | None = None) -> None:
-        """Store where a job is; a failed one or one with no call gives its use back, and only ever once."""
-        with self._write() as db:
-            row = db.execute("SELECT email, device_id, charged, refunded FROM jobs WHERE job_id=?",
-                             (job_id,)).fetchone()
-            if row is None:
-                return
+        with closing(self._db()) as db:
             db.execute("UPDATE jobs SET status=?, decision=? WHERE job_id=?", (status, decision, job_id))
-            if (status == "failed" or decision == "none") and row["charged"] and not row["refunded"]:
-                db.execute("UPDATE jobs SET refunded=1 WHERE job_id=?", (job_id,))
-                # a reset in between may already have zeroed the count, so never go below 0
-                db.execute("UPDATE users SET used=MAX(used-1,0) WHERE email=?", (row["email"],))
-                db.execute("UPDATE devices SET used=MAX(used-1,0) WHERE device_id=?", (row["device_id"],))
 
     def fail_unfinished(self) -> int:
         # the worker that owned these died with the last process, so they count as failed
         with closing(self._db()) as db:
-            ids = [r[0] for r in db.execute("SELECT job_id FROM jobs WHERE status IN ('queued','running')")]
-        for jid in ids:
-            self.record(jid, "failed")
-        return len(ids)
+            return db.execute("UPDATE jobs SET status='failed' WHERE status IN ('queued','running')").rowcount
+
+    def delete_user(self, email: str) -> list[str]:
+        """Remove the account and its jobs; returns the job ids whose folders must go too."""
+        with self._write() as db:
+            ids = [r[0] for r in db.execute("SELECT job_id FROM jobs WHERE email=?", (email,))]
+            db.execute("DELETE FROM jobs WHERE email=?", (email,))
+            db.execute("DELETE FROM users WHERE email=?", (email,))
+        return ids
+
+    def purge_jobs(self, before: int) -> None:
+        with closing(self._db()) as db:
+            db.execute("DELETE FROM jobs WHERE created_at<?", (before,))
+
+    def backup(self) -> None:
+        """One copy of the database per UTC day in backups/ next to it; the last week's are kept."""
+        folder = self._path.parent / "backups"
+        dest = folder / time.strftime("pocketdrs-%Y-%m-%d.db", time.gmtime())
+        if dest.exists():
+            return
+        folder.mkdir(exist_ok=True)
+        # written aside and renamed, so a restart mid-copy never leaves a half file that counts as done
+        tmp = dest.with_suffix(".tmp")
+        tmp.unlink(missing_ok=True)
+        with closing(self._db()) as src, closing(sqlite3.connect(tmp)) as dst:
+            src.backup(dst)
+        os.replace(tmp, dest)
+        for old in sorted(folder.glob("pocketdrs-*.db"))[:-_BACKUPS_KEPT]:
+            old.unlink()
 
     # admin
 
@@ -234,7 +254,7 @@ class Accounts:
 
     def _user(self, r: sqlite3.Row) -> dict[str, Any]:
         return {"email": r["email"], "name": r["name"], "plan": self._plan(r["email"], r["plan"]),
-                "used": r["used"], "jobs": r["jobs"], "created_at": r["created_at"], "last_seen": r["last_seen"]}
+                "jobs": r["jobs"], "created_at": r["created_at"], "last_seen": r["last_seen"]}
 
     def list_users(self, q: str = "") -> list[dict[str, Any]]:
         with closing(self._db()) as db:
@@ -242,27 +262,14 @@ class Accounts:
                               (q.strip().lower(),)).fetchall()
         return [self._user(r) for r in rows]
 
-    def update_user(self, email: str, plan: str | None, reset_used: bool) -> dict[str, Any]:
+    def update_user(self, email: str, plan: str) -> dict[str, Any]:
         now = int(time.time())
         with closing(self._db()) as db:
             # a row made before the person signs in lets premium be granted ahead of time
             db.execute("INSERT INTO users(email, created_at, last_seen) VALUES(?,?,?) ON CONFLICT(email) DO NOTHING",
                        (email, now, now))
-            if plan is not None:
-                db.execute("UPDATE users SET plan=? WHERE email=?", (plan, email))
-            if reset_used:
-                db.execute("UPDATE users SET used=0 WHERE email=?", (email,))
-                # their phones count too, including one a friend used up before they ever got a review on it
-                db.execute("UPDATE devices SET used=0 WHERE last_email=? OR device_id IN "
-                           "(SELECT device_id FROM jobs WHERE email=?)", (email, email))
+            db.execute("UPDATE users SET plan=? WHERE email=?", (plan, email))
             return self._user(db.execute(self._USERS + "WHERE u.email=?", (email,)).fetchone())
-
-    def list_devices(self, q: str = "") -> list[dict[str, Any]]:
-        with closing(self._db()) as db:
-            rows = db.execute(
-                "SELECT * FROM devices WHERE instr(device_id, ?) OR instr(last_email, ?) "
-                "ORDER BY last_seen DESC LIMIT 500", (q.strip(), q.strip().lower())).fetchall()
-        return [dict(r) for r in rows]
 
     def list_jobs(self, email: str = "") -> list[dict[str, Any]]:
         with closing(self._db()) as db:
@@ -271,13 +278,8 @@ class Accounts:
                 "WHERE ?='' OR email=? ORDER BY created_at DESC, rowid DESC LIMIT 50", (email, email)).fetchall()
         return [dict(r) for r in rows]
 
-    def reset_device(self, device_id: str) -> bool:
-        with closing(self._db()) as db:
-            return db.execute("UPDATE devices SET used=0 WHERE device_id=?", (device_id,)).rowcount == 1
-
     def stats(self) -> dict[str, int]:
-        start = datetime.now(_NPT).replace(hour=0, minute=0, second=0, microsecond=0)
-        today = int(start.timestamp())
+        today = day_start(int(time.time()))
         admins = list(admin_emails())
         marks = ",".join("?" * len(admins)) or "''"
         with closing(self._db()) as db:
@@ -286,7 +288,6 @@ class Accounts:
                 "users": one("SELECT COUNT(*) FROM users"),
                 "premium": one(f"SELECT COUNT(*) FROM users WHERE plan='premium' AND email NOT IN ({marks})", *admins),
                 "jobs_today": one("SELECT COUNT(*) FROM jobs WHERE created_at>=?", today),
-                "jobs_total": one("SELECT COUNT(*) FROM jobs"),
                 "failed_today": one("SELECT COUNT(*) FROM jobs WHERE created_at>=? AND status='failed'", today),
             }
 

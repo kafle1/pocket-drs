@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import multiprocessing
 import os
 import re
 import shutil
@@ -11,6 +12,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from multiprocessing.connection import wait as wait_for_exit
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +27,7 @@ from starlette.datastructures import UploadFile as FormFile
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import accounts as acc
-from .jobs import JobPaths, JobStore, default_job_store
+from .jobs import MAX_JOB_AGE_S, JobPaths, JobStore, default_job_store, run_job
 from .logging_setup import configure_logging, request_id_ctx
 from .models import (
     ApiError,
@@ -36,11 +38,10 @@ from .models import (
     JobStatusResponse,
     ProgressInfo,
 )
-from .pipeline.process_job import map_exception_to_api_error, run_pipeline
 from .three_d_viewer import render_html
 
 
-configure_logging(log_level=os.environ.get("POCKET_DRS_LOG_LEVEL", "info"))
+configure_logging()
 _log = logging.getLogger("pocket_drs")
 
 
@@ -53,7 +54,9 @@ async def _lifespan(app: FastAPI):
     refunded = _accounts.fail_unfinished()
     if refunded:
         _log.warning("Gave back the free use of %d unfinished job(s)", refunded)
+    housekeeping = asyncio.create_task(_housekeeping())
     yield
+    housekeeping.cancel()
 
 
 # no /docs: it would hand strangers a map of the admin routes
@@ -83,7 +86,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             dur_ms = (time.perf_counter() - start) * 1000.0
-            # no client address: the log is never rotated, so it must not hold anything personal
+            # no client address, so the log holds nothing personal
             _log.info("%s %s -> %d %.1fms", request.method, request.url.path, status_code, dur_ms)
             request_id_ctx.reset(token)
 
@@ -142,6 +145,34 @@ _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="job-worker")
 _MAX_JOBS = 25
 _job_slots = threading.Semaphore(_MAX_JOBS)
 _uploads = asyncio.Semaphore(_MAX_JOBS)
+# each job runs in its own process so a hung decode can be killed; the forkserver imports the pipeline once
+_JOB_TIMEOUT_S = 180
+_procs = multiprocessing.get_context("forkserver")
+_procs.set_forkserver_preload(["app.pipeline.process_job"])
+# jobs waiting for the worker, in order, and the process of the one running; an account deletion reads both
+_queue: list[str] = []
+_live: dict[str, Any] = {}
+_live_lock = threading.Lock()
+_TIMED_OUT = ApiError(code="TIMED_OUT", message="This clip took too long to check. Trim it to just the delivery "
+                      "and send it again.")
+_CRASHED = ApiError(code="INTERNAL_ERROR", message="Something went wrong checking this ball. Try again, or try "
+                    "another clip.")
+
+
+async def _housekeeping() -> None:
+    # at every start and then hourly, so a restart in the middle of a cleanup just runs it again
+    while True:
+        try:
+            await run_in_threadpool(_tidy)
+        except Exception:  # noqa: BLE001
+            _log.exception("housekeeping failed")
+        await asyncio.sleep(3600)
+
+
+def _tidy() -> None:
+    _store.sweep()
+    _accounts.purge_jobs(int(time.time()) - MAX_JOB_AGE_S)
+    _accounts.backup()
 
 
 def _load_json(s: str) -> dict[str, Any]:
@@ -172,9 +203,10 @@ async def _revalidate_web(request: Request, call_next):
     return response
 
 
-# the website for phones without the Android app; /admin is the same page showing the admin panel
+# the website for phones without the Android app; /admin and /delete-account are the same page showing another panel
 @app.get("/", include_in_schema=False)
 @app.get("/admin", include_in_schema=False)
+@app.get("/delete-account", include_in_schema=False)
 def website() -> FileResponse:
     return FileResponse(_WEB / "index.html", headers={"Cache-Control": "no-cache"})
 
@@ -214,16 +246,29 @@ def _identify(request: Request, need_device: bool) -> tuple[dict[str, Any], str 
     return ident, device_id
 
 
-def _used_up() -> JSONResponse:
-    return _err(402, "trials_used_up")
-
-
 @app.get("/v1/me")
 def me(request: Request):
     who = _identify(request, need_device=True)
     if isinstance(who, JSONResponse):
         return who
     return _accounts.me(*who)
+
+
+@app.delete("/v1/me")
+def delete_me(request: Request):
+    who = _identify(request, need_device=False)
+    if isinstance(who, JSONResponse):
+        return who
+    job_ids = _accounts.delete_user(who[0]["email"])
+    with _live_lock:
+        for job_id in job_ids:
+            if child := _live.get(job_id):
+                # gone before its folder is, so it can't write into it after the delete
+                child.kill()
+                wait_for_exit([child.sentinel], 10)
+        _store.remove(job_ids)
+    _log.info("deleted an account and its %d job(s)", len(job_ids))
+    return Response(status_code=204)
 
 
 def _admin(request: Request) -> JSONResponse | None:
@@ -254,29 +299,12 @@ async def admin_update_user(email: str, request: Request):
         body = None
     if not isinstance(body, dict):
         return _err(400, "bad_request")
-    plan, reset = body.get("plan"), body.get("reset_used", False)
-    if plan not in (None, "free", "premium") or not isinstance(reset, bool):
+    plan = body.get("plan")
+    if plan not in ("free", "premium"):
         return _err(400, "bad_request")
-    if plan is not None and target in acc.admin_emails():
+    if target in acc.admin_emails():
         return _err(400, "admin_plan_locked")
-    return await run_in_threadpool(_accounts.update_user, target, plan, reset)
-
-
-@app.get("/v1/admin/devices")
-def admin_devices(request: Request, q: str = ""):
-    return _admin(request) or {"devices": _accounts.list_devices(q)}
-
-
-@app.post("/v1/admin/devices/{device_id}/reset")
-def admin_reset_device(device_id: str, request: Request):
-    denied = _admin(request)
-    if denied:
-        return denied
-    if not acc.valid_device(device_id):
-        return _err(400, "device_id_required")
-    if not _accounts.reset_device(device_id):
-        return _err(404, "not_found")
-    return {"device_id": device_id, "used": 0}
+    return await run_in_threadpool(_accounts.update_user, target, plan)
 
 
 @app.get("/v1/admin/stats")
@@ -305,35 +333,43 @@ def _write_failed_status_safe(paths: JobPaths, error: ApiError) -> None:
         _log.exception("could not mark job %s failed", paths.job_dir.name)
 
 
-def _process_job(job_id: str, video_path: Path, request_json: dict[str, Any], artifacts_dir: Path) -> None:
-    paths = _store.job_paths(job_id)
-    last = None
-
-    # the pipeline reports every decoded frame, so only a new percent or stage is written to disk
-    def progress(pct: int, stage: str) -> None:
-        nonlocal last
-        if (pct, stage) != last:
-            _store.write_status(paths, status=JobStatus.running, progress=ProgressInfo(pct=pct, stage=stage), error=None)
-            last = (pct, stage)
-
+def _process_job(job_id: str, paths: JobPaths, request_json: dict[str, Any]) -> None:
     try:
+        with _live_lock:
+            _queue.remove(job_id)
+            # the account was deleted while this job waited
+            if not paths.job_dir.exists():
+                return
+            child = _procs.Process(target=run_job, args=(paths, request_json), daemon=True)
+            child.start()
+            _live[job_id] = child
         _record_safe(job_id, "running")
-        progress(1, "starting")
-        out = run_pipeline(video_path=video_path, request_json=request_json, artifacts_dir=artifacts_dir,
-                           progress=progress)
-        _store.write_result(paths, out.result)
-        _store.write_status(paths, status=JobStatus.succeeded, progress=ProgressInfo(pct=100, stage="succeeded"),
-                            error=None)
-        _log.info("job %s done with %d warnings", job_id, len(out.warnings))
-        _record_safe(job_id, "succeeded", (out.result.get("lbw") or {}).get("decision") or "none")
-    except Exception as e:  # noqa: BLE001
-        _log.exception("job %s failed", job_id)
-        _write_failed_status_safe(paths, map_exception_to_api_error(e))
+        child.join(_JOB_TIMEOUT_S)
+        timed_out = child.is_alive()
+        if timed_out:
+            child.kill()
+            child.join()
+        with _live_lock:
+            del _live[job_id]
+            if not paths.job_dir.exists():
+                return
+            status = _store.read_status(paths)["status"]
+            if status not in ("succeeded", "failed"):
+                _log.error("job %s %s", job_id, "timed out" if timed_out else f"died with exit code {child.exitcode}")
+                _write_failed_status_safe(paths, _TIMED_OUT if timed_out else _CRASHED)
+                status = "failed"
+            decision = None
+            if status == "succeeded":
+                decision = (_store.read_result(paths).get("lbw") or {}).get("decision") or "none"
+            _record_safe(job_id, status, decision)
+    except Exception:  # noqa: BLE001
+        _log.exception("job %s could not run", job_id)
+        _write_failed_status_safe(paths, _CRASHED)
         _record_safe(job_id, "failed")
     finally:
         _job_slots.release()
         # nothing serves the clip back, so it goes as soon as the analysis ends
-        video_path.unlink(missing_ok=True)
+        paths.video_path.unlink(missing_ok=True)
 
 
 def _earlier_job(job_id: str) -> CreateJobResponse:
@@ -382,18 +418,16 @@ async def create_job(request: Request):
             raise HTTPException(status_code=400, detail=_BAD_REQUEST)
 
         if not _job_slots.acquire(blocking=False):
-            raise HTTPException(
-                status_code=503,
-                detail=f"Server busy: {_MAX_JOBS} jobs already queued or running, try again shortly",
-            )
+            return _err(503, "server_busy")
 
         submitted, paths = False, None
         try:
             job_id, paths = _store.create_job()
             # one sqlite write lock, so two uploads at once can't both take the last use
-            got = await run_in_threadpool(_accounts.take_use, ident, device_id, job_id, key, _store.exists)
-            if got is None:
-                return _used_up()
+            try:
+                got = await run_in_threadpool(_accounts.take_use, ident, device_id, job_id, key, _store.exists)
+            except acc.Refused as e:
+                return JSONResponse(e.body, status_code=e.status)
             if got != job_id:
                 # a retry of a clip that already went through gets that job back
                 return _earlier_job(got)
@@ -401,7 +435,8 @@ async def create_job(request: Request):
             with paths.video_path.open("wb") as f:
                 await run_in_threadpool(shutil.copyfileobj, video_file.file, f, 1 << 20)
 
-            _executor.submit(_process_job, job_id, paths.video_path, req_dict, paths.artifacts_dir)
+            _queue.append(job_id)
+            _executor.submit(_process_job, job_id, paths, req_dict)
             submitted = True
         except Exception:
             _log.exception("Failed to save the uploaded video")
@@ -434,7 +469,13 @@ def get_job_status(job_id: str) -> JobStatusResponse:
     progress = ProgressInfo(**progress_raw) if isinstance(progress_raw, dict) else None
     error = ApiError(**error_raw) if isinstance(error_raw, dict) else None
 
-    return JobStatusResponse(job_id=job_id, status=status, progress=progress, error=error)
+    position = None
+    if status == JobStatus.queued:
+        try:
+            position = _queue.index(job_id) + 1
+        except ValueError:  # the worker took it between the status read and here
+            pass
+    return JobStatusResponse(job_id=job_id, status=status, queue_position=position, progress=progress, error=error)
 
 
 @app.get("/v1/jobs/{job_id}/result", response_model=JobResultResponse)
