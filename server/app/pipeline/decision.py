@@ -10,6 +10,7 @@ half-width the verdict is umpire's call rather than a guess.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from .calibration import STUMP_HEIGHT_M, STUMP_OUTER_HALF_M
@@ -26,6 +27,8 @@ class Verdict:
     pitching_in_line: bool
     impact_in_line: bool
     wickets_hitting: bool | None     # None: no stump-plane prediction
+    p_out: float                     # chance every check is clearly in, from the 1-sigmas; nan with no prediction
+    p_not_out: float                 # chance one check is clearly out
 
     @property
     def tones(self) -> dict[str, str]:
@@ -51,6 +54,27 @@ def _band(value: float, outer: float, sigma: float, k: float) -> str:
     return "out"
 
 
+def _phi(x: float) -> float:
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _p(value: float, sigma: float) -> float:
+    """Chance the true signed distance is above zero."""
+    return _phi(value / sigma) if sigma > 0 else float(value > 0)
+
+
+def _inside_zone(y: float, z: float, w: float, top: float) -> tuple[float, float, float]:
+    """Signed distance from the ball centre into the stumps' face (negative outside, measured to the
+    nearest edge or corner), and its slope in y and z."""
+    dy, dz = abs(y) - w, z - top
+    if dy > 0 and dz > 0:                              # beside and above: the corner is nearest
+        r = math.hypot(dy, dz)
+        return -r, -math.copysign(dy / r, y), -dz / r
+    if dy >= dz:
+        return -dy, -math.copysign(1.0, y), 0.0
+    return -dz, 0.0, -1.0
+
+
 def decide(
     *,
     leg_sign: float,
@@ -65,22 +89,27 @@ def decide(
     k: float = 1.0,
     stump_half: float = STUMP_OUTER_HALF_M,
     stump_height: float = STUMP_HEIGHT_M,
+    ball_radius: float = BALL_RADIUS_M,
+    shot_played: bool = True,
 ) -> Verdict:
     """``leg_sign`` maps world +y onto the batter's leg side (+1 or -1). Lateral quantities
     are metres from the middle-stump line, distances in the reasons are from the outer edge of
     the stumps; ``stump_z`` is the ball-centre height at the stump plane. Any None means the
     quantity was not measured. The stumps are the ones in the clip, regulation unless stated."""
-    R = BALL_RADIUS_M
+    R = ball_radius
     w = stump_half
     top_m = stump_height + BAIL_RISE_M      # ICC 2021: zone top is the top of the stumps with bails
     reasons: list[str] = []
     close: list[str] = []
+    p_in, p_clear = [], []                  # per check: chance clearly in, and chance not clearly out
 
     # Law 36.1.3: a ball pitching outside the line of the leg stump cannot bring an lbw.
     # Judged on the ball centre with no umpire's call (Appendix D 3.4.4).
     pitching = True
     if pitch_y is not None:
         leg_dist = w - pitch_y * leg_sign          # positive = on or inside the leg line
+        p_in.append(_p(leg_dist, pitch_sigma))
+        p_clear.append(p_in[-1])
         state = _band(leg_dist, 0.0, pitch_sigma, k)
         if state == "out":
             pitching = False
@@ -88,12 +117,12 @@ def decide(
         elif state == "marginal":
             close.append("pitching close to leg stump")
 
-    # Law 36.1.4: impact outside the line of off is not out if a shot was offered. We cannot
-    # see the shot, so impact outside the line on either side is treated as not in line,
-    # which is the batter's benefit.
+    # Law 36.1.4: impact outside off is not out only when a shot was offered; outside leg never is.
     impact = True
-    if impact_y is not None:
+    if impact_y is not None and (shot_played or impact_y * leg_sign > 0):
         dist = w - abs(impact_y)
+        p_in.append(_p(dist, impact_sigma))
+        p_clear.append(_p(dist + R, impact_sigma))
         state = _band(dist, R, impact_sigma, k)
         if state == "out":
             impact = False
@@ -104,22 +133,27 @@ def decide(
 
     hitting = None                 # unknown without a stump-plane prediction
     if stump_y is not None and stump_z is not None:
-        lat = _band(w - abs(stump_y), R, sigma_y, k)
-        top = _band(top_m - stump_z, R, sigma_z, k)   # ponytail: per-axis, ignores the rounded corner
-        if lat == "out" or top == "out" or stump_z < 0.0:
+        d, gy, gz = _inside_zone(stump_y, stump_z, w, top_m)
+        s = math.hypot(gy * sigma_y, gz * sigma_z)
+        p_in.append(_p(d, s))
+        p_clear.append(_p(d + R, s))
+        state = _band(d, R, s, k)
+        if state == "out" or stump_z < 0.0:
             hitting = False
             reasons.append("missing the stumps")
         else:
             hitting = True
-            if lat == "marginal" or top == "marginal":
+            if state == "marginal":
                 close.append("clipping the stumps")
     else:
         reasons.append("no stump-plane prediction")
+    p_out = math.prod(p_in) if hitting is not None else float("nan")
+    p_not_out = 1.0 - math.prod(p_clear) if hitting is not None else float("nan")
 
     # a clear fail on any of the three is not out, even when another one is marginal or unmeasured
     if pitching and impact and hitting is not False:
         if close or hitting is None:
             why = "no stump-plane prediction" if hitting is None else ", ".join(close)
-            return Verdict(UMPIRES_CALL, f"umpire's call: {why}", pitching, impact, hitting)
-        return Verdict(OUT, "hitting the stumps", pitching, impact, hitting)
-    return Verdict(NOT_OUT, "; ".join(reasons) or "not out", pitching, impact, hitting)
+            return Verdict(UMPIRES_CALL, f"umpire's call: {why}", pitching, impact, hitting, p_out, p_not_out)
+        return Verdict(OUT, "hitting the stumps", pitching, impact, hitting, p_out, p_not_out)
+    return Verdict(NOT_OUT, "; ".join(reasons) or "not out", pitching, impact, hitting, p_out, p_not_out)
