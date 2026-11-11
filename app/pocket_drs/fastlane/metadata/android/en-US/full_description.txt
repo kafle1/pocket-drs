@@ -1,30 +1,31 @@
-Pocket DRS turns one phone into a ball-tracking camera for cricket practice.
+Pocket DRS gives you an LBW review from one phone clip. No licence to buy, no demo call to book, no special camera. Sign in with Google and check your first ball today.
 
-Put the phone on a tripod behind the bowler's stumps, mark both sets of stumps once, and press Ball (or a volume key) after each delivery. For every ball you get:
+Film the delivery from behind the bowler's stumps, mark both sets of stumps, and send it. For every ball you get:
 
 • where it pitched
 • where it hit the pad
-• where it would have gone on to the stumps, drawn over your video and in 3D
-• the speed, when the clip shows enough of the ball to measure it
-• an LBW verdict: out, not out, or umpire's call, with the reason
+• whether it was going on to hit the stumps, drawn over your own video and in 3D
+• the call: out, not out, or umpire's call, with the reason
 
-How sure it is
-Every number comes with how far off it could be. When the clip can't support a call, the verdict is umpire's call. When the tracked ball doesn't make sense, or the path is too unsure to call, you get no verdict and a short note on what to fix, never a guess.
+Straight about close calls
+When it's too close to call, you get umpire's call. When a clip can't be judged, you get no call and the reason why, so you know what to change next time.
+
+Works on any pitch
+You mark the stumps yourself, so it works in the nets, at the club or in the backyard. Short or long pitch? Set the real pitch length in Settings.
 
 What you need
-• A tripod or anything that holds the phone still, a couple of metres behind the bowler's stumps
+• Anything that holds the phone still behind the bowler's stumps
 • Both sets of stumps in the frame
 • A red or pink ball
 • The main camera lens, not the ultra-wide
-• An internet connection. The video is analysed on a server and a result takes about 20 to 30 seconds.
+• An internet connection, as the clip is checked on our server
 
-Short net? Set the real pitch length in Settings.
-
-Also works on clips you already have: Analyse a video, trim to the delivery, mark the stumps, send.
+Free every day
+You get 5 free reviews every day. A ball that fails or gets no call doesn't count.
 
 Privacy
-Sign in with Google. No ads. The server deletes your video as soon as it has analysed it, and the results after a day.
+Sign in with Google. No ads. The server deletes your clip as soon as it has checked it and the result after a day. You can delete your account at any time in Settings.
 
-It is a coaching tool, not an umpire. It can't tell bat from pad, so a ball that hit the bat first isn't out whatever the verdict says.
+Pocket DRS is a coaching tool, not an umpire. It can't tell bat from pad, so a ball that hit the bat first isn't out whatever the call says.
 
-Pocket DRS is open source under the AGPL-3.0.
+Pocket DRS is not affiliated with the ICC or Hawk-Eye. It is open source under the AGPL-3.0.
