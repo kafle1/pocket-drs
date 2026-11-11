@@ -45,6 +45,12 @@ class Review {
   // live progress while checking, never saved
   int? pct;
   String? stage;
+  // place in the server's line, 1 meaning next
+  int? queue;
+  // waiting for another ball of this account to finish, since the server runs one at a time;
+  // [waitingFor] is that ball when it was sent from this phone
+  bool waitingTurn = false;
+  Review? waitingFor;
 
   String get clip => '$dir/clip.mp4';
   String get frame => '$dir/frame.jpg';
@@ -248,13 +254,50 @@ class Reviews extends ChangeNotifier {
           }
         }
         final bytes = await File(r.clip).readAsBytes();
-        if (gone()) return;
-        r.jobId = await api.createJob(
-          videoBytes: bytes,
-          videoFilename: 'clip.mp4',
-          requestJson: r.request,
-          idempotencyKey: r.idem,
-        );
+        // the server takes one job per account at a time, so balls queue here oldest first
+        while (r.jobId == null) {
+          final ahead = _items
+              .where((o) => o.busy && o.createdAt.isBefore(r.createdAt))
+              .toList();
+          for (final o in ahead) {
+            r
+              ..waitingTurn = true
+              ..waitingFor = o;
+            notifyListeners();
+            await _settled(o, gone);
+          }
+          r
+            ..waitingTurn = false
+            ..waitingFor = null;
+          if (gone()) return;
+          try {
+            r.jobId = await api.createJob(
+              videoBytes: bytes,
+              videoFilename: 'clip.mp4',
+              requestJson: r.request,
+              idempotencyKey: r.idem,
+            );
+          } on ApiException catch (e) {
+            if (e.kind != ApiErrorKind.jobInProgress || e.jobId == null) {
+              rethrow;
+            }
+            final ours = _items.where((o) => o.jobId == e.jobId).firstOrNull;
+            r
+              ..waitingTurn = true
+              ..waitingFor = ours;
+            notifyListeners();
+            if (ours != null) {
+              await _settled(ours, gone);
+            } else {
+              // sent from another phone or the website; only its end matters, not its call
+              await api
+                  .waitForResult(e.jobId!, cancelled: gone)
+                  .then((_) {}, onError: (_) {});
+              // a check that failed fast must not turn this into a tight upload loop
+              await Future<void>.delayed(const Duration(seconds: 2));
+            }
+          }
+        }
         if (gone()) return;
         await _save(r);
       }
@@ -264,6 +307,7 @@ class Reviews extends ChangeNotifier {
         cancelled: gone,
         onStatus: (s) {
           r
+            ..queue = s.queuePosition
             ..pct = s.pct
             ..stage = s.stage ?? s.status;
           notifyListeners();
@@ -296,6 +340,13 @@ class Reviews extends ChangeNotifier {
         ..error = e.message
         ..errorCode = e.code
         ..worstMark = e.worstMark;
+      // the server stopped a slow check and kept the review, so the same clip can go again
+      if (e.code == 'TIMED_OUT') {
+        r
+          ..jobId = null
+          ..idem = newIdempotencyKey()
+          ..retryable = true;
+      }
     } on FileSystemException {
       r
         ..state = ReviewState.failed
@@ -311,9 +362,26 @@ class Reviews extends ChangeNotifier {
     if (gone()) return;
     r
       ..pct = null
-      ..stage = null;
+      ..stage = null
+      ..queue = null
+      ..waitingTurn = false
+      ..waitingFor = null;
     notifyListeners();
     await _save(r);
+  }
+
+  // done when [o] stops running, is deleted, or the person signs out
+  Future<void> _settled(Review o, bool Function() gone) {
+    final c = Completer<void>();
+    void check() {
+      if (o.busy && !gone() && _items.contains(o)) return;
+      removeListener(check);
+      c.complete();
+    }
+
+    addListener(check);
+    check();
+    return c.future;
   }
 
   // written aside then renamed, so a kill mid-write never leaves half a file

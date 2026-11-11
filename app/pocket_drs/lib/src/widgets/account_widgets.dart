@@ -8,8 +8,8 @@ import '../theme/app_spacing.dart';
 String planLine(Me me) => switch (me) {
   Me(isAdmin: true) => 'Admin, unlimited reviews',
   Me(left: null) => 'Premium, unlimited reviews',
-  Me(:final left?, :final freeLimit) =>
-    '${left.clamp(0, freeLimit)} of $freeLimit free reviews left today',
+  Me(:final left?, :final dailyLimit) =>
+    '${left.clamp(0, dailyLimit)} of $dailyLimit free reviews left today',
 };
 
 /// When the free reviews come back, in the phone's own time; null when the server doesn't say.

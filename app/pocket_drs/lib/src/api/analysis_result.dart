@@ -29,10 +29,6 @@ abstract final class Assumed {
   static const worstMark = 'worst_mark';
   // request calibration.stump_dimensions_m: {height: number, width: number}, sent only for non-regulation stumps
   static const stumpDimensions = 'stump_dimensions_m';
-  // GET /v1/me resets_at: ISO 8601 UTC string, when the daily free reviews come back
-  static const resetsAt = 'resets_at';
-  // DELETE /v1/me with the user's sign-in, 2xx once the account and its reviews are gone
-  static const deleteAccountPath = '/v1/me';
 }
 
 class AnalysisResult {

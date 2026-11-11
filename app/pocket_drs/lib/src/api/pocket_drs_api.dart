@@ -69,7 +69,15 @@ String newIdempotencyKey() {
       '${h.substring(16, 20)}-${h.substring(20)}';
 }
 
-enum ApiErrorKind { network, timeout, server, badResponse, signIn, usedUp }
+enum ApiErrorKind {
+  network,
+  timeout,
+  server,
+  badResponse,
+  signIn,
+  usedUp,
+  jobInProgress,
+}
 
 const kCantConnect =
     "Can't reach the server. Check your internet, or try again later.";
@@ -85,7 +93,9 @@ class ApiException implements Exception {
   final ApiErrorKind kind;
   final String message;
   final int? statusCode;
-  ApiException(this.kind, this.message, {this.statusCode});
+  // the account's job still running, when the server turned a second one away
+  final String? jobId;
+  ApiException(this.kind, this.message, {this.statusCode, this.jobId});
   @override
   String toString() => message;
 }
@@ -136,6 +146,8 @@ const notCounted = "This one didn't use up a free review.";
 String _jobErrorMessage(String? code) => switch (code) {
   'VIDEO_DECODE_FAILED' =>
     "The server couldn't read this video. Try another clip.",
+  'TIMED_OUT' =>
+    'This clip took too long to check. Trim it to just the delivery and send it again.',
   'CALIBRATION_DEGENERATE' =>
     "The stump marks don't line up with each other. Zoom in and move the marks onto the corners.",
   _ =>
@@ -164,8 +176,9 @@ class PocketDrsApi {
   /// Sends with the sign-in headers. A 401 gets one fresh token; a second one signs the person out.
   Future<(int, String)> _send(
     http.BaseRequest Function(Future<void> abort) build,
-    Duration timeout,
-  ) async {
+    Duration timeout, {
+    bool device = true,
+  }) async {
     Future<(int, String)> once(Map<String, String> headers) async {
       // a timeout alone leaves the upload running, so a retry would send the clip twice
       final abort = Completer<void>();
@@ -186,9 +199,11 @@ class PocketDrsApi {
       }
     }
 
-    var r = await once(await Account.instance.headers());
+    var r = await once(await Account.instance.headers(device: device));
     if (r.$1 != 401) return r;
-    r = await once(await Account.instance.headers(refresh: true));
+    r = await once(
+      await Account.instance.headers(refresh: true, device: device),
+    );
     if (r.$1 == 401) await Account.instance.signOut();
     return r;
   }
@@ -221,7 +236,6 @@ class PocketDrsApi {
         : null) {
       'bad_email' => 'That does not look like an email.',
       'admin_plan_locked' => "The admin's plan can't be changed.",
-      'not_found' => 'That phone is not on the list any more.',
       _ => null,
     };
     if (reason != null) {
@@ -268,6 +282,16 @@ class PocketDrsApi {
             ),
       Duration(seconds: uploadSeconds),
     );
+    // one live job per account: the screen offers the running one instead
+    if (code == 409 && _errorCode(body) == 'job_in_progress') {
+      final running = _map(body)['job_id'];
+      throw ApiException(
+        ApiErrorKind.jobInProgress,
+        'Another of your balls is still being checked. This one can go once it finishes.',
+        statusCode: 409,
+        jobId: running is String ? running : null,
+      );
+    }
     _throwForStatus(code, jobGone: false);
 
     final Object? decoded;
@@ -332,7 +356,16 @@ class PocketDrsApi {
     }
   }
 
-  Future<void> deleteAccount() => _json('DELETE', Assumed.deleteAccountPath);
+  /// Deletes the account and its reviews on the server; repeating it is harmless.
+  Future<void> deleteAccount() async {
+    final (code, _) = await _send(
+      (abort) =>
+          http.AbortableRequest('DELETE', _u('/v1/me'), abortTrigger: abort),
+      const Duration(seconds: 30),
+      device: false,
+    );
+    _throwForStatus(code, jobGone: false);
+  }
 
   /// Polls [jobId] until it finishes and returns its result, a call or the server's reason for none.
   Future<AnalysisResult> waitForResult(
@@ -450,9 +483,6 @@ class PocketDrsApi {
   Future<List<Map<String, Object?>>> adminUsers(String q) async =>
       _list(await _get('/v1/admin/users${_q(q)}'), 'users');
 
-  Future<List<Map<String, Object?>>> adminDevices(String q) async =>
-      _list(await _get('/v1/admin/devices${_q(q)}'), 'devices');
-
   Future<Map<String, Object?>> adminStats() async =>
       _map(await _get('/v1/admin/stats'));
 
@@ -465,18 +495,11 @@ class PocketDrsApi {
     'jobs',
   );
 
-  Future<void> adminUpdateUser(
-    String email, {
-    String? plan,
-    bool resetUsed = false,
-  }) => _json(
+  Future<void> adminUpdateUser(String email, String plan) => _json(
     'PUT',
     '/v1/admin/users/${Uri.encodeComponent(email.trim().toLowerCase())}',
-    {'plan': ?plan, if (resetUsed) 'reset_used': true},
+    {'plan': plan},
   );
-
-  Future<void> adminResetDevice(String deviceId) =>
-      _json('POST', '/v1/admin/devices/${Uri.encodeComponent(deviceId)}/reset');
 
   void close() => _client.close();
 }
@@ -499,6 +522,7 @@ class JobStatus {
     required this.stage,
     this.errorCode,
     this.worstMark,
+    this.queuePosition,
   });
 
   final String status;
@@ -506,6 +530,8 @@ class JobStatus {
   final String? stage;
   final String? errorCode;
   final int? worstMark;
+  // 1 means next in line; absent once it runs
+  final int? queuePosition;
 
   static JobStatus fromJson(Map<String, Object?> json) {
     final status = json['status'];
@@ -531,6 +557,10 @@ class JobStatus {
       stage: stage,
       errorCode: code is String ? code : null,
       worstMark: worst is int && worst >= 0 && worst < 8 ? worst : null,
+      queuePosition: switch (json['queue_position']) {
+        final int q when q > 0 => q,
+        _ => null,
+      },
     );
   }
 }

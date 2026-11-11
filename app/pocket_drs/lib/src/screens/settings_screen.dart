@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../account/account.dart';
-import '../api/pocket_drs_api.dart';
 import '../reviews/reviews.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
@@ -73,7 +72,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('Delete your account?'),
         content: const Text(
           'Your account, your free review count and every review saved on '
-          "this phone are deleted. This can't be undone.",
+          "this phone are deleted. This can't be undone. Google will ask you "
+          "to confirm it's you first.",
         ),
         actions: [
           TextButton(
@@ -94,17 +94,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (sure != true || !mounted) return;
     setState(() => _deleting = true);
     final messenger = ScaffoldMessenger.of(context);
-    try {
-      await Account.instance.deleteAccount();
-      await Reviews.instance.deleteAll();
-      // signing out drops every screen back to the sign-in gate
-      await Account.instance.signOut();
-    } on ApiException catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text("Your account wasn't deleted. ${e.message}")),
-      );
-      if (mounted) setState(() => _deleting = false);
-    }
+    // success signs out, which drops every screen back to the sign-in gate
+    final err = await Account.instance.deleteAccount(
+      Reviews.instance.deleteAll,
+    );
+    if (err == null) return;
+    messenger.showSnackBar(
+      SnackBar(content: Text("Your account wasn't deleted. $err")),
+    );
+    if (mounted) setState(() => _deleting = false);
   }
 
   @override

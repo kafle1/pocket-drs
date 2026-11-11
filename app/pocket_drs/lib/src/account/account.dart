@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../api/analysis_result.dart';
 import '../api/pocket_drs_api.dart';
 
 const _native = MethodChannel('pocket_drs/native');
@@ -21,7 +20,7 @@ class Me {
     required this.name,
     required this.plan,
     required this.isAdmin,
-    required this.freeLimit,
+    required this.dailyLimit,
     required this.left,
     required this.resetsAt,
   });
@@ -30,31 +29,29 @@ class Me {
   final String name;
   final String plan;
   final bool isAdmin;
-  final int freeLimit;
-  // fewest reviews left on this account or this phone; null means unlimited
+  final int dailyLimit;
+  // free reviews left today; null means unlimited
   final int? left;
-  // when today's free reviews come back, in local time; null when the server doesn't say
+  // midnight UTC, when today's free reviews come back, in the phone's time
   final DateTime? resetsAt;
 
   bool get usedUp => left != null && left! <= 0;
 
   static Me fromJson(Map<String, Object?> j) {
     int? n(Object? v) => v is num ? v.toInt() : null;
-    final r = n(j['remaining']);
-    final d = n(j['device_remaining']);
-    final left = r == null ? d : (d == null ? r : min(r, d));
     final plan = j['plan'] is String ? j['plan'] as String : 'free';
     return Me(
       email: j['email'] is String ? j['email'] as String : '',
       name: j['name'] is String ? j['name'] as String : '',
       plan: plan,
       isAdmin: j['is_admin'] == true,
-      freeLimit: n(j['free_limit']) ?? 5,
+      dailyLimit: n(j['daily_limit']) ?? 0,
       // premium and admin come back with nulls, a free account never should
-      left: plan == 'free' ? (left ?? 0) : null,
-      resetsAt: j[Assumed.resetsAt] is String
-          ? DateTime.tryParse(j[Assumed.resetsAt] as String)?.toLocal()
-          : null,
+      left: plan == 'free' ? (n(j['remaining']) ?? 0) : null,
+      resetsAt: switch (n(j['resets_at'])) {
+        final s? => DateTime.fromMillisecondsSinceEpoch(s * 1000),
+        null => null,
+      },
     );
   }
 }
@@ -115,8 +112,11 @@ class Account {
     return _deviceId = id;
   }
 
-  /// Headers for every server call. [refresh] forces a new sign-in token.
-  Future<Map<String, String>> headers({bool refresh = false}) async {
+  /// Headers for every server call. [refresh] forces a new sign-in token; [device] adds the phone's id.
+  Future<Map<String, String>> headers({
+    bool refresh = false,
+    bool device = true,
+  }) async {
     String? token;
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -138,7 +138,7 @@ class Account {
     }
     return {
       if (token != null) 'Authorization': 'Bearer $token',
-      'X-Device-Id': await deviceId(),
+      if (device) 'X-Device-Id': await deviceId(),
     };
   }
 
@@ -197,15 +197,50 @@ class Account {
     }
   }
 
-  /// Removes the account on the server. Throws [ApiException] when the server refuses.
-  Future<void> deleteAccount() async {
+  /// Asks for a fresh Google sign-in, removes the account on the server and in Firebase, then
+  /// [wipe]s what the phone keeps and signs out. Returns null when done, or plain words for why not.
+  Future<String?> deleteAccount(Future<void> Function() wipe) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || !_ready) {
+      return "Couldn't reach Google sign-in. Try again.";
+    }
+    try {
+      // firebase only deletes a user who signed in moments ago
+      final account = await GoogleSignIn.instance.authenticate();
+      final idToken = account.authentication.idToken;
+      if (idToken == null) return "Couldn't confirm it's you. Try again.";
+      await user.reauthenticateWithCredential(
+        GoogleAuthProvider.credential(idToken: idToken),
+      );
+    } on GoogleSignInException catch (e) {
+      _log('[AUTH] delete re-sign-in: ${e.code}');
+      return e.code == GoogleSignInExceptionCode.canceled
+          ? 'The Google sign-in was cancelled.'
+          : "Couldn't confirm it's you with Google. Try again.";
+    } on FirebaseAuthException catch (e) {
+      _log('[AUTH] delete re-sign-in: ${e.code}');
+      return e.code == 'user-mismatch'
+          ? 'Pick the same Google account you are signed in with.'
+          : "Couldn't confirm it's you with Google. Try again.";
+    }
     final api = PocketDrsApi();
     try {
       await api.deleteAccount();
+    } on ApiException catch (e) {
+      return e.message;
     } finally {
       api.close();
     }
     logEvent('account_deleted');
+    try {
+      await user.delete();
+    } on FirebaseAuthException catch (e) {
+      // the server side is already gone, so a leftover sign-in record must not keep them here
+      _log('[AUTH] firebase delete: ${e.code}');
+    }
+    await wipe();
+    await signOut();
+    return null;
   }
 
   /// Reloads the plan and free reviews left; failures keep the last known value.

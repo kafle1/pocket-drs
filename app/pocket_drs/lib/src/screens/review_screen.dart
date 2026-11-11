@@ -94,6 +94,15 @@ int _step(Review r) => r.state == ReviewState.sending
         _ => 3,
       };
 
+// what sits at the right of the current step: the place in line, or how far the check has got
+String? _aside(Review r, int i, int step) => switch (r.queue) {
+  _ when i != step => null,
+  1 when i == 1 => "You're next",
+  final q? when i == 1 => '${q - 1} ahead of you',
+  _ when i > 1 && r.pct != null => '${r.pct}%',
+  _ => null,
+};
+
 class _Progress extends StatelessWidget {
   const _Progress({required this.review});
   final Review review;
@@ -148,15 +157,17 @@ class _Progress extends StatelessWidget {
                       const SizedBox(width: AppSpacing.md),
                       Expanded(
                         child: Text(
-                          label,
+                          i == 0 && review.waitingTurn
+                              ? 'Waiting for your last ball'
+                              : label,
                           style: theme.textTheme.titleMedium?.copyWith(
                             color: i > step ? scheme.onSurfaceVariant : null,
                           ),
                         ),
                       ),
-                      if (i == step && pct != null)
+                      if (_aside(review, i, step) case final aside?)
                         Text(
-                          '$pct%',
+                          aside,
                           style: AppTheme.tabular(
                             theme.textTheme.titleMedium,
                           )?.copyWith(color: scheme.primary),
@@ -164,6 +175,23 @@ class _Progress extends StatelessWidget {
                     ],
                   ),
                 ),
+              if (review.waitingFor case final first?) ...[
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  'The server checks one ball per account at a time, so this '
+                  'one goes as soon as your last one is done.',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                OutlinedButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ReviewScreen(review: first),
+                    ),
+                  ),
+                  child: const Text('Open that ball'),
+                ),
+              ],
               const SizedBox(height: AppSpacing.xl),
               Text(
                 'You can leave this screen. The check carries on, and the call '
