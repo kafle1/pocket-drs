@@ -17,6 +17,7 @@ RAW = os.path.join(HERE, "raw")
 PAPER = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(PAPER, "..", "server"))
 from app.pipeline.reconstruction import GRAVITY                # noqa: E402
+from app.pipeline.calibration import PITCH_LENGTH_M           # noqa: E402
 from app.pipeline.uncertainty import GUARD_K, calibrated       # noqa: E402
 TABLES = os.path.join(PAPER, "tables")
 os.makedirs(TABLES, exist_ok=True)
@@ -195,7 +196,7 @@ order = ["noise_px=0.0", "noise_px=1.0", "noise_px=2.0", "noise_px=3.0", "noise_
          "fps=30.0", "fps=60.0", "fps=240.0", "tap_px=0.0", "tap_px=2.0", "tap_px=8.0", "tap_px=12.0",
          "dropout=0.0", "dropout=0.25", "dropout=0.4", "physics=False", "physics=True"]
 names = {"noise_px": "Pixel noise $\\sigma$ (px)", "fps": "Frame rate (Hz)", "tap_px": "Tap noise $\\sigma$ (px)",
-         "dropout": "Dropped frames", "physics": "Unmodelled physics"}
+         "dropout": "Dropped frames (\\%)", "physics": "Unmodelled physics"}
 L = [r"\begin{tabular}{lllcccccccccc}", r"\toprule",
      r"& & & \multicolumn{4}{c}{Anchored (this paper)} & \multicolumn{4}{c}{Two parabolas, no anchor} & \multicolumn{2}{c}{One parabola, whole track} \\",
      r"\cmidrule(lr){4-7}\cmidrule(lr){8-11}\cmidrule(lr){12-13}",
@@ -210,6 +211,8 @@ for sw in order:
     fac = names[key] if key != last else ""
     last = key
     v = {"False": "off", "True": "on"}.get(val, val.rstrip("0").rstrip(".") if "." in val else val)
+    if key == "dropout":
+        v = f"{100 * float(val):.0f}"
     L.append(f"{fac} & {v} & {a['nao']:.1f} & {a['agree']:.1f} & {a['fo']} & {a['y']:.1f} / {a['z']:.1f} & {a['y90']:.1f} / {a['z90']:.1f} & "
              f"{u['agree']:.1f} & {u['fo']} & {u['y']:.1f} / {u['z']:.1f} & {u['y90']:.1f} / {u['z90']:.1f} & "
              f"{p['agree']:.1f} & {p['y']:.1f} / {p['z']:.1f} \\\\")
@@ -381,7 +384,13 @@ m("RealDeclinedRuns", sum(declined(x) for x in e3), "{}"); m("RealRuns", len(e3)
 for clip in ("test3", "test4", "test5"):
     allr, ev, od = (next(x for x in e3 if x["clip"] == clip and x["frames"] == f) for f in ("all", "even", "odd"))
     tag = clip.capitalize()
-    m(f"Real{tag}Reproj", allr["reproj_px"]); m(f"Real{tag}Track", allr["n_track"], "{}"); m(f"Real{tag}Length", allr["length_m"])
+    m(f"Real{tag}Reproj", allr["reproj_px"]); m(f"Real{tag}Track", allr["n_track"], "{}")
+    # raw rounds the length to 0.1 m; a pinned clip was given the Laws' length, so print that at its own precision
+    if allr["length_free"]:
+        m(f"Real{tag}Length", allr["length_m"])
+    else:
+        assert round(PITCH_LENGTH_M, 1) == allr["length_m"], (clip, allr["length_m"])
+        m(f"Real{tag}Length", PITCH_LENGTH_M, "{:.2f}")
     m(f"Real{tag}LengthFree", "yes" if allr["length_free"] else "no"); m(f"Real{tag}CornersDropped", "yes" if allr["corners_dropped"] else "no")
     if not (declined(ev) or declined(od)):
         m(f"Real{tag}SpreadY", abs(ev["y_mm"] - od["y_mm"])); m(f"Real{tag}SpreadZ", abs(ev["z_mm"] - od["z_mm"]))
@@ -455,6 +464,9 @@ BUDGET_PDF = {
     "swing Cs": ("B", "U[-0.3, 0.3]"), "seam deviation": ("B", "U[-2, 2] deg"), "friction at contact": ("B", "U[0.05, 0.20]"),
 }
 SAMPLER_ROW = "submitted frame sampler"
+# the raw row names reuse W for pitch width, which the supplement uses for frame width
+BUDGET_LABEL = {"pitch width W": "pitch width", "stump height H": "stump height $h_s$",
+                "wicket half-width w": "wicket half-width $w_o$"}
 
 if have("exp4_budget_rep.csv", "exp4_budget.json"):
     rep4 = rows("exp4_budget_rep.csv")
@@ -498,7 +510,7 @@ if have("exp4_budget_rep.csv", "exp4_budget.json"):
             continue
         t, pdf = BUDGET_PDF.get(r["row"], ("", ""))
         py = dist4["y"]["per_row"].get(r["row"], {}).get("median"); pz = dist4["z"]["per_row"].get(r["row"], {}).get("median")
-        L.append(f"{r['row'].replace('Cd', '$C_d$').replace('Cs', '$C_s$')} & {t}, {pdf} & {f1(r['u_y_mm'])} & {f1(r['u_z_mm'])} & "
+        L.append(f"{BUDGET_LABEL.get(r['row'], r['row']).replace('Cd', '$C_d$').replace('Cs', '$C_s$')} & {t}, {pdf} & {f1(r['u_y_mm'])} & {f1(r['u_z_mm'])} & "
                  f"{f1(py)} & {f1(pz)} \\\\")
     L += [r"\midrule",
           f"Combined $u_c$ & & {macros['BudRepUcNoSamplerY']} & {macros['BudRepUcNoSamplerZ']} & "
@@ -605,7 +617,7 @@ if have("exp6_model_error.json", "exp6_worldb.csv"):
     L = [r"\begin{tabular}{lcccc}", r"\toprule",
          r"& \multicolumn{2}{c}{Lateral $y$} & \multicolumn{2}{c}{Vertical $z$} \\", r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}",
          r"Uncertainty used & $|\varepsilon| \le w_{68}$ & $|\varepsilon| \le w_{95}$ & $|\varepsilon| \le w_{68}$ & $|\varepsilon| \le w_{95}$ \\", r"\midrule",
-         f"Exp.~1, pipeline $\\sigma$ (before) & {macros['CovYOne']} & -- & {macros['CovZOne']} & -- \\\\"]
+         f"Exp.~1, fit's own $\\sigma$ & {macros['CovYOne']} & -- & {macros['CovZOne']} & -- \\\\"]
     for key, tag in SETS6:
         c = b6["coverage"]
         if tag != "FitCal":      # kept as macros; the table row went to the calibrated result

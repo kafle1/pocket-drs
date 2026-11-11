@@ -36,8 +36,8 @@ the calibrated 68 and 95\% intervals are $w_{68}$ and $w_{95}$.
 the four pitch corners. SQPnP solves the pose over a sweep of focal length and of pitch
 length from 2 to 25\,m (unless the length is pinned); the lowest-error pose is refined by least squares on the pixels. The stumps alone
 leave the trade-off of focal length against pitch length nearly degenerate; the pitch corners, off the stump
-plane, break it, and are dropped only when they disagree with the stumps by more than a frame-scaled
-tolerance, because stumps are made to the size the Laws set, while a club or net pitch may not be marked to it. A pose whose reprojection
+plane, break it. When the corners disagree with the stumps by more than a frame-scaled tolerance, the
+corners are dropped and the stumps kept, because stumps are made to the size the Laws set, while a club or net pitch may not be marked to it. A pose whose reprojection
 error exceeds $\max(25, 0.03W)$\,px for frame width $W$, whose camera height is outside 0.1 to 5\,m, or whose
 fitted length is outside 2 to 25\,m is rejected with a request to re-tap.
 
@@ -179,7 +179,9 @@ coverage in \%.}
 
 Table~\ref{tab:physics} switches on, one at a time, each effect the estimator does not model, on otherwise
 reference World~B deliveries filmed from the striker's end. ``Combined pace'' switches on together the effects typical of a fast bowler.
-The agreement columns use the guard factor given in each column head.
+The agreement columns use the guard factor given in each column head: the full-$\sigma$ columns use the
+factors that the selection of Section~S11 gives for that $\sigma$ at 1 and 5\% (1.85 and 1.3), and the app
+column uses the app's.
 
 \begin{table*}[t]
 \centering
@@ -195,7 +197,7 @@ one-sigma coverage of the full uncertainty in \%; agreement with the true verdic
 
 Table~\ref{tab:taps} perturbs the twelve calibration taps of simulated deliveries, at random or by a
 common vertical shift, re-solves the pose and refits, and reports the change in the crossing and the
-number of verdicts that flip under the guard factor in each column head.
+number of verdicts that flip under the guard factor in each column head, chosen as in Section~S7.
 
 \begin{table*}[t]
 \centering
@@ -242,8 +244,8 @@ deliveries with a bounce fit: $n$ in the table, of \CovBN{} drawn, \CalStrikerEx
 striker's end (\DenStrikerNotFitted{} failed fits, \DenStrikerNoBounce{} no bounce, \CalStrikerYUnbounded{} failed perturbed
 calibration solves, \DenStrikerNoCross{} no stump crossing) and \CalBowlerExcluded{} at the bowler's (\DenBowlerNotFitted,
 \DenBowlerNoBounce, \CalBowlerYUnbounded{} and \DenBowlerNoCross). The model-error form is chosen by held-out likelihood; ``constant + proportional'' adds a
-constant and a term proportional to $x_b$ in quadrature. A bias line $a + c\,x_b$ is applied only where it
-beat no bias on held-out likelihood; height and the pitching point keep one at both ends, lateral and impact at neither. $k_{68}$ and $k_{95}$ are
+constant and a term proportional to $x_b$ in quadrature. A bias line $a + c\,x_b$ is applied only where its
+held-out likelihood, summed over the five folds, beats no bias: for height and the pitching point at both ends, and for lateral and impact at neither. $k_{68}$ and $k_{95}$ are
 split-conformal factors per third of $x_b$, given as their range over the thirds. Coverage is held out;
 split-conformal factors make it near nominal by construction when calibration and test errors are
 exchangeable, so it checks the implementation and the calibration set, not the physics.
