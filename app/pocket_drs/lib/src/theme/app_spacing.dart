@@ -10,10 +10,9 @@ class AppSpacing {
 
 class AppRadius {
   AppRadius._();
-  // chips, fields, small controls
-  static const double sm = 12;
-  // the video overlay still reads this name
+  // chips, fields, small controls, tiles over video
+  static const double sm = 8;
   static const double md = sm;
-  // cards, sheets, panels, buttons, dialogs
-  static const double lg = 16;
+  // buttons, cards, sheets, panels, dialogs
+  static const double lg = 12;
 }
