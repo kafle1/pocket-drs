@@ -1,10 +1,9 @@
 package com.pocketdrs.pocket_drs
 
-import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
-import android.media.MediaMuxer
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -12,11 +11,22 @@ import android.os.StatFs
 import android.provider.Settings
 import android.view.KeyEvent
 import android.view.WindowManager
+import androidx.annotation.OptIn
+import androidx.media3.common.Effect
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.Presentation
+import androidx.media3.transformer.Composition
+import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.Effects
+import androidx.media3.transformer.ExportException
+import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.Transformer
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.nio.ByteBuffer
 import kotlin.concurrent.thread
 
 class MainActivity : FlutterActivity() {
@@ -30,20 +40,13 @@ class MainActivity : FlutterActivity() {
             setMethodCallHandler { call, result ->
                 when (call.method) {
                     "trim" -> {
-                        val input = call.argument<String>("input")!!
-                        val output = call.argument<String>("output")!!
-                        val startUs = call.argument<Int>("startMs")!! * 1000L
-                        val endUs = call.argument<Int>("endMs")!! * 1000L
-                        val main = Handler(Looper.getMainLooper())
-                        thread {
-                            try {
-                                val span = trim(input, output, startUs, endUs)
-                                main.post { result.success(span) }
-                            } catch (e: Exception) {
-                                File(output).delete()
-                                main.post { result.error("trim", e.message ?: e.toString(), null) }
-                            }
-                        }
+                        trim(
+                            call.argument<String>("input")!!,
+                            call.argument<String>("output")!!,
+                            call.argument<Int>("startMs")!!.toLong(),
+                            call.argument<Int>("endMs")!!.toLong(),
+                            result,
+                        )
                     }
                     "videoInfo" -> {
                         val path = call.argument<String>("path")!!
@@ -112,57 +115,65 @@ class MainActivity : FlutterActivity() {
         return mapOf("fps" to (counted ?: declared ?: 0.0), "durationMs" to durationMs)
     }
 
-    /** Copies the video track around [startUs]..[endUs] without re-encoding; returns where that window sits in the clip, in ms. */
-    private fun trim(input: String, output: String, startUs: Long, endUs: Long): List<Int> {
-        val retriever = MediaMetadataRetriever()
-        val rotation = try {
-            retriever.setDataSource(input)
-            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toInt() ?: 0
-        } finally {
-            retriever.release()
+    /** Re-encodes [startMs]..[endMs] as silent H.264 with a 720 px short side at the source frame rate; replies with where that window sits in the clip, in ms. */
+    @OptIn(UnstableApi::class)
+    private fun trim(input: String, output: String, startMs: Long, endMs: Long, result: MethodChannel.Result) {
+        val main = Handler(Looper.getMainLooper())
+        val fail: (String) -> Unit = { message ->
+            File(output).delete()
+            main.post { result.error("trim", message, null) }
         }
-        val extractor = MediaExtractor()
-        try {
-            extractor.setDataSource(input)
-            val track = (0 until extractor.trackCount).firstOrNull {
-                extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true
-            } ?: throw IllegalStateException("The recording has no video.")
-            val format = extractor.getTrackFormat(track)
-            extractor.selectTrack(track)
-            // the clip has to open on a keyframe, and the next one can be a second into the delivery
-            extractor.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
-            // gallery trims keep the frames before the cut at negative times, so only a missing sample means the end
-            if (extractor.sampleTrackIndex < 0 || extractor.sampleTime > endUs) throw IllegalStateException("The clip is too short.")
-            val first = extractor.sampleTime
-            var last = first
-            val muxer = MediaMuxer(output, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-            try {
-                muxer.setOrientationHint(rotation)
-                val out = muxer.addTrack(format)
-                muxer.start()
-                val size = if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE) else 4 shl 20
-                val buffer = ByteBuffer.allocate(size)
-                val info = MediaCodec.BufferInfo()
-                while (extractor.sampleTrackIndex >= 0) {
-                    val t = extractor.sampleTime
-                    if (t > endUs) break
-                    val n = extractor.readSampleData(buffer, 0)
-                    if (n < 0) break
-                    val key = (extractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0
-                    info.set(0, n, t - first, if (key) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0)
-                    muxer.writeSampleData(out, buffer, info)
-                    last = t
-                    extractor.advance()
+        thread {
+            val shortSide = try {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(input)
+                    val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                    if (endMs <= startMs || (duration != null && startMs >= duration)) return@thread fail("The clip is too short.")
+                    val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+                    val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+                    if (w <= 0 || h <= 0) return@thread fail("The recording has no video.")
+                    minOf(w, h)
+                } finally {
+                    retriever.release()
                 }
-                muxer.stop()
-            } finally {
-                muxer.release()
+            } catch (e: Exception) {
+                return@thread fail(e.message ?: e.toString())
             }
-            val startMs = (startUs - first).coerceAtLeast(0L) / 1000
-            // rounded up so the server's inclusive segment still reaches the last frame
-            return listOf(startMs.toInt(), maxOf(startMs + 1, (last - first + 999) / 1000).toInt())
-        } finally {
-            extractor.release()
+            // transformer has to be built and driven from a looper thread
+            main.post {
+                try {
+                    val item = MediaItem.Builder()
+                        .setUri(Uri.fromFile(File(input)))
+                        .setClippingConfiguration(
+                            MediaItem.ClippingConfiguration.Builder().setStartPositionMs(startMs).setEndPositionMs(endMs).build()
+                        )
+                        .build()
+                    // short side, not height, so portrait and landscape both land on 720
+                    val effects = if (shortSide > 720) listOf<Effect>(Presentation.createForShortSide(720)) else emptyList()
+                    val edited = EditedMediaItem.Builder(item)
+                        .setRemoveAudio(true)
+                        .setEffects(Effects(emptyList(), effects))
+                        .build()
+                    Transformer.Builder(applicationContext)
+                        .setVideoMimeType(MimeTypes.VIDEO_H264)
+                        .addListener(object : Transformer.Listener {
+                            override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                                if (exportResult.videoFrameCount == 0) return fail("The clip is too short.")
+                                val ms = if (exportResult.durationMs > 0) exportResult.durationMs else endMs - startMs
+                                result.success(listOf(0, maxOf(1L, ms).toInt()))
+                            }
+
+                            override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
+                                fail(exportException.message ?: exportException.toString())
+                            }
+                        })
+                        .build()
+                        .start(edited, output)
+                } catch (e: Exception) {
+                    fail(e.message ?: e.toString())
+                }
+            }
         }
     }
 }

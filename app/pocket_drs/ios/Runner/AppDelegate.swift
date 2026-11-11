@@ -36,7 +36,7 @@ import UIKit
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  /// Copies the video track between startMs and endMs without re-encoding; returns where that window sits in the clip, in ms.
+  /// Cuts the video track to startMs..endMs, re-encoded to 720p when the source is bigger; returns where that window sits in the clip, in ms.
   private static func trim(_ args: [String: Any], _ result: @escaping FlutterResult) {
     let asset = AVURLAsset(url: URL(fileURLWithPath: args["input"] as! String))
     let output = URL(fileURLWithPath: args["output"] as! String)
@@ -50,11 +50,13 @@ import UIKit
     guard range.duration > .zero, let track = asset.tracks(withMediaType: .video).first else {
       return fail("The clip is too short.")
     }
+    let size = track.naturalSize.applying(track.preferredTransform)
+    let preset = min(abs(size.width), abs(size.height)) > 720 ? AVAssetExportPreset1280x720 : AVAssetExportPresetPassthrough
     let composition = AVMutableComposition()
     guard
       let copy = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
       (try? copy.insertTimeRange(range, of: track, at: .zero)) != nil,
-      let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough)
+      let export = AVAssetExportSession(asset: composition, presetName: preset)
     else { return fail("Could not cut the clip.") }
     copy.preferredTransform = track.preferredTransform
     export.outputURL = output
