@@ -29,6 +29,16 @@ class JobPaths:
     artifacts_dir: Path
 
 
+def data_dir() -> Path:
+    # /data in the container; the repo's data/ when run straight from a checkout
+    return Path(os.environ.get("POCKET_DRS_DATA_DIR") or Path(__file__).resolve().parents[2] / "data")
+
+
+def short_id(job_id: str) -> str:
+    # enough to match log lines up, too little to fetch someone's result with
+    return job_id[:8]
+
+
 def _now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -173,12 +183,12 @@ def run_job(paths: JobPaths, request_json: dict[str, Any]) -> None:
         store.write_result(paths, out.result)
         store.write_status(paths, status=JobStatus.succeeded, progress=ProgressInfo(pct=100, stage="succeeded"),
                            error=None)
-        log.info("job %s done with %d warnings", paths.job_dir.name, len(out.warnings))
+        log.info("job %s done with %d warnings", short_id(paths.job_dir.name), len(out.warnings))
     except Exception as e:  # noqa: BLE001
-        log.exception("job %s failed", paths.job_dir.name)
+        log.exception("job %s failed", short_id(paths.job_dir.name))
         store.write_status(paths, status=JobStatus.failed, progress=ProgressInfo(pct=100, stage="failed"),
                            error=map_exception_to_api_error(e))
 
 
 def default_job_store() -> JobStore:
-    return JobStore(Path(os.environ.get("POCKET_DRS_DATA_DIR") or Path(__file__).resolve().parents[2] / "data"))
+    return JobStore(data_dir())

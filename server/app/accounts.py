@@ -1,7 +1,8 @@
 """Accounts, free reviews and admin, kept in one SQLite file.
 
 A free account gets DAILY_FREE_REVIEWS a day, counted per account and per phone from the jobs
-table. A job that fails or gets no call doesn't count, and each job row goes after a day."""
+table. A job that fails or gets no call doesn't count against that, but only DAILY_UNCOUNTED_JOBS
+of those are taken a day. Each job row goes a day after its last update."""
 
 from __future__ import annotations
 
@@ -19,7 +20,12 @@ import google.auth.transport.requests
 from google.auth.exceptions import TransportError
 from google.oauth2 import id_token
 
+from .jobs import data_dir
+
+JOB_IN_PROGRESS = "Another of your balls is still being checked. Send this one once it finishes."
 DAILY_FREE_REVIEWS = 5
+# failed or no-call jobs are free, so this stops one account keeping the worker busy all day
+DAILY_UNCOUNTED_JOBS = 20
 FIREBASE_PROJECT = "pocket-drs-app"
 _DEVICE_RE = re.compile(r"[A-Za-z0-9_-]{8,128}")
 _EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
@@ -53,9 +59,9 @@ class AuthError(Exception):
 class Refused(Exception):
     """A job this account can't start now, with the HTTP status and body to answer with."""
 
-    def __init__(self, status: int, error: str, **extra: Any):
-        super().__init__(error)
-        self.status, self.body = status, {"error": error, **extra}
+    def __init__(self, status: int, code: str, message: str, **extra: Any):
+        super().__init__(code)
+        self.status, self.code, self.message, self.extra = status, code, message, extra
 
 
 # google's signing keys rotate slowly; keep each response for an hour instead of fetching it per call
@@ -112,7 +118,8 @@ CREATE TABLE IF NOT EXISTS users (
   plan TEXT NOT NULL DEFAULT 'free', created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS jobs (
   job_id TEXT PRIMARY KEY, email TEXT NOT NULL, device_id TEXT NOT NULL, charged INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'queued', decision TEXT, created_at INTEGER NOT NULL, idem_key TEXT);
+  status TEXT NOT NULL DEFAULT 'queued', decision TEXT, created_at INTEGER NOT NULL, idem_key TEXT,
+  updated_at INTEGER);
 CREATE INDEX IF NOT EXISTS jobs_email ON jobs(email);
 CREATE INDEX IF NOT EXISTS jobs_created ON jobs(created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_idem ON jobs(email, idem_key) WHERE idem_key IS NOT NULL;
@@ -122,6 +129,7 @@ DROP TABLE IF EXISTS devices;
 # a review counts unless it failed or got no call
 _COUNTED = ("SELECT COUNT(*) FROM jobs WHERE charged=1 AND status!='failed' AND IFNULL(decision,'')!='none' "
             "AND created_at>=? AND ")
+_UNCOUNTED = ("SELECT COUNT(*) FROM jobs WHERE (status='failed' OR decision='none') AND created_at>=? AND ")
 
 
 class Accounts:
@@ -131,6 +139,8 @@ class Accounts:
         with closing(self._db()) as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript(_SCHEMA)
+            if "updated_at" not in {r[1] for r in db.execute("PRAGMA table_info(jobs)")}:
+                db.execute("ALTER TABLE jobs ADD COLUMN updated_at INTEGER")
 
     def _db(self) -> sqlite3.Connection:
         # a fresh connection per call keeps threads apart; autocommit so BEGIN IMMEDIATE is ours to issue
@@ -200,25 +210,45 @@ class Accounts:
                     return row["job_id"]
                 # a failed job doesn't count and an expired or wiped one can't be polled, so start afresh
                 db.execute("UPDATE jobs SET idem_key=NULL WHERE job_id=?", (row["job_id"],))
-            live = db.execute("SELECT job_id FROM jobs WHERE email=? AND status IN ('queued','running')",
-                              (email,)).fetchone()
+            live = self._live(db, email)
             if live is not None:
-                raise Refused(409, "job_in_progress", job_id=live["job_id"])
+                raise Refused(409, "job_in_progress", JOB_IN_PROGRESS, job_id=live["job_id"])
             m = self._me(db, email, device_id, now)
             if m["remaining"] == 0:
-                raise Refused(402, "daily_limit_reached", resets_at=m["resets_at"])
-            db.execute("INSERT INTO jobs(job_id, email, device_id, charged, created_at, idem_key) VALUES(?,?,?,?,?,?)",
-                       (job_id, email, device_id, int(m["plan"] == "free"), now, key))
+                raise Refused(402, "daily_limit_reached", f"You've used your {DAILY_FREE_REVIEWS} free reviews "
+                              "for today.", resets_at=m["resets_at"])
+            start = day_start(now)
+            wasted = max(db.execute(_UNCOUNTED + "email=?", (start, email)).fetchone()[0],
+                         db.execute(_UNCOUNTED + "device_id=?", (start, device_id)).fetchone()[0])
+            if m["plan"] != "admin" and wasted >= DAILY_UNCOUNTED_JOBS:
+                raise Refused(429, "daily_retry_limit_reached", f"{DAILY_UNCOUNTED_JOBS} of today's clips got no "
+                              "verdict, so no more can be sent today. Check the stump marks and film the whole "
+                              "delivery before trying tomorrow.", resets_at=m["resets_at"])
+            db.execute("INSERT INTO jobs(job_id, email, device_id, charged, created_at, idem_key, updated_at) "
+                       "VALUES(?,?,?,?,?,?,?)", (job_id, email, device_id, int(m["plan"] == "free"), now, key, now))
             return job_id
+
+    @staticmethod
+    def _live(db: sqlite3.Connection, email: str) -> sqlite3.Row | None:
+        return db.execute("SELECT job_id, idem_key FROM jobs WHERE email=? AND status IN ('queued','running')",
+                          (email,)).fetchone()
+
+    def live_job(self, email: str) -> tuple[str, str | None] | None:
+        """The account's queued or running job and its retry key, so an upload can be refused before it starts."""
+        with closing(self._db()) as db:
+            r = self._live(db, email)
+        return (r["job_id"], r["idem_key"]) if r else None
 
     def record(self, job_id: str, status: str, decision: str | None = None) -> None:
         with closing(self._db()) as db:
-            db.execute("UPDATE jobs SET status=?, decision=? WHERE job_id=?", (status, decision, job_id))
+            db.execute("UPDATE jobs SET status=?, decision=?, updated_at=? WHERE job_id=?",
+                       (status, decision, int(time.time()), job_id))
 
     def fail_unfinished(self) -> int:
         # the worker that owned these died with the last process, so they count as failed
         with closing(self._db()) as db:
-            return db.execute("UPDATE jobs SET status='failed' WHERE status IN ('queued','running')").rowcount
+            return db.execute("UPDATE jobs SET status='failed', updated_at=? WHERE status IN ('queued','running')",
+                              (int(time.time()),)).rowcount
 
     def delete_user(self, email: str) -> list[str]:
         """Remove the account and its jobs; returns the job ids whose folders must go too."""
@@ -229,8 +259,9 @@ class Accounts:
         return ids
 
     def purge_jobs(self, before: int) -> None:
+        # by last update, like the job folders, so a row never goes while its result can still be read
         with closing(self._db()) as db:
-            db.execute("DELETE FROM jobs WHERE created_at<?", (before,))
+            db.execute("DELETE FROM jobs WHERE IFNULL(updated_at, created_at)<?", (before,))
 
     def backup(self) -> None:
         """One copy of the database per UTC day in backups/ next to it; the last week's are kept."""
@@ -293,4 +324,4 @@ class Accounts:
 
 
 def default_accounts() -> Accounts:
-    return Accounts(Path(os.environ.get("POCKET_DRS_DB", "/data/pocketdrs.db")))
+    return Accounts(Path(os.environ.get("POCKET_DRS_DB") or data_dir() / "pocketdrs.db"))
