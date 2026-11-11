@@ -218,7 +218,7 @@ def run_cell(name, cam_name, cfg, n, seed, cam=None):
                     restitution_true=round(d.restitution, 3), n_dets=len(dets), truth=gt,
                     calib_reproj_px=round(pose.reproj_error_px, 2), calib=calib,
                     calib_fov_deg=round(pose.fov_deg, 3), calib_focal_err_pct=round((pose.fx / pose_true.fx - 1) * 100, 3),
-                    calib_length_m=round(pose.pitch_length_m, 3), calib_used_corners=pose.used_corners,
+                    calib_length_m=round(pose.pitch_length_m, 3), calib_used_creases=pose.used_creases,
                     truth_y_mm=round(truth.stumps[1] * 1000, 3), truth_z_mm=round(truth.stumps[2] * 1000, 3),
                     truth_impact_y_mm=round(truth.crease[1] * 1000, 3),
                     truth_contact_x_m=round(float(truth.contact[0]), 4) if np.isfinite(truth.contact[0]) else None,

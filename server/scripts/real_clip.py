@@ -20,27 +20,23 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "server"))
 from app.pipeline.process_job import run_pipeline   # noqa: E402
 
-# name -> (striker stumps TL,TR,BR,BL ; bowler stumps TL,TR,BR,BL ; pitch corners SL,SR,BR,BL)
+# name -> (striker stumps TL,TR,BR,BL ; bowler stumps TL,TR,BR,BL); the mats have no creases to mark
 CLIPS = {
     "test3": ([(0.509, 0.482), (0.552, 0.482), (0.552, 0.545), (0.509, 0.545)],
-              [(0.403, 0.633), (0.544, 0.633), (0.544, 0.851), (0.403, 0.851)],
-              [(0.420, 0.465), (0.595, 0.465), (0.625, 0.800), (0.305, 0.800)]),
+              [(0.403, 0.633), (0.544, 0.633), (0.544, 0.851), (0.403, 0.851)]),
     "test4": ([(0.509, 0.483), (0.552, 0.483), (0.552, 0.545), (0.509, 0.545)],
-              [(0.452, 0.618), (0.574, 0.618), (0.574, 0.817), (0.452, 0.817)],
-              [(0.398, 0.532), (0.591, 0.532), (0.833, 0.982), (0.160, 0.982)]),
+              [(0.452, 0.618), (0.574, 0.618), (0.574, 0.817), (0.452, 0.817)]),
     "test5": ([(0.509, 0.481), (0.556, 0.481), (0.556, 0.549), (0.509, 0.549)],
-              [(0.431, 0.608), (0.580, 0.608), (0.580, 0.818), (0.431, 0.818)],
-              [(0.398, 0.532), (0.591, 0.532), (0.833, 0.982), (0.160, 0.982)]),
+              [(0.431, 0.608), (0.580, 0.608), (0.580, 0.818), (0.431, 0.818)]),
 }
 
 
 def build_request(name: str) -> dict:
-    striker, bowler, corners = CLIPS[name]
+    striker, bowler = CLIPS[name]
     return {
         "segment": {"start_ms": 0, "end_ms": 600000},
         "tracking": {"sample_fps": 60, "max_frames": 180, "ball_color": "red"},
         "calibration": {"pitch_dimensions_m": {"width": 3.05, "length": 20.12},
-                        "pitch_corners_norm": [{"x": x, "y": y} for x, y in corners],
                         "stump_quads_norm": [{"x": x, "y": y} for x, y in striker + bowler]},
         "batsman_handedness": "right",
     }

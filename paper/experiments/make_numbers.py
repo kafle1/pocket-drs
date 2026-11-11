@@ -385,13 +385,9 @@ for clip in ("test3", "test4", "test5"):
     allr, ev, od = (next(x for x in e3 if x["clip"] == clip and x["frames"] == f) for f in ("all", "even", "odd"))
     tag = clip.capitalize()
     m(f"Real{tag}Reproj", allr["reproj_px"]); m(f"Real{tag}Track", allr["n_track"], "{}")
-    # raw rounds the length to 0.1 m; a pinned clip was given the Laws' length, so print that at its own precision
-    if allr["length_free"]:
-        m(f"Real{tag}Length", allr["length_m"])
-    else:
-        assert round(PITCH_LENGTH_M, 1) == allr["length_m"], (clip, allr["length_m"])
-        m(f"Real{tag}Length", PITCH_LENGTH_M, "{:.2f}")
-    m(f"Real{tag}LengthFree", "yes" if allr["length_free"] else "no"); m(f"Real{tag}CornersDropped", "yes" if allr["corners_dropped"] else "no")
+    # raw rounds the length to 0.1 m; every clip is given the Laws' length, so print that at its own precision
+    assert round(PITCH_LENGTH_M, 1) == allr["length_m"], (clip, allr["length_m"])
+    m(f"Real{tag}Length", PITCH_LENGTH_M, "{:.2f}")
     if not (declined(ev) or declined(od)):
         m(f"Real{tag}SpreadY", abs(ev["y_mm"] - od["y_mm"])); m(f"Real{tag}SpreadZ", abs(ev["z_mm"] - od["z_mm"]))
     # where the ball pitched across the pitch (+ is the leg side), wherever a bounce was seen, and how far

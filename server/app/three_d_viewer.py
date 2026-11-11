@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .pipeline.calibration import STUMP_OUTER_HALF_M
 from .pipeline.process_job import _finite
 from .pipeline.reconstruction import BALL_RADIUS_M
 
@@ -20,7 +19,7 @@ _TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "three_d_viewer
 OUT, CALL, NONE = "out", "umpires_call", "none"
 
 
-def _verdict(lbw: dict[str, Any] | None, bounce: dict[str, Any]) -> dict[str, Any] | None:
+def _verdict(lbw: dict[str, Any] | None, bounce: dict[str, Any], stump_half: float) -> dict[str, Any] | None:
     """The three DRS rows and the final call, coloured as decision.py made them."""
     if not lbw or "tones" not in lbw:
         return None
@@ -31,7 +30,7 @@ def _verdict(lbw: dict[str, Any] | None, bounce: dict[str, Any]) -> dict[str, An
 
     y_b = bounce.get("y_m")
     # pitching outside off never saves the batter, so it reads against him like in line
-    off = y_b is not None and -float(y_b) * float(lbw.get("leg_sign") or 1.0) - STUMP_OUTER_HALF_M > BALL_RADIUS_M
+    off = y_b is not None and -float(y_b) * float(lbw.get("leg_sign") or 1.0) - stump_half > BALL_RADIUS_M
     side = "off" if "impact outside off" in reason else "leg"
     rows = [("Pitching", "Full toss", NONE) if y_b is None else
             ("Pitching", value("pitching", "Outside off" if off else "In line", "Outside leg"), tone["pitching"]),
@@ -64,6 +63,8 @@ def build_payload(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "pitch_length_m": float(pose["pitch_length_m"]),
         "pitch_width_m": float(pose["pitch_width_m"]),
+        "stump_height_m": float(pose["stump_height_m"]),
+        "stump_half_m": float(pose["stump_width_m"]) / 2,
         # rows of t_ms, x, y, z: x runs from the striker's stumps (0) to the bowler's, z is up
         "tracked": pts(world.get("points_m") or []),
         "predicted": pts(world.get("predicted_to_stumps_m") or []),
@@ -71,7 +72,7 @@ def build_payload(result: dict[str, Any]) -> dict[str, Any]:
         "impact": event(impact),
         "speed_kmh": metrics.get("speed_kmh"),
         "spin_deg": metrics.get("spin_deg"),
-        "verdict": _verdict(result.get("lbw"), bounce),
+        "verdict": _verdict(result.get("lbw"), bounce, float(pose["stump_width_m"]) / 2),
     }
 
 

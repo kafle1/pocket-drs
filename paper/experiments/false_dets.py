@@ -146,7 +146,7 @@ def main():
         clip = clips / f"striker_ref_{i:03d}.mp4"
         cal = render(truth, cam, clip, fps=60.0)
         n_frames = cal.pop("n_frames")
-        cal["pitch_corners_px"] = [{"x": p["x"] + nx, "y": p["y"] + ny} for p, (nx, ny) in zip(cal["pitch_corners_px"], noise[:4])]
+        cal["crease_marks_px"] = [{"x": p["x"] + nx, "y": p["y"] + ny} for p, (nx, ny) in zip(cal["crease_marks_px"], noise[:4])]
         cal["stump_quads_px"] = [{"x": p["x"] + nx, "y": p["y"] + ny} for p, (nx, ny) in zip(cal["stump_quads_px"], noise[4:])]
         req = {"segment": {"start_ms": 0, "end_ms": int(1000 * (n_frames - 1) / 60.0)}, 
                "tracking": {"sample_fps": 60, "max_frames": n_frames, "ball_color": "red"},

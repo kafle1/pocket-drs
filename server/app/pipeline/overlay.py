@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.interpolate import splev, splprep
 
-from .calibration import CameraPose, STUMP_HEIGHT_M
+from .calibration import CameraPose
 from .reconstruction import Trajectory
 
 
@@ -60,7 +60,7 @@ def build_overlay(
         return None if p is None else {"t_ms": int(t_ms), **p}
 
     def stumps(x: float) -> dict | None:
-        base, top = _pt(pose, x, 0.0, 0.0), _pt(pose, x, 0.0, STUMP_HEIGHT_M)
+        base, top = _pt(pose, x, 0.0, 0.0), _pt(pose, x, 0.0, pose.stump_height_m)
         return None if base is None or top is None else {"base": base, "top": top}
 
     L, hw = pose.pitch_length_m, pose.pitch_width_m / 2.0

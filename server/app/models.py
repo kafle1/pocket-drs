@@ -44,19 +44,27 @@ class Segment(BaseModel):
 
 class PitchDimensions(BaseModel):
     model_config = Strict
-    width: float = Field(ge=1.0, le=5.0)
-    length: float = Field(ge=10.0, le=25.0)
+    width: float = Field(default=3.05, ge=1.0, le=5.0)
+    length: float = Field(default=20.12, ge=10.0, le=25.0)
+
+
+class StumpDimensions(BaseModel):
+    model_config = Strict
+    # outer edge to outer edge, and ground to the top of the stumps; street and portable sets differ
+    width: float = Field(default=0.2286, ge=0.1, le=0.6)
+    height: float = Field(default=0.711, ge=0.3, le=1.2)
 
 
 class Calibration(BaseModel):
     model_config = Strict
-    pitch_dimensions_m: PitchDimensions
+    pitch_dimensions_m: PitchDimensions = Field(default_factory=PitchDimensions)
+    stumps_m: StumpDimensions = Field(default_factory=StumpDimensions)
     # eight stump corners: striker TL, TR, BR, BL, then bowler TL, TR, BR, BL
     stump_quads_norm: list[Point2D] | None = None
     stump_quads_px: list[Point2D] | None = None
-    # optional four pitch corners, clockwise on the screen from the striker end
-    pitch_corners_norm: list[Point2D] | None = None
-    pitch_corners_px: list[Point2D] | None = None
+    # optional four popping-crease ends, clockwise on the screen from the striker end
+    crease_marks_norm: list[Point2D] | None = None
+    crease_marks_px: list[Point2D] | None = None
 
     @model_validator(mode="after")
     def _marks_present(self):
@@ -65,11 +73,11 @@ class Calibration(BaseModel):
             raise ValueError("calibration.stump_quads_norm or stump_quads_px with 8 points is required")
         if any(not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0) for p in self.stump_quads_norm or []):
             raise ValueError("calibration.stump_quads_norm points must be in [0, 1]")
-        corners = self.pitch_corners_norm or self.pitch_corners_px
-        if corners is not None and len(corners) != 4:
-            raise ValueError("calibration.pitch_corners_norm or pitch_corners_px needs 4 points")
-        if any(not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0) for p in self.pitch_corners_norm or []):
-            raise ValueError("calibration.pitch_corners_norm points must be in [0, 1]")
+        creases = self.crease_marks_norm or self.crease_marks_px
+        if creases is not None and len(creases) != 4:
+            raise ValueError("calibration.crease_marks_norm or crease_marks_px needs 4 points")
+        if any(not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0) for p in self.crease_marks_norm or []):
+            raise ValueError("calibration.crease_marks_norm points must be in [0, 1]")
         return self
 
 

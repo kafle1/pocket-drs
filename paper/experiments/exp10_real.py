@@ -43,7 +43,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = Path(HERE).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "server"))
 sys.path.insert(0, str(ROOT / "server" / "scripts"))
-from app.pipeline.calibration import PITCH_LENGTH_M, PITCH_WIDTH_M, camera_at_striker, mark_points, solve_camera_pose   # noqa: E402
+from app.pipeline.calibration import PITCH_LENGTH_M, PITCH_WIDTH_M, solve_camera_pose   # noqa: E402
 from app.pipeline.process_job import detections, run_pipeline                                           # noqa: E402
 from app.pipeline.reconstruction import BALL_RADIUS_M, GRAVITY                           # noqa: E402
 from real_clip import CLIPS as TAPS, build_request                                       # noqa: E402
@@ -100,13 +100,20 @@ def focal_rel_sigma():
     return float(np.median(e)) / 100
 
 
+# where the mat's corners sit in the first frame (SL, SR, BR, BL); the near pair is the frame's bottom edge
+CORNERS = {"test3": [(0.420, 0.465), (0.595, 0.465), (0.625, 0.800), (0.305, 0.800)],
+           "test4": [(0.398, 0.532), (0.591, 0.532), (0.833, 0.982), (0.160, 0.982)],
+           "test5": [(0.398, 0.532), (0.591, 0.532), (0.833, 0.982), (0.160, 0.982)]}
+
+
 def landmarks(name, size):
     """Ground error (mm) of the four tapped pitch corners under a pose solved from the stumps alone."""
-    striker, bowler, corners = TAPS[name]
+    (striker, bowler), corners = TAPS[name], CORNERS[name]
     px = lambda pts: [(x * size[0], y * size[1]) for x, y in pts]
     stumps = px(striker + bowler)
-    pose = solve_camera_pose(image_size=size, stump_quads_px=stumps, pitch_corners_px=None, pitch_length_m=PITCH_LENGTH_M)
-    truth = mark_points(pose.pitch_length_m, PITCH_WIDTH_M, camera_at_striker(np.array(stumps)))[8:]
+    pose = solve_camera_pose(image_size=size, stump_quads_px=stumps, crease_marks_px=None, pitch_length_m=PITCH_LENGTH_M)
+    hw = PITCH_WIDTH_M / 2
+    truth = [(0.0, -hw), (0.0, hw), (pose.pitch_length_m, hw), (pose.pitch_length_m, -hw)]
     out = []
     for (u, v), w in zip(px(corners), truth):
         g = pose.backproject_to_plane(u, v, 0.0)
@@ -190,7 +197,7 @@ def main():
             other = c["same_stumps_as"][:-4]
             ent["landmarks"] = dict(same_as=c["same_stumps_as"], tap_diff_px=[
                 round(float(np.hypot((a[0] - b[0]) * size[0], (a[1] - b[1]) * size[1])), 1)
-                for a, b in zip(sum(TAPS[name][:3], []), sum(TAPS[other][:3], []))])
+                for a, b in zip(sum(TAPS[name], []), sum(TAPS[other], []))])
         else:
             L, corner_err = landmarks(name, size)
             ent["landmarks"] = dict(pitch_length_m=L, corner_err_mm=corner_err,

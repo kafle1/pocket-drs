@@ -27,9 +27,9 @@ sys.path.insert(0, HERE)
 from synth import Camera, Delivery, fly, CREASE_X, at_striker                            # noqa: E402
 from app.pipeline import reconstruction as recon                                         # noqa: E402
 from app.pipeline.calibration import (solve_camera_pose, mark_points, CalibrationError,  # noqa: E402
-                                      STUMP_HEIGHT_M, STUMP_OUTER_HALF_M, PITCH_LENGTH_M, PITCH_WIDTH_M)
+                                      STUMP_HEIGHT_M, STUMP_OUTER_HALF_M, PITCH_LENGTH_M)
 from app.pipeline.uncertainty import measurands, calibration_sigma                      # noqa: E402
-from app.pipeline.decision import decide, WICKET_TOP_M                                   # noqa: E402
+from app.pipeline.decision import decide, BAIL_RISE_M                                   # noqa: E402
 
 cv2.setNumThreads(1)
 OUT = os.path.join(HERE, "raw")
@@ -57,7 +57,6 @@ class Effects:
     rs_correct_s: float = 0.0    # readout the estimator assumes and removes, same sign convention
     distortion: float = 0.0      # radial displacement at the image corner, fraction of the half diagonal
     dL: float = 0.0              # true pitch length minus 20.12 m
-    dW: float = 0.0              # true pitch width minus 3.05 m
     dH: float = 0.0              # true stump height minus 0.711 m
     dw: float = 0.0              # true half wicket width minus 0.1143 m
     top_tap: float = 0.0         # how far above the stump top the user taps (bails), m
@@ -77,7 +76,7 @@ def distort(pose, u, v, d):
 
 def taps(pose, eff: Effects, rng) -> np.ndarray:
     """(12,2) marks as tapped on the true pitch, named on the screen as the app asks for them."""
-    pts = mark_points(PITCH_LENGTH_M + eff.dL, PITCH_WIDTH_M + eff.dW, at_striker(pose),
+    pts = mark_points(PITCH_LENGTH_M + eff.dL, at_striker(pose),
                       half_wicket=STUMP_OUTER_HALF_M + eff.dw, height=STUMP_HEIGHT_M + eff.dH + eff.top_tap)
     u, v, _ = pose.project(pts)
     u, v = distort(pose, u, v, eff.distortion)
@@ -92,7 +91,7 @@ def solve(pose_true, xy: np.ndarray, **kw):
     kw.setdefault("pitch_length_m", PITCH_LENGTH_M)
     return solve_camera_pose(image_size=(int(pose_true.cx * 2), int(pose_true.cy * 2)),
                              stump_quads_px=[tuple(p) for p in xy[:8]],
-                             pitch_corners_px=[tuple(p) for p in xy[8:]], **kw)
+                             crease_marks_px=[tuple(p) for p in xy[8:]], **kw)
 
 
 def frame_times(t_end: float, eff: Effects, rng, v0: float | None = None) -> tuple[np.ndarray, np.ndarray]:
@@ -250,7 +249,7 @@ def margins(q: dict) -> list[tuple[float, float]]:
     out.append((w - abs(q["impact_y"]), R_BALL))
     # no stump-plane crossing: the test is unknown, so its sigma below is infinite and the margin plays no part
     out.append((0.0 if q["y"] is None else w - abs(q["y"]), R_BALL))
-    out.append((0.0 if q["z"] is None else WICKET_TOP_M - q["z"], R_BALL))
+    out.append((0.0 if q["z"] is None else STUMP_HEIGHT_M + BAIL_RISE_M - q["z"], R_BALL))
     return out
 
 

@@ -71,14 +71,14 @@ def render(truth: Truth, cam: Camera, path: Path, *, fps: float, ball_bgr=(40, 4
         writer.write(frame)
     writer.release()
 
-    marks = mark_points(PITCH_LENGTH_M, PITCH_WIDTH_M, at_striker(pose))
+    marks = mark_points(PITCH_LENGTH_M, at_striker(pose))
     projected = [pose.project_one(*m) for m in marks]
     if any(q is None for q in projected):
         raise ValueError("a calibration mark is behind the camera for this placement")
-    quads, corners = [q[:2] for q in projected[:8]], [q[:2] for q in projected[8:]]
+    quads, creases = [q[:2] for q in projected[:8]], [q[:2] for q in projected[8:]]
     return {
         "pitch_dimensions_m": {"width": PITCH_WIDTH_M, "length": PITCH_LENGTH_M},
-        "pitch_corners_px": [{"x": u, "y": v} for u, v in corners],
+        "crease_marks_px": [{"x": u, "y": v} for u, v in creases],
         "stump_quads_px": [{"x": u, "y": v} for u, v in quads],
         "n_frames": len(times),
     }

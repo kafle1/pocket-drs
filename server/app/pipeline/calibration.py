@@ -2,15 +2,15 @@
 
 World frame: X down the pitch (0 at the striker's stumps, L at the bowler's), Y across
 the pitch, Z up. The two stump sets are the metric anchor: their height is fixed by the
-Laws, so eight tapped stump corners plus the four pitch corners pin the camera pose and,
-when the caller does not supply them, the focal length and the pitch length.
+Laws, so eight tapped stump corners and the given pitch length pin the camera pose and the
+focal length; the four popping-crease ends, when tapped, add marks off the stump planes.
 """
 
 from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import cv2
 import numpy as np
@@ -25,8 +25,11 @@ STUMP_OUTER_HALF_M = 0.1143       # outer edge of the outer stump, half of 22.86
 STUMP_LATERAL_DX_M = STUMP_OUTER_HALF_M - STUMP_HALF_WIDTH_M   # middle stump centre to outer stump centre
 PITCH_LENGTH_M = 20.12
 PITCH_WIDTH_M = 3.05
-FOV_RANGE_DEG = (20.0, 130.0)     # long-axis field of view, telephoto to ultra-wide
-LENGTH_RANGE_M = (2.0, 25.0)
+# Law 7: popping crease 1.22 m in front of the stumps, return creases 1.32 m either side of middle
+CREASE_X_M, RETURN_CREASE_Y_M = 1.22, 1.32
+FOV_SWEEP_DEG = (2.0, 160.0)
+# long-axis field of view from phone specs: a 0.5x ultra-wide is about 110 deg, 10x zoom on the main lens about 7
+PHONE_FOV_DEG = (5.0, 120.0)
 
 
 class CalibrationError(Exception):
@@ -42,9 +45,12 @@ class CameraPose:
     fov_deg: float
     pitch_length_m: float
     pitch_width_m: float
-    used_corners: bool
+    used_creases: bool
     refined: bool = False         # the reprojection refine ran and was kept
     tap_sigma_px: float = 0.0     # per-coordinate tap noise implied by the residual, 0 when exactly determined
+    stump_height_m: float = STUMP_HEIGHT_M
+    stump_width_m: float = 2 * STUMP_OUTER_HALF_M
+    residuals_px: np.ndarray | None = None   # (n,2) fit minus tap, in the order the marks were given
 
     @property
     def fx(self) -> float:
@@ -69,9 +75,10 @@ class CameraPose:
     @property
     def notes(self) -> list[str]:
         return [
-            "stump+corner pose" if self.used_corners else "stump-only pose",
+            "stump+crease pose" if self.used_creases else "stump-only pose",
             "refined" if self.refined else "unrefined",
             f"length={self.pitch_length_m:.2f} m",
+            f"stumps={self.stump_width_m:.3f}x{self.stump_height_m:.3f} m",
             f"reproj={self.reproj_error_px:.2f} px",
             f"fov={self.fov_deg:.0f} deg",
             f"cam_height={float(self.centre_world[2]):.2f} m",
@@ -128,24 +135,24 @@ def camera_at_striker(stump_quads_px) -> bool:
     return _quad_area(stump_quads_px[0:4]) >= _quad_area(stump_quads_px[4:8])
 
 
-def mark_points(length: float, width: float, at_striker: bool, *, half_wicket: float = STUMP_OUTER_HALF_M,
+def mark_points(length: float, at_striker: bool, *, half_wicket: float = STUMP_OUTER_HALF_M,
                 height: float = STUMP_HEIGHT_M) -> np.ndarray:
     """(12,3) world points of the marks in the order the app asks for them: striker stumps then
     bowler stumps, each top-left, top-right, bottom-right, bottom-left as seen on the screen,
-    then the pitch corners clockwise on the screen from the striker end. Facing +x from the
-    striker's end, screen left is +y; facing -x from the bowler's end it is -y."""
+    then the four ends of the popping creases clockwise on the screen from the striker end.
+    Facing +x from the striker's end, screen left is +y; facing -x from the bowler's end it is -y."""
     yl = half_wicket if at_striker else -half_wicket
     side = [(yl, height), (-yl, height), (-yl, 0.0), (yl, 0.0)]
-    hw = width / 2.0
+    cx, cy = CREASE_X_M, RETURN_CREASE_Y_M
     return np.array([(0.0, dy, dz) for dy, dz in side] + [(length, dy, dz) for dy, dz in side]
-                    + [(0.0, -hw, 0.0), (0.0, hw, 0.0), (length, hw, 0.0), (length, -hw, 0.0)])
+                    + [(cx, -cy, 0.0), (cx, cy, 0.0), (length - cx, cy, 0.0), (length - cx, -cy, 0.0)])
 
 
 def _upright(quad: np.ndarray) -> np.ndarray:
-    """One set's corners as the image's TL, TR, BR, BL, whatever order they were tapped in."""
-    by_y = quad[np.argsort(quad[:, 1])]
+    """Indices that put one set's corners in the image's TL, TR, BR, BL order, whatever order they were tapped in."""
+    by_y = np.argsort(quad[:, 1])
     top, bottom = by_y[:2], by_y[2:]
-    return np.concatenate([top[np.argsort(top[:, 0])], bottom[np.argsort(-bottom[:, 0])]])
+    return np.concatenate([top[np.argsort(quad[top, 0])], bottom[np.argsort(-quad[bottom, 0])]])
 
 
 def _pnp(obj: np.ndarray, img: np.ndarray, K: np.ndarray):
@@ -194,7 +201,7 @@ def _refine(obj: np.ndarray, img: np.ndarray, K: np.ndarray, R: np.ndarray, t: n
     t1 = t + sol.x[3:6]
     # the same admissible region the grid search uses: FOV range, camera above the ground, taps in front
     fov1 = math.degrees(2.0 * math.atan((max(image_size) / 2.0) / f1)) if f1 > 0 else float("nan")
-    if not FOV_RANGE_DEG[0] <= fov1 <= FOV_RANGE_DEG[1]:
+    if not FOV_SWEEP_DEG[0] <= fov1 <= FOV_SWEEP_DEG[1]:
         return f"focal length left the FOV range (fov {fov1:.1f} deg)"
     if float((-R1.T @ t1)[2]) <= 0.0 or np.any(pc[:, 2] <= 0.0):
         return "pose flipped behind the marks or below the ground"
@@ -210,95 +217,89 @@ def solve_camera_pose(
     *,
     image_size: tuple[int, int],
     stump_quads_px: list[tuple[float, float]],
-    pitch_corners_px: list[tuple[float, float]] | None,
+    crease_marks_px: list[tuple[float, float]] | None,
+    pitch_length_m: float,
     pitch_width_m: float = PITCH_WIDTH_M,
+    stump_height_m: float = STUMP_HEIGHT_M,
+    stump_width_m: float = 2 * STUMP_OUTER_HALF_M,
     fov_deg: float | None = None,
-    pitch_length_m: float | None = None,
     refine: bool = True,
 ) -> CameraPose:
     """Pose from eight stump corners (striker TL,TR,BR,BL then bowler TL,TR,BR,BL, as seen on
-    the screen) and, optionally, the four pitch corners clockwise on the screen from the striker
-    end (mark_points). FOV and pitch length are swept when not supplied.
-
-    The corners sit off the stump plane and break the focal-length/pitch-length ambiguity the
-    stumps alone leave open. They are dropped when they disagree with the stumps, because stumps
-    are made to the size the Laws set, while a club or net pitch may not be marked to it.
-
-    The winning pose then gets a pixel least-squares refine over rotation, translation and the focal
-    length when it was swept (pitch length stays where the sweep put it). A refine that fails or
-    leaves the admissible region is logged and the unrefined pose is kept.
+    the screen) and, optionally, the four popping-crease ends (mark_points). The FOV is swept when
+    not supplied, then the pose gets a pixel least-squares refine over rotation, translation and the
+    swept focal length. A refine that fails or leaves the admissible region is logged and the
+    unrefined pose is kept. A view no phone camera has is refused.
     """
     if len(stump_quads_px) != 8:
         raise CalibrationError("Need exactly 8 stump corners (4 per end)")
-    if pitch_corners_px is not None and len(pitch_corners_px) != 4:
-        raise CalibrationError("Need exactly 4 pitch corners, or none")
+    if crease_marks_px is not None and len(crease_marks_px) != 4:
+        raise CalibrationError("Need exactly 4 crease marks, or none")
     width, height = image_size
-    stump_img = np.asarray(stump_quads_px, dtype=float)
-    stump_img = np.concatenate([_upright(stump_img[:4]), _upright(stump_img[4:])])
-    corner_img = None if pitch_corners_px is None else np.asarray(pitch_corners_px, dtype=float)
-    at_striker = camera_at_striker(stump_img)
+    img = np.asarray(stump_quads_px, dtype=float)
+    order = np.concatenate([_upright(img[:4]), 4 + _upright(img[4:])])
+    img = img[order]
+    at_striker = camera_at_striker(img)
+    used_creases = crease_marks_px is not None
+    obj = mark_points(pitch_length_m, at_striker, half_wicket=stump_width_m / 2, height=stump_height_m)
+    if used_creases:
+        img = np.vstack([img, np.asarray(crease_marks_px, dtype=float)])
+        order = np.r_[order, 8:12]
+    else:
+        obj = obj[:8]
 
-    fov_grid = [fov_deg] if fov_deg is not None else np.arange(FOV_RANGE_DEG[0], FOV_RANGE_DEG[1] + 1e-9, 5.0)
-    len_grid = [pitch_length_m] if pitch_length_m is not None else np.arange(LENGTH_RANGE_M[0], LENGTH_RANGE_M[1] + 1e-9, 0.5)
-    free = [i for i, v in enumerate((fov_deg, pitch_length_m)) if v is None]
-    lo = np.array([FOV_RANGE_DEG[0], LENGTH_RANGE_M[0]])
-    hi = np.array([FOV_RANGE_DEG[1], LENGTH_RANGE_M[1]])
-
-    def marks(L, use_corners):
-        obj = mark_points(L, pitch_width_m, at_striker)
-        return (obj, np.vstack([stump_img, corner_img])) if use_corners else (obj[:8], stump_img)
-
-    def solve(fov, L, use_corners):
+    def solve(fov):
         K = intrinsics(width, height, float(fov))
-        obj, img = marks(L, use_corners)
         sol = _pnp(obj, img, K)
-        return None if sol is None else (sol[0], sol[1], sol[2], K, float(fov), float(L))
+        return None if sol is None else (sol[0], sol[1], sol[2], K, float(fov))
 
-    def sweep(use_corners: bool):
-        # grid over whatever is free (5 deg, 0.5 m), then a continuous polish from the best cell
-        cells = (solve(f, L, use_corners) for f in fov_grid for L in len_grid)
-        best = min((c for c in cells if c is not None), key=lambda c: c[0], default=None)
-        if best is None or not free:
-            return best
-        x0 = np.array([best[4], best[5]])
-
-        def err(x):
-            z = x0.copy(); z[free] = x
-            sol = solve(z[0], z[1], use_corners)
-            return sol[0] if sol is not None else 1e9
-
-        res = minimize(err, x0[free], method="Nelder-Mead", bounds=list(zip(lo[free], hi[free])),
-                       options={"xatol": 1e-2, "fatol": 1e-3})
-        z = x0.copy(); z[free] = res.x
-        sol = solve(z[0], z[1], use_corners)
-        return sol if sol is not None and sol[0] < best[0] else best
-
-    joint = sweep(True) if corner_img is not None else None
-    stumps_only = sweep(False)
-    if joint is None and stumps_only is None:
+    if fov_deg is not None:
+        best = solve(fov_deg)
+    else:
+        # log grid over the FOV, then a continuous polish from the best cell
+        best = min(filter(None, map(solve, np.geomspace(*FOV_SWEEP_DEG, 60))), key=lambda c: c[0], default=None)
+        if best is not None:
+            res = minimize(lambda x: (solve(x[0]) or (1e9,))[0], [best[4]], method="Nelder-Mead",
+                           bounds=[FOV_SWEEP_DEG], options={"xatol": 1e-2, "fatol": 1e-3})
+            polished = solve(res.x[0])
+            best = polished if polished is not None and polished[0] < best[0] else best
+    if best is None:
         raise CalibrationError("Stump calibration is degenerate; re-mark the stump bases and tops.")
 
-    used_corners = False
-    best = stumps_only
-    if joint is not None:
-        tol = max(6.0, 0.012 * width)
-        if stumps_only is None or joint[0] <= max(tol, 2.0 * stumps_only[0] + 3.0):
-            best, used_corners = joint, True
-
-    err, R, t, K, fov, L = best
+    err, R, t, K, fov = best
     refined = False
     if refine:
-        out = _refine(*marks(L, used_corners), K, R, t, err, fov_deg is None, (width, height))
+        out = _refine(obj, img, K, R, t, err, fov_deg is None, (width, height))
         if isinstance(out, str):
             _log.warning("calibration refine rejected, keeping the unrefined pose: %s", out)
         else:
             err, R, t, K = out
             fov = math.degrees(2.0 * math.atan((max(width, height) / 2.0) / float(K[0, 0])))
             refined = True
+    if not PHONE_FOV_DEG[0] <= fov <= PHONE_FOV_DEG[1]:
+        raise CalibrationError(f"The marks only fit a camera that sees {fov:.0f} degrees across, which no phone "
+                               "camera does. Zoom in and re-mark the corners of both sets of stumps.")
     # err is the rms 2-D distance over the marks; spread it over the coordinates the fit left free
-    n_obs = 2 * (12 if used_corners else 8)
-    n_par = 6 + (fov_deg is None) + (pitch_length_m is None)
-    tap_sigma = err * math.sqrt(n_obs / 2 / (n_obs - n_par))
-    return CameraPose(K=K, R=R, t=t, reproj_error_px=err, fov_deg=fov, pitch_length_m=L,
-                      pitch_width_m=pitch_width_m, used_corners=used_corners, refined=refined,
-                      tap_sigma_px=tap_sigma)
+    n_obs = 2 * len(obj)
+    tap_sigma = err * math.sqrt(n_obs / 2 / (n_obs - 6 - (fov_deg is None)))
+    pose = CameraPose(K=K, R=R, t=t, reproj_error_px=err, fov_deg=fov, pitch_length_m=pitch_length_m,
+                      pitch_width_m=pitch_width_m, used_creases=used_creases, refined=refined,
+                      tap_sigma_px=tap_sigma, stump_height_m=stump_height_m, stump_width_m=stump_width_m)
+    u, v, _ = pose.project(obj)
+    res = np.empty_like(img)
+    res[order] = np.column_stack([u, v]) - img
+    return replace(pose, residuals_px=res)
+
+
+def fitting_length(image_size, stump_quads_px, crease_marks_px, **dims) -> tuple[float, float] | None:
+    """(length, reprojection error) of the pitch length the marks fit best. Only the crease marks make
+    the length observable: from stumps alone a longer pitch fits as well as a wider lens."""
+    fits = []
+    for L in np.arange(10.0, 25.0 + 1e-9, 0.25):
+        try:
+            p = solve_camera_pose(image_size=image_size, stump_quads_px=stump_quads_px, crease_marks_px=crease_marks_px,
+                                  pitch_length_m=float(L), refine=False, **dims)
+        except CalibrationError:
+            continue
+        fits.append((float(L), p.reproj_error_px))
+    return min(fits, key=lambda f: f[1], default=None)

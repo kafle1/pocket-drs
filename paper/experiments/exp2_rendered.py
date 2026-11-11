@@ -54,7 +54,7 @@ def main():
         clip = CLIPS / f"{CAM_NAME}_{i:03d}.mp4"
         cal = render(truth, cam, clip, fps=FPS)
         n_frames = cal.pop("n_frames")
-        for key in ("pitch_corners_px", "stump_quads_px"):
+        for key in ("crease_marks_px", "stump_quads_px"):
             cal[key] = [{"x": p["x"] + rng.normal(0, TAP_PX), "y": p["y"] + rng.normal(0, TAP_PX)} for p in cal[key]]
         req = {"segment": {"start_ms": 0, "end_ms": int(1000 * (n_frames - 1) / FPS)},
                "tracking": {"sample_fps": int(FPS), "max_frames": n_frames, "ball_color": "red"},

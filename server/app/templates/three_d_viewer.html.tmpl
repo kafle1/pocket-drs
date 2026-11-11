@@ -128,7 +128,7 @@ import * as THREE from "/static/three/build/three.module.min.js";
 
 const P = __PAYLOAD__;
 const L = P.pitch_length_m, PW = P.pitch_width_m;
-const STUMP_H = 0.711, STUMP_HALF = 0.1143, STUMP_R = 0.0175, BALL_R = 0.036;
+const STUMP_H = P.stump_height_m, STUMP_HALF = P.stump_half_m, STUMP_R = 0.0175, BALL_R = 0.036;
 const POP = 1.22, RETURN_Y = 1.32, POP_HALF = 1.83;
 const TONE = { out: 0xc9302d, not_out: 0x1c8742, umpires_call: 0xd0901e, none: 0x9aa59f };
 const BALL = 0xd8322b, BALL_HEAD = 0xff7a6b, BG = 0x0c110f;

@@ -46,12 +46,12 @@ def refine(p, taps):
 
 def main():
     rng = np.random.default_rng(SEED)
-    errs_un, errs, errs_lm, corners, kept, fails = [], [], [], 0, 0, 0
+    errs_un, errs, errs_lm, creases, kept, fails = [], [], [], 0, 0, 0
     for _ in range(N):
         try:
             p, st, co = calibration_taps(POSE, noise_px=SIG_TAP, rng=rng)
             p0 = solve_camera_pose(image_size=(int(POSE.cx * 2), int(POSE.cy * 2)), stump_quads_px=st,
-                                   pitch_corners_px=co, pitch_length_m=p.pitch_length_m, refine=False)
+                                   crease_marks_px=co, pitch_length_m=p.pitch_length_m, refine=False)
         except CalibrationError:
             fails += 1
             continue
@@ -59,10 +59,10 @@ def main():
         errs.append(pose_error(p))
         uv = np.array(st + co)
         errs_lm.append(refine(p0, np.concatenate([uv[:, 0], uv[:, 1]])))
-        corners += bool(p.used_corners)
+        creases += bool(p.used_creases)
         kept += bool(p.refined)
     Eun, E, Elm = np.array(errs_un), np.array(errs), np.array(errs_lm)
-    lines = [f"draws {len(E)} of {N}, failures {fails}, used the pitch corners {corners}, "
+    lines = [f"draws {len(E)} of {N}, failures {fails}, used the crease marks {creases}, "
              f"app refine kept {kept}, focal {POSE.fx:.1f} px",
              f"unrefined: mean error (w rad x3, t m x3, f px) {np.array2string(Eun.mean(0), precision=5)}",
              f"unrefined: sd {np.array2string(Eun.std(0, ddof=1), precision=5)}",

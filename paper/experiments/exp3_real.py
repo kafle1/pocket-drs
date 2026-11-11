@@ -55,8 +55,6 @@ def run(name, req, parity):
                 reproj_px=round(out["calibration"]["quality"]["reproj_error_px"], 2),
                 n_track=len(out["track"]["image_points"]),
                 length_m=round(out["calibration"]["pose"]["pitch_length_m"], 1),
-                length_free="length" not in req["calibration"]["pitch_dimensions_m"],
-                corners_dropped=any(w.startswith("the pitch corners disagree") for w in out["diagnostics"]["warnings"]),
                 discard_px=None if residual is None else float(residual.group(1)),
                 verdict=lbw.get("decision"), reason=lbw.get("reason"),
                 # the app's calibrated output: bias removed, u and U95 from the shipped rule

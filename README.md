@@ -17,9 +17,12 @@ asks for premium. See the [user guide](docs/GUIDE.md) or the
 
 ## How it works
 
-The phone is calibrated from the 8 stump corners you mark. A detector trained on cricket balls and a
-colour and motion finder both propose ball candidates, and a search over 3-D flights a bowler could
-produce picks out the delivery. One camera can't measure depth, but the bounce is on the ground plane,
+The phone is calibrated from the 8 stump corners you mark, with the pitch length and stump size you
+set (full size unless you change them), plus the four popping-crease ends where the pitch has them.
+Without creases the marks can't tell a longer pitch from a wider lens, so the length you set matters.
+A view no phone camera has is refused. A detector trained on cricket balls and a colour and motion
+finder both propose ball candidates, and a search over 3-D flights a bowler could produce picks out
+the delivery. One camera can't measure depth, but the bounce is on the ground plane,
 so the contact pixel gives a metric anchor. Two parabolas are fitted from there, and their uncertainty,
 calibrated per camera end on simulated deliveries, is carried to the stump plane and into the Law 36 bands.
 

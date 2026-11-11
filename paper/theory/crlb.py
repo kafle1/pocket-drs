@@ -8,7 +8,7 @@ difference of the solver's code before anything is computed from it.
 
 Noise model, as in the paper: independent Gaussian detection noise of sigma px on both pixel
 coordinates of every ball detection, and independent Gaussian noise of sigma_tap px on each of
-the twelve calibration taps (eight stump corners, four pitch corners). Focal length and pitch
+the twelve calibration taps (eight stump corners, four popping-crease ends). Focal length and pitch
 length are known, as in Experiment 1; a variant also treats the focal length as unknown.
 
 Usage:  python paper/theory/crlb.py        writes paper/theory/out/crlb_*.{json,csv}
@@ -160,7 +160,7 @@ def pose_jac(pose: CameraPose, P: np.ndarray, with_f: bool = False) -> np.ndarra
 
 def tap_points() -> np.ndarray:
     """The twelve marks of synth.calibration_taps for the striker-end reference camera, in the same order."""
-    return mark_points(PITCH_LENGTH_M, PITCH_WIDTH_M, True)
+    return mark_points(PITCH_LENGTH_M, True)
 
 
 def measurand_grad(theta: np.ndarray) -> np.ndarray:
@@ -316,7 +316,7 @@ def check_derivatives() -> dict:
                 if len(phi) == 7:
                     K[0, 0] = K[1, 1] = pose.fx + phi[6]
                 q = CameraPose(K=K, R=R, t=pose.t + phi[3:6], reproj_error_px=0.0, fov_deg=0.0,
-                               pitch_length_m=PITCH_LENGTH_M, pitch_width_m=PITCH_WIDTH_M, used_corners=True)
+                               pitch_length_m=PITCH_LENGTH_M, pitch_width_m=PITCH_WIDTH_M, used_creases=True)
                 u, v, _ = q.project(positions(th, t))
                 return np.concatenate([u, v])
             Jpn = _numeric_jacobian(pix_pose, np.zeros(7), rel=1e-7)

@@ -49,7 +49,6 @@ DIST_ROWS = [
     ("lens distortion", "eff", "distortion", -0.01, 0.01, 0.0,
      "B: +-1 % radial at the corner (assumed)"),
     ("pitch length L", "eff", "dL", -0.05, 0.05, 0.0, "B: +-5 cm marking, rectangular"),
-    ("pitch width W", "eff", "dW", -0.10, 0.10, 0.0, "B: +-10 cm, corners are unmarked"),
     ("stump height H", "eff", "dH", -0.01, 0.01, 0.0, "B: +-1 cm set depth"),
     ("wicket half-width w", "eff", "dw", -0.0025, 0.0025, 0.0, "B: +-2.5 mm stump spacing"),
     ("bails tapped as top", "eff", "top_tap", 0.0, 0.0127, 0.0, "B: 0-1.27 cm, Law 8.3.1, uncorrected"),
@@ -73,7 +72,7 @@ def pose_of(key):
 
 
 def geo_key(eff):
-    return tuple((k, getattr(eff, k)) for k in ("dL", "dW", "dH", "dw", "top_tap", "distortion"))
+    return tuple((k, getattr(eff, k)) for k in ("dL", "dH", "dw", "top_tap", "distortion"))
 
 
 def apply(d: Delivery, field, x):

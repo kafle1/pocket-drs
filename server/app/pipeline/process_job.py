@@ -7,8 +7,10 @@ delivery in metres -> predict the stump-plane crossing with its uncertainty -> L
 The result dict is the client contract:
 
     image_size       {width, height}
-    calibration      {pose{K, R, t, cam_center_world_m, fx, fy, cx, cy, pitch_length_m, pitch_width_m, fov_deg},
-                      quality{reproj_error_px, notes[]}}
+    calibration      {pose{K, R, t, cam_center_world_m, fx, fy, cx, cy, pitch_length_m, pitch_width_m,
+                           stump_height_m, stump_width_m, fov_deg}, the sizes used being the ones the request stated,
+                      quality{reproj_error_px, notes[], mark_residuals_px[{du, dv}] in the video's own pixels
+                              in the order the marks were sent, used_creases}}
     track            {image_points[{t_ms, u, v, radius_px, confidence}]}, the matched ball in time order;
                      the last point stands in for the impact
     world_trajectory {points_m[{t_ms, x, y, z, confidence}], predicted_to_stumps_m[...],
@@ -38,7 +40,7 @@ from typing import Callable
 import numpy as np
 
 from ..models import ApiError, CreateJobRequest
-from .calibration import STUMP_HEIGHT_M, CalibrationError, solve_camera_pose
+from .calibration import CalibrationError, fitting_length, solve_camera_pose
 from .decision import decide
 from .overlay import build_overlay
 from .reconstruction import BALL_RADIUS_M, sample_path, speed_sigma
@@ -82,10 +84,11 @@ def _finite(obj):
 
 
 def _resolve(image_size: tuple[int, int], cal, taps: np.ndarray):
-    """The pose from 8 stump marks then any pitch corners, with the request's dimensions."""
+    """The pose from 8 stump marks then any crease marks, with the request's dimensions."""
     return solve_camera_pose(image_size=image_size, stump_quads_px=[tuple(p) for p in taps[:8]],
-                             pitch_corners_px=[tuple(p) for p in taps[8:]] or None,
-                             pitch_length_m=cal.pitch_dimensions_m.length, pitch_width_m=cal.pitch_dimensions_m.width)
+                             crease_marks_px=[tuple(p) for p in taps[8:]] or None,
+                             pitch_length_m=cal.pitch_dimensions_m.length, pitch_width_m=cal.pitch_dimensions_m.width,
+                             stump_height_m=cal.stumps_m.height, stump_width_m=cal.stumps_m.width)
 
 
 def _track(frames, times_ms, detector, pose, fps: float):
@@ -119,12 +122,20 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
     report(30, "calibration")
     cal = req.calibration
     marks = lambda norm, px: [(p.x * width, p.y * height) for p in norm] if norm else [(p.x * scale, p.y * scale) for p in px or []]
-    taps = np.array(marks(cal.stump_quads_norm, cal.stump_quads_px) + marks(cal.pitch_corners_norm, cal.pitch_corners_px), dtype=float)
+    taps = np.array(marks(cal.stump_quads_norm, cal.stump_quads_px) + marks(cal.crease_marks_norm, cal.crease_marks_px), dtype=float)
     pose = _resolve((width, height), cal, taps)
+    L = cal.pitch_dimensions_m.length
+    fit = fitting_length((width, height), [tuple(p) for p in taps[:8]], [tuple(p) for p in taps[8:]],
+                         stump_height_m=cal.stumps_m.height, stump_width_m=cal.stumps_m.width) if len(taps) > 8 else None
+    # only the creases fix the length, so this is the one wrong setting the marks can point at
+    hint = (f"these marks fit a pitch of about {fit[0]:.1f} m, not the {L:.2f} m set; "
+            f"if your pitch is {'shorter' if fit[0] < L else 'longer'}, set its length in settings"
+            if fit and abs(fit[0] - L) > 1.0 and fit[1] < 0.5 * pose.reproj_error_px else None)
     reject = max(CALIB_REJECT_PX, CALIB_REJECT_FRAC * width)
     if pose.reproj_error_px > reject:
         raise CalibrationError(
-            "The stump marks don't line up. Zoom in and re-mark the corners of both sets of stumps.")
+            f"The marks don't line up{'; ' + hint if hint else ''}. Zoom in and re-mark the corners of both sets "
+            "of stumps, and the crease ends if you marked them.")
     cam_x, cam_z = float(pose.centre_world[0]), float(pose.centre_world[2])
     # metres behind the nearer stumps; tapping both sets in one spot puts the phone 100 m back
     behind = max(-cam_x, cam_x - pose.pitch_length_m)
@@ -132,7 +143,9 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
         raise CalibrationError(
             "The stump marks put the phone somewhere it can't be. Mark the batter's stumps first, then the "
             "bowler's.")
-    if pose.reproj_error_px > 8.0:
+    if hint:
+        warnings.append(hint)
+    elif pose.reproj_error_px > 8.0:
         warnings.append("the stump marks are a little off; re-marking them gives a surer call")
     # taps read left to right put the camera upright behind the bowler, so world +y is a right-hander's leg side
     leg_sign = -1.0 if req.batsman_handedness == "left" else 1.0
@@ -146,8 +159,12 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
                      "cam_center_world_m": pose.centre_world.tolist(),
                      "fx": pose.fx, "fy": pose.fy, "cx": pose.cx, "cy": pose.cy,
                      "pitch_length_m": pose.pitch_length_m, "pitch_width_m": pose.pitch_width_m,
+                     "stump_height_m": pose.stump_height_m, "stump_width_m": pose.stump_width_m,
                      "fov_deg": pose.fov_deg},
-            "quality": {"reproj_error_px": pose.reproj_error_px, "notes": pose.notes},
+            # per mark, in the order sent: where the solved camera puts it minus where it was tapped
+            "quality": {"reproj_error_px": pose.reproj_error_px, "notes": pose.notes,
+                        "mark_residuals_px": [{"du": float(a), "dv": float(b)} for a, b in pose.residuals_px / scale],
+                        "used_creases": pose.used_creases},
         },
         "track": None, "world_trajectory": None, "events": None, "lbw": None, "overlay": None, "metrics": None,
         "diagnostics": {"warnings": warnings},
@@ -208,7 +225,7 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
     used = [q["y"]["sigma"], q["z"]["sigma"], q["impact_y"]["sigma"]] + ([q["pitch_y"]["sigma"]] if tr.bounce_observed else [])
     # a perturbed solve that failed leaves an infinite sigma; once the miss is bigger than the stumps are tall,
     # the path can't tell hitting from missing
-    if not all(map(math.isfinite, used)) or math.hypot(q["y"]["sigma"], q["z"]["sigma"]) > STUMP_HEIGHT_M:
+    if not all(map(math.isfinite, used)) or math.hypot(q["y"]["sigma"], q["z"]["sigma"]) > pose.stump_height_m:
         return finish("the ball's path is too unsure to call; re-mark the stumps or try a clearer clip")
     # the track ends where the ball was last seen; well short of the batter that's a lost ball, not the pad
     if impact[0] > MAX_IMPACT_X_M:
@@ -217,7 +234,8 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
     get = lambda k: q[k]["value"] if k in q else None
     verdict = decide(leg_sign=leg_sign, pitch_y=get("pitch_y"), pitch_sigma=q.get("pitch_y", {}).get("sigma"),
                      impact_y=get("impact_y"), impact_sigma=q["impact_y"]["sigma"],
-                     stump_y=get("y"), stump_z=get("z"), sigma_y=q["y"]["sigma"], sigma_z=q["z"]["sigma"], k=GUARD_K)
+                     stump_y=get("y"), stump_z=get("z"), sigma_y=q["y"]["sigma"], sigma_z=q["z"]["sigma"], k=GUARD_K,
+                     stump_half=pose.stump_width_m / 2, stump_height=pose.stump_height_m)
     predicted = sample_path(tr, t_last, pred.t, 24) if pred.t > t_last else np.empty((0, 4))
     bounce_ms = round(t0_ms + tr.t_b * 1000.0) if tr.bounce_observed else None
     impact_ms = round(t0_ms + t_last * 1000.0)

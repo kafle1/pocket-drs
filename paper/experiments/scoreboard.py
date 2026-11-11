@@ -2,7 +2,8 @@
 """One table for every pipeline change: both rendered sets of exp2 and the bundled real clips.
 
 Rendered: the exp2 grid from each camera end at 60 Hz with 2 px tap noise, scored against the truth.
-Real: test3 to test5 with the taps in server/scripts/real_clip.py; --dump DIR keeps each result json.
+Real: test3 to test5 with the taps in server/scripts/real_clip.py; --dump DIR keeps each result json
+and the rendered rows, so a run that was killed picks up where it stopped.
 
     server/.venv/bin/python paper/experiments/scoreboard.py [--workers 8] [--dump DIR]
 """
@@ -57,8 +58,8 @@ def rendered(job):
     try:
         out = run_pipeline(video_path=clip, request_json=request(cal, n), artifacts_dir=Path(tempfile.mkdtemp()), progress=None).result
     except Exception as e:                           # noqa: BLE001
-        return end, truth_verdict(truth), "refused", str(e)[:80]
-    return end, truth_verdict(truth), (out.get("lbw") or {}).get("decision") or "no_verdict", (out["diagnostics"]["warnings"] or [""])[0][:80]
+        return end, i, truth_verdict(truth), "refused", str(e)[:80]
+    return end, i, truth_verdict(truth), (out.get("lbw") or {}).get("decision") or "no_verdict", (out["diagnostics"]["warnings"] or [""])[0][:80]
 
 
 def real(name: str, dump: Path | None) -> dict:
@@ -83,8 +84,18 @@ def main():
     if dump:
         dump.mkdir(parents=True, exist_ok=True)
     CLIPS.mkdir(parents=True, exist_ok=True)
+    saved = dump / "rendered.jsonl" if dump else None
+    done = {}
+    for line in saved.read_text().splitlines() if saved and saved.exists() else []:
+        row = json.loads(line)
+        done[tuple(row[:2])] = row
     with Pool(workers, initializer=_quiet) as pool:
-        rows = pool.map(rendered, [(e, i) for e in CAMERAS for i in range(len(grid()))], chunksize=1)
+        for row in pool.imap_unordered(rendered, [(e, i) for e in CAMERAS for i in range(len(grid())) if (e, i) not in done]):
+            done[row[:2]] = row
+            if saved:
+                with saved.open("a") as f:
+                    f.write(json.dumps(row) + "\n")
+    rows = [r[:1] + r[2:] for r in done.values()]
     print("end      right wrong no_verdict false_out out->ump  top no-verdict reason")
     for end in CAMERAS:
         r = [x for x in rows if x[0] == end]

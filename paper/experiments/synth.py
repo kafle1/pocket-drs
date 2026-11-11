@@ -72,7 +72,7 @@ class Camera:
         d = np.cross(f, r)                                             # screen down
         R = np.stack([r, d, f])
         return CameraPose(K=K, R=R, t=-R @ eye, reproj_error_px=0.0, fov_deg=self.fov_deg,
-                          pitch_length_m=PITCH_LENGTH_M, pitch_width_m=PITCH_WIDTH_M, used_corners=True)
+                          pitch_length_m=PITCH_LENGTH_M, pitch_width_m=PITCH_WIDTH_M, used_creases=True)
 
 
 @dataclass(frozen=True)
@@ -184,20 +184,17 @@ def at_striker(pose: CameraPose) -> bool:
 
 
 def calibration_taps(pose: CameraPose, *, noise_px: float, rng: np.random.Generator,
-                     fov_deg: float | None = None, pitch_length_m: float | None = PITCH_LENGTH_M):
+                     fov_deg: float | None = None):
     """The twelve marks the user taps, perturbed, and the pose the app would solve from them.
 
     Like the app, the solver gets the regulation pitch length and has to find the focal
-    length itself. Pass ``fov_deg=pose.fov_deg`` or ``pitch_length_m=None`` for the ablations."""
-    marks = mark_points(PITCH_LENGTH_M, PITCH_WIDTH_M, at_striker(pose))
-    stump_pts, corner_pts = marks[:8], marks[8:]
-    su, sv, _ = pose.project(stump_pts)
-    cu, cv, _ = pose.project(corner_pts)
-    stumps = [(float(a + rng.normal(0, noise_px)), float(b + rng.normal(0, noise_px))) for a, b in zip(su, sv)]
-    corners = [(float(a + rng.normal(0, noise_px)), float(b + rng.normal(0, noise_px))) for a, b in zip(cu, cv)]
-    solved = solve_camera_pose(image_size=(int(pose.cx * 2), int(pose.cy * 2)), stump_quads_px=stumps,
-                               pitch_corners_px=corners, fov_deg=fov_deg, pitch_length_m=pitch_length_m)
-    return solved, stumps, corners
+    length itself. Pass ``fov_deg=pose.fov_deg`` for the known-focal ablation."""
+    marks = mark_points(PITCH_LENGTH_M, at_striker(pose))
+    u, v, _ = pose.project(marks)
+    taps = [(float(a + rng.normal(0, noise_px)), float(b + rng.normal(0, noise_px))) for a, b in zip(u, v)]
+    solved = solve_camera_pose(image_size=(int(pose.cx * 2), int(pose.cy * 2)), stump_quads_px=taps[:8],
+                               crease_marks_px=taps[8:], fov_deg=fov_deg, pitch_length_m=PITCH_LENGTH_M)
+    return solved, taps[:8], taps[8:]
 
 
 # --------------------------------------------------------------------------- #

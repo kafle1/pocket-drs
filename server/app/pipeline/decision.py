@@ -17,7 +17,6 @@ from .reconstruction import BALL_RADIUS_M
 
 OUT, NOT_OUT, UMPIRES_CALL = "out", "not_out", "umpires_call"
 BAIL_RISE_M = 0.0127                                  # Law 8.3.1: bails sit at most 1.27 cm above the stumps
-WICKET_TOP_M = STUMP_HEIGHT_M + BAIL_RISE_M           # ICC 2021: zone top is the top of the stumps with bails
 
 
 @dataclass(frozen=True)
@@ -64,13 +63,16 @@ def decide(
     sigma_y: float | None,
     sigma_z: float | None,
     k: float = 1.0,
+    stump_half: float = STUMP_OUTER_HALF_M,
+    stump_height: float = STUMP_HEIGHT_M,
 ) -> Verdict:
     """``leg_sign`` maps world +y onto the batter's leg side (+1 or -1). Lateral quantities
     are metres from the middle-stump line, distances in the reasons are from the outer edge of
     the stumps; ``stump_z`` is the ball-centre height at the stump plane. Any None means the
-    quantity was not measured."""
+    quantity was not measured. The stumps are the ones in the clip, regulation unless stated."""
     R = BALL_RADIUS_M
-    w = STUMP_OUTER_HALF_M
+    w = stump_half
+    top_m = stump_height + BAIL_RISE_M      # ICC 2021: zone top is the top of the stumps with bails
     reasons: list[str] = []
     close: list[str] = []
 
@@ -103,7 +105,7 @@ def decide(
     hitting = None                 # unknown without a stump-plane prediction
     if stump_y is not None and stump_z is not None:
         lat = _band(w - abs(stump_y), R, sigma_y, k)
-        top = _band(WICKET_TOP_M - stump_z, R, sigma_z, k)   # ponytail: per-axis, ignores the rounded corner
+        top = _band(top_m - stump_z, R, sigma_z, k)   # ponytail: per-axis, ignores the rounded corner
         if lat == "out" or top == "out" or stump_z < 0.0:
             hitting = False
             reasons.append("missing the stumps")
