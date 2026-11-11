@@ -137,7 +137,8 @@ async function authHeaders() {
 function refuse(status, body) {
   if (status === 401) { fa.signOut(auth); throw new Error(SIGN_IN_AGAIN); }
   if (status === 402) { usedUp(body); throw new Error(""); }
-  const msg = ERRORS[body && body.error] || STATUS[status] || (status >= 500 ? "Something went wrong on the server. Try again." : "Got an unexpected reply from the server. Try again in a minute.");
+  const err = (body && body.error) || {};
+  const msg = ERRORS[err.code] || err.message || STATUS[status] || (status >= 500 ? "Something went wrong on the server. Try again." : "Got an unexpected reply from the server. Try again in a minute.");
   throw Object.assign(new Error(msg), { status, transient: status >= 502 && status <= 504 });
 }
 
