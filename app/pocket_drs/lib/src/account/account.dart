@@ -13,6 +13,16 @@ import '../api/pocket_drs_api.dart';
 const _native = MethodChannel('pocket_drs/native');
 final _validDeviceId = RegExp(r'^[A-Za-z0-9_-]{8,128}$');
 
+/// "More at 05:45", or "More tomorrow at 05:45", in the phone's own time.
+String whenBack(DateTime at) {
+  final now = DateTime.now();
+  String two(int x) => x.toString().padLeft(2, '0');
+  final time = '${two(at.hour)}:${two(at.minute)}';
+  final today =
+      at.year == now.year && at.month == now.month && at.day == now.day;
+  return today ? 'More at $time' : 'More tomorrow at $time';
+}
+
 /// What `/v1/me` says about the signed-in person.
 class Me {
   Me({
@@ -149,12 +159,15 @@ class Account {
           'Restart the app and try again.';
     }
     try {
-      final account = await GoogleSignIn.instance.authenticate();
+      // a sign-in sheet that never answers would otherwise leave the button spinning for good
+      final account = await GoogleSignIn.instance.authenticate().timeout(
+        const Duration(seconds: 60),
+      );
       final idToken = account.authentication.idToken;
       if (idToken == null) return "Couldn't sign in with Google. Try again.";
-      await FirebaseAuth.instance.signInWithCredential(
-        GoogleAuthProvider.credential(idToken: idToken),
-      );
+      await FirebaseAuth.instance
+          .signInWithCredential(GoogleAuthProvider.credential(idToken: idToken))
+          .timeout(const Duration(seconds: 60));
       logEvent('login', {'method': 'google'});
       unawaited(refreshMe());
       return null;
@@ -179,6 +192,8 @@ class Account {
           'This account has been turned off. Contact the admin.',
         _ => "Couldn't sign in with Google. Try again.",
       };
+    } on TimeoutException {
+      return 'Sign-in took too long. Check your internet and try again.';
     } catch (e) {
       _log('[AUTH] sign-in: $e');
       return "Couldn't sign in with Google. Try again.";
@@ -241,6 +256,13 @@ class Account {
     await wipe();
     await signOut();
     return null;
+  }
+
+  /// Whether today's free reviews are gone, asking the server again first, since the plan may have changed.
+  Future<bool> outOfReviews() async {
+    if (!(me.value?.usedUp ?? false)) return false;
+    await refreshMe();
+    return me.value?.usedUp ?? false;
   }
 
   /// Reloads the plan and free reviews left; failures keep the last known value.

@@ -22,8 +22,18 @@ enum StumpSize {
   final double widthM;
 }
 
-/// The pitch length and stumps in use, which set the scale of everything the server measures.
-typedef PitchSetup = ({double lengthM, StumpSize stumps});
+/// The ball in use; the server looks for different colours and bounce on each.
+enum BallType {
+  tennis('Tennis'),
+  leather('Leather'),
+  tape('Taped tennis');
+
+  const BallType(this.label);
+  final String label;
+}
+
+/// The pitch, stumps and ball in use, which set the scale and what the server looks for.
+typedef PitchSetup = ({double lengthM, StumpSize stumps, BallType ball});
 
 /// Pitch length in metres with how a club cricketer says it.
 String pitchLabel(double metres) {
@@ -39,6 +49,8 @@ class AppSettings {
   static const _kPitchLength = 'pitchLength_v1';
   static const _kStumpSize = 'stumpSize_v1';
   static const _kGuideSeen = 'filmingGuideSeen_v1';
+  static const _kBallType = 'ballType_v1';
+  static const _kHand = 'batterHand_v1';
 
   static const yardM = 0.9144;
   static const fullPitchM = 22 * yardM;
@@ -103,8 +115,54 @@ class AppSettings {
     await p.setDouble(_kPitchLength, metres);
   }
 
-  static Future<PitchSetup> getPitchSetup() async =>
-      (lengthM: await getPitchLength(), stumps: await getStumpSize());
+  static Future<PitchSetup> getPitchSetup() async => (
+    lengthM: await getPitchLength(),
+    stumps: await getStumpSize(),
+    ball: await getBallType(),
+  );
+
+  // the length is only saved once the player picks it, so its absence means never asked
+  static Future<bool> getPitchChosen() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      return p.containsKey(_kPitchLength);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<BallType> getBallType() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final raw = p.getString(_kBallType);
+      return BallType.values.firstWhere(
+        (b) => b.name == raw,
+        orElse: () => BallType.tennis,
+      );
+    } catch (_) {
+      return BallType.tennis;
+    }
+  }
+
+  static Future<void> setBallType(BallType ball) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_kBallType, ball.name);
+  }
+
+  /// The batter's hand from the last ball sent, 'right' or 'left'.
+  static Future<String> getHand() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      return p.getString(_kHand) == 'left' ? 'left' : 'right';
+    } catch (_) {
+      return 'right';
+    }
+  }
+
+  static Future<void> setHand(String hand) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_kHand, hand);
+  }
 
   static Future<StumpSize> getStumpSize() async {
     try {

@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
-import '../analysis/ball_track_models.dart';
 import '../api/analysis_result.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
@@ -204,7 +203,7 @@ class TrajectoryPainter extends CustomPainter {
     required AnalysisResult result,
     required this.overlay,
     required this.nowMs,
-  }) : track = result.track.points,
+  }) : track = result.track,
        lbw = result.lbw,
        imageWidth = result.imageWidth.toDouble(),
        imageHeight = result.imageHeight.toDouble();
@@ -212,7 +211,7 @@ class TrajectoryPainter extends CustomPainter {
   final TrajectoryOverlay overlay;
 
   /// Raw on-ball detections in pixel space, the ball as it was seen.
-  final List<BallTrackPoint> track;
+  final List<OverlayPoint> track;
   final LbwResult? lbw;
   final double imageWidth;
   final double imageHeight;
@@ -221,12 +220,8 @@ class TrajectoryPainter extends CustomPainter {
   static const _popMs = 320;
 
   // a row's colour: against the batter is out red, for him not out green
-  Color _tone(String row) => switch (lbw?.tones[row]) {
-    'out' => AppColors.out,
-    'not_out' => AppColors.notOut,
-    'umpires_call' => AppColors.umpiresCall,
-    _ => AppColors.onVideo,
-  };
+  Color _tone(String row) =>
+      AppColors.tone(lbw?.tones[row]) ?? AppColors.onVideo;
 
   static double _easeOut(double k) {
     final c = k.clamp(0.0, 1.0);
@@ -277,9 +272,7 @@ class TrajectoryPainter extends CustomPainter {
     }
 
     // both paths exactly as the server gave them: where the two don't meet, the gap is the honest picture
-    final flight = [
-      for (final p in track) OverlayPoint(tMs: p.t, px: p.p, predicted: false),
-    ]..sort((a, b) => a.tMs.compareTo(b.tMs));
+    final flight = track;
     final ahead = overlay.path.where((p) => p.predicted).toList();
     if (flight.isEmpty) return;
     final aheadEnd = ahead.isEmpty ? flight.last.tMs : ahead.last.tMs;

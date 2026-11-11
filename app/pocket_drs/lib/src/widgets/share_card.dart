@@ -44,9 +44,7 @@ class _ShareSheetState extends State<_ShareSheet> {
   // the frame where the ball meets the batter, so the drawn path ends on something
   Future<Uint8List?> _loadFrame() {
     final r = widget.review.result!;
-    final at =
-        r.overlay?.impact?.tMs ??
-        (r.track.points.isEmpty ? 0 : r.track.points.last.t);
+    final at = r.overlay?.impact?.tMs ?? (r.track.lastOrNull?.tMs ?? 0);
     return decodeFrameJpeg(videoPath: widget.review.clip, timeMs: at);
   }
 

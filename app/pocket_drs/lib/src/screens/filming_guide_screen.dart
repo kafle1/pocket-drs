@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../utils/app_settings.dart';
+import '../widgets/pitch_setup.dart';
 
 /// Opens [screen], showing how to film first if this phone has never seen it.
 Future<void> openWithGuide(BuildContext context, Widget screen) async {
   final nav = Navigator.of(context);
-  final seen = await AppSettings.getGuideSeen();
+  final seen =
+      await AppSettings.getGuideSeen() && await AppSettings.getPitchChosen();
   nav.push(
     MaterialPageRoute<void>(
       builder: (_) => seen ? screen : FilmingGuideScreen(then: screen),
@@ -38,8 +40,8 @@ const _rules = [
   ),
   (
     Icons.wb_sunny_outlined,
-    'A red or pink ball in good light',
-    'Film the whole delivery, from the hand to just after it reaches the batter.',
+    'Good light, the whole delivery',
+    'Film from the hand to just after the ball reaches the batter.',
   ),
 ];
 
@@ -129,6 +131,11 @@ class FilmingGuideScreen extends StatelessWidget {
                 child: FilledButton(
                   onPressed: () async {
                     final nav = Navigator.of(context);
+                    // the server's scale and ball finder depend on these, so they are asked once, never assumed
+                    if (!await AppSettings.getPitchChosen()) {
+                      if (!context.mounted) return;
+                      if (await showPitchSetup(context) == null) return;
+                    }
                     await AppSettings.setGuideSeen();
                     if (next == null) {
                       nav.pop();

@@ -10,6 +10,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../utils/app_settings.dart';
+import '../widgets/ball_path_3d.dart';
 import '../widgets/share_card.dart';
 import '../widgets/stump_marker.dart';
 import '../widgets/trajectory_video_view.dart';
@@ -57,12 +58,12 @@ Future<void> remarkStumps(BuildContext context, Review r) async {
   try {
     final frame = await File(r.frame).readAsBytes();
     if (!context.mounted) return;
-    final marks = await Navigator.of(context).push<List<Offset>>(
+    final marks = await Navigator.of(context).push<List<Offset?>>(
       MaterialPageRoute(
         builder: (_) => MarkStumpsScreen(
           frame: frame,
           marks: r.stumps,
-          suspect: r.worstMark,
+          suspect: r.result?.worstMark,
         ),
       ),
     );
@@ -99,6 +100,7 @@ String? _aside(Review r, int i, int step) => switch (r.queue) {
   _ when i != step => null,
   1 when i == 1 => "You're next",
   final q? when i == 1 => '${q - 1} ahead of you',
+  _ when i == 0 && r.sent != null => '${(r.sent! * 100).round()}%',
   _ when i > 1 && r.pct != null => '${r.pct}%',
   _ => null,
 };
@@ -112,7 +114,9 @@ class _Progress extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final step = _step(review);
-    final pct = review.pct;
+    final sent = review.sent;
+    // the upload has its own share until the server takes over
+    final pct = sent != null && step == 0 ? (sent * 100).round() : review.pct;
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.xl),
@@ -205,6 +209,11 @@ class _Progress extends StatelessWidget {
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Leave it running'),
               ),
+              if (review.state == ReviewState.sending)
+                TextButton(
+                  onPressed: () => Reviews.instance.cancel(review),
+                  child: const Text('Stop sending'),
+                ),
             ],
           ),
         ),
@@ -223,8 +232,7 @@ class _Failed extends StatelessWidget {
     final scheme = theme.colorScheme;
     final r = review;
     final expired = r.state == ReviewState.expired;
-    final marks =
-        r.worstMark != null || r.errorCode == 'CALIBRATION_DEGENERATE';
+    final outdated = r.errorCode == 'app_outdated';
     return SafeArea(
       child: ListView(
         padding: const EdgeInsets.all(AppSpacing.xl),
@@ -247,14 +255,16 @@ class _Failed extends StatelessWidget {
             style: theme.textTheme.bodyLarge,
           ),
           const SizedBox(height: AppSpacing.xl),
-          if (marks)
+          if (outdated && Platform.isAndroid)
             FilledButton.icon(
-              onPressed: () => remarkStumps(context, r),
-              icon: const Icon(Icons.center_focus_strong_outlined),
-              label: const Text('Fix the stump marks'),
+              onPressed: () => launchUrl(
+                Uri.parse(kStoreUrl),
+                mode: LaunchMode.externalApplication,
+              ).ignore(),
+              icon: const Icon(Icons.system_update_outlined),
+              label: const Text('Update Pocket DRS'),
             ),
           if (r.retryable) ...[
-            if (marks) const SizedBox(height: AppSpacing.md),
             FilledButton.icon(
               onPressed: () => Reviews.instance.retry(r),
               icon: const Icon(Icons.refresh),
@@ -280,22 +290,20 @@ class _Result extends StatelessWidget {
   final Review review;
   final VoidCallback? onAnother;
 
-  Future<void> _open3D(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final opened = await launchUrl(
-      Uri.parse('$kServerUrl/v1/jobs/${review.jobId}/three-d'),
-      mode: LaunchMode.externalApplication,
-    ).catchError((_) => false);
-    if (!opened) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Couldn't open the 3D view. Is a web browser installed?",
-          ),
+  // drawn from the result kept on the phone, so it works offline and never expires
+  void _open3D(BuildContext context) => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => Scaffold(
+        backgroundColor: AppColors.video,
+        appBar: AppBar(title: const Text('Ball path in 3D')),
+        body: BallPath3D(
+          result: review.result!,
+          pitchLengthM: review.pitchLengthM,
+          stumps: review.stumpSize,
         ),
-      );
-    }
-  }
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -315,12 +323,9 @@ class _Result extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                // the server keeps the 3D page for a day
-                onPressed: review.threeDGone || review.jobId == null
-                    ? null
-                    : () => _open3D(context),
+                onPressed: () => _open3D(context),
                 icon: const Icon(Icons.view_in_ar_outlined),
-                label: Text(review.threeDGone ? '3D expired' : 'View in 3D'),
+                label: const Text('View in 3D'),
               ),
             ),
             const SizedBox(width: AppSpacing.sm),

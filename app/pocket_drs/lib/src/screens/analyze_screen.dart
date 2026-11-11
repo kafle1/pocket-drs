@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' show max;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -12,7 +13,6 @@ import '../reviews/reviews.dart';
 import '../theme/app_spacing.dart';
 import '../utils/app_settings.dart';
 import '../widgets/account_widgets.dart';
-import '../widgets/batter_picker.dart';
 import '../widgets/stump_marker.dart';
 import '../widgets/video_frame_selector.dart';
 import '../widgets/video_trim_selector.dart';
@@ -23,6 +23,8 @@ const _native = MethodChannel('pocket_drs/native');
 
 // below this the ball jumps too far between frames to follow well
 const _minFps = 50.0;
+// a frame shift above this share of the width means the phone moved, not just the players
+const _maxShake = 0.03;
 
 /// Pick one video, trim it to the delivery, choose a frame, mark both sets of stumps, then send it.
 class AnalyzeScreen extends StatefulWidget {
@@ -42,6 +44,9 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   Uint8List? _frameBytes;
   int _segmentStartMs = 0;
   int _segmentEndMs = 0;
+  int _frameMs = 0;
+  // as the phone filmed it; 0 when the file doesn't say
+  double _fps = 0;
   // recorded in the app, so it can be deleted once sent when the player wants that
   bool _videoFromCamera = false;
   String _hand = 'right';
@@ -53,6 +58,14 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   void initState() {
     super.initState();
     _recoverLostVideo();
+    AppSettings.getHand().then((h) {
+      if (mounted) setState(() => _hand = h);
+    });
+  }
+
+  void _setHand(String h) {
+    setState(() => _hand = h);
+    AppSettings.setHand(h);
   }
 
   // android can kill the app while the camera records, so the clip comes back here
@@ -93,6 +106,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     }
     final fps = (info?['fps'] as num?)?.toDouble() ?? 0;
     final ms = (info?['durationMs'] as num?)?.toInt() ?? 0;
+    _fps = fps;
     if (ms > 0 && ms < 500) {
       _showError(
         'This clip is under half a second, too short to hold a delivery. '
@@ -101,10 +115,20 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       return false;
     }
     if (fps <= 0 || fps >= _minFps || !mounted) return true;
+    return _warn(
+      'Filmed at ${fps.round()} frames a second',
+      'At this speed the ball jumps a long way between frames, so the call '
+          'is often unsure or missing. Set the camera to 60 frames a second '
+          'for the next clip.',
+    );
+  }
+
+  // true when the player chooses to go on anyway
+  Future<bool> _warn(String title, String body) async {
     final use = await showModalBottomSheet<bool>(
       context: context,
       showDragHandle: true,
-      builder: (context) => _SlowClipSheet(fps: fps),
+      builder: (context) => _WarnSheet(title: title, body: body),
     );
     return use ?? false;
   }
@@ -146,6 +170,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         videoPath: video.path,
         timeMs: timestamp.inMilliseconds,
       );
+      _frameMs = timestamp.inMilliseconds;
       if (bytes == null) {
         _showError("Couldn't read a frame from this clip. Try another one.");
         return false;
@@ -164,25 +189,43 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     }
   }
 
-  Future<void> _send(List<Offset> stumps) async {
+  Future<void> _send(List<Offset?> stumps) async {
     final video = _video, frame = _frameBytes;
     if (video == null || frame == null || _sending) return;
     // check before cutting and uploading a clip the server would turn away
-    if (Account.instance.me.value?.usedUp ?? false) {
-      await Account.instance.refreshMe();
-      if (!mounted) return;
-      if (Account.instance.me.value?.usedUp ?? false) {
-        showUsedUp(context);
-        return;
-      }
+    if (await Account.instance.outOfReviews()) {
+      if (mounted) showUsedUp(context);
+      return;
     }
+    if (!mounted) return;
+    final answers = await showModalBottomSheet<(OnFieldCall, bool)>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => const _BallQuestions(),
+    );
+    if (answers == null || !mounted) return;
     setState(() => _sending = true);
+    final shake = await cameraShake(
+      videoPath: video.path,
+      startMs: _segmentStartMs,
+      endMs: _segmentEndMs,
+    ).catchError((Object _) => null);
+    if (!mounted) return;
+    if ((shake ?? 0) > _maxShake &&
+        !await _warn(
+          'The phone moved during this ball',
+          'A moving picture throws the call off, and the server may refuse '
+              'it. A tripod, or the phone propped on something solid, fixes it.',
+        )) {
+      if (mounted) setState(() => _sending = false);
+      return;
+    }
+    if (!mounted) return;
     final nav = Navigator.of(context);
     final cut =
         '${Directory.systemTemp.path}/pocket_drs_cut_'
         '${DateTime.now().microsecondsSinceEpoch}.mp4';
     try {
-      // the cut opens on a keyframe, so the chosen part sits at span[0] inside it
       final span = await _native.invokeListMethod<int>('trim', {
         'input': video.path,
         'output': cut,
@@ -198,8 +241,12 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
           handedness: _hand,
           startMs: span![0],
           endMs: span[1],
-          pitchLengthM: pitch.lengthM,
-          stumpSize: pitch.stumps,
+          pitch: pitch,
+          // the cut starts at span[0], so the marked frame moves with it
+          frameMs: max(0, span[0] + _frameMs - _segmentStartMs),
+          captureFps: _fps > 0 ? _fps : null,
+          call: answers.$1,
+          shotPlayed: answers.$2,
         ),
       );
       if (_videoFromCamera && await AppSettings.getAutoDeleteSource()) {
@@ -306,31 +353,32 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   Widget _body() {
     final v = _video;
     return switch (_step) {
-      _Step.upload => _UploadStep(
-        onPick: _pickVideo,
-        hand: _hand,
-        onHand: (h) => setState(() => _hand = h),
-      ),
+      _Step.upload => _UploadStep(onPick: _pickVideo),
       _Step.trim => VideoTrimSelector(
         videoPath: v!.path,
         onTrimSelected: _onTrimSelected,
       ),
       _Step.frame => VideoFrameSelector(
         videoPath: v!.path,
+        start: Duration(milliseconds: _segmentStartMs),
+        end: Duration(milliseconds: _segmentEndMs),
         onFrameSelected: _onFrameSelected,
       ),
       _Step.stumps => StumpMarker(
         frame: _frameBytes!,
         actionLabel: 'Check this ball',
         onComplete: _send,
+        hand: _hand,
+        onHand: _setHand,
       ),
     };
   }
 }
 
-class _SlowClipSheet extends StatelessWidget {
-  const _SlowClipSheet({required this.fps});
-  final double fps;
+class _WarnSheet extends StatelessWidget {
+  const _WarnSheet({required this.title, required this.body});
+  final String title;
+  final String body;
 
   @override
   Widget build(BuildContext context) {
@@ -347,17 +395,9 @@ class _SlowClipSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'Filmed at ${fps.round()} frames a second',
-              style: theme.textTheme.titleLarge,
-            ),
+            Text(title, style: theme.textTheme.titleLarge),
             const SizedBox(height: AppSpacing.sm),
-            Text(
-              'At this speed the ball jumps a long way between frames, so the '
-              'call is often unsure or missing. Set the camera to 60 frames a '
-              'second for the next clip.',
-              style: theme.textTheme.bodyMedium,
-            ),
+            Text(body, style: theme.textTheme.bodyMedium),
             const SizedBox(height: AppSpacing.xl),
             FilledButton(
               onPressed: () => Navigator.pop(context, false),
@@ -375,15 +415,76 @@ class _SlowClipSheet extends StatelessWidget {
   }
 }
 
+/// The two things only the player knows: the umpire's decision and whether a shot was played.
+class _BallQuestions extends StatefulWidget {
+  const _BallQuestions();
+
+  @override
+  State<_BallQuestions> createState() => _BallQuestionsState();
+}
+
+class _BallQuestionsState extends State<_BallQuestions> {
+  var _call = OnFieldCall.none;
+  var _shot = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.xl,
+          0,
+          AppSpacing.xl,
+          AppSpacing.lg,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'What did the umpire give?',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            SegmentedButton<OnFieldCall>(
+              expandedInsets: EdgeInsets.zero,
+              showSelectedIcon: false,
+              segments: [
+                for (final c in OnFieldCall.values)
+                  ButtonSegment(value: c, label: Text(c.label)),
+              ],
+              selected: {_call},
+              onSelectionChanged: (v) => setState(() => _call = v.first),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text('Played a shot?', style: theme.textTheme.titleMedium),
+            const SizedBox(height: AppSpacing.sm),
+            SegmentedButton<bool>(
+              expandedInsets: EdgeInsets.zero,
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: true, label: Text('Yes')),
+                ButtonSegment(value: false, label: Text('No')),
+              ],
+              selected: {_shot},
+              onSelectionChanged: (v) => setState(() => _shot = v.first),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, (_call, _shot)),
+              child: const Text('Check this ball'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _UploadStep extends StatelessWidget {
-  const _UploadStep({
-    required this.onPick,
-    required this.hand,
-    required this.onHand,
-  });
+  const _UploadStep({required this.onPick});
   final void Function(ImageSource) onPick;
-  final String hand;
-  final void Function(String) onHand;
 
   @override
   Widget build(BuildContext context) {
@@ -430,8 +531,6 @@ class _UploadStep extends StatelessWidget {
                   const Spacer(),
                   const SizedBox(height: AppSpacing.xl),
                   const PlanStatus(),
-                  const SizedBox(height: AppSpacing.lg),
-                  BatterPicker(hand: hand, onChanged: onHand),
                   const SizedBox(height: AppSpacing.xl),
                   FilledButton.icon(
                     icon: const Icon(Icons.videocam_outlined),

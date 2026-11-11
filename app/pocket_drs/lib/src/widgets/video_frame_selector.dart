@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:math' show max;
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -12,10 +13,15 @@ class VideoFrameSelector extends StatefulWidget {
   const VideoFrameSelector({
     super.key,
     required this.videoPath,
+    required this.start,
+    required this.end,
     required this.onFrameSelected,
   });
 
   final String videoPath;
+  // the trimmed part; the stumps must be marked on a frame the server gets
+  final Duration start;
+  final Duration end;
   // returns whether the frame was used; false leaves this widget's player usable again
   final Future<bool> Function(Duration timestamp) onFrameSelected;
 
@@ -59,13 +65,23 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
       return;
     }
     _controller = controller;
+    await controller.seekTo(widget.start);
     controller.addListener(_onUpdate);
     setState(() => _ready = true);
   }
 
   void _onUpdate() {
+    final c = _controller;
+    // playback loops inside the trimmed part
+    if (c != null && c.value.isPlaying && c.value.position >= widget.end) {
+      c.pause();
+      c.seekTo(widget.start);
+    }
     if (mounted) setState(() {});
   }
+
+  Duration _clamp(Duration d) =>
+      d < widget.start ? widget.start : (d > widget.end ? widget.end : d);
 
   @override
   void dispose() {
@@ -90,16 +106,17 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
   void _stepBack() {
     final controller = _controller;
     if (controller == null) return;
-    final pos = controller.value.position - const Duration(milliseconds: 100);
-    controller.seekTo(pos.isNegative ? Duration.zero : pos);
+    controller.seekTo(
+      _clamp(controller.value.position - const Duration(milliseconds: 100)),
+    );
   }
 
   void _stepForward() {
     final controller = _controller;
     if (controller == null) return;
-    final pos = controller.value.position + const Duration(milliseconds: 100);
-    final max = controller.value.duration;
-    controller.seekTo(pos > max ? max : pos);
+    controller.seekTo(
+      _clamp(controller.value.position + const Duration(milliseconds: 100)),
+    );
   }
 
   Future<void> _select() async {
@@ -108,7 +125,7 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
     if (controller == null) return;
 
     setState(() => _selecting = true);
-    final position = controller.value.position;
+    final position = _clamp(controller.value.position);
     try {
       await controller.pause();
       controller.removeListener(_onUpdate);
@@ -165,15 +182,15 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final pos = controller.value.position;
-    final dur = controller.value.duration;
     final playing = controller.value.isPlaying;
 
-    final maxMs = dur.inMilliseconds <= 0 ? 1.0 : dur.inMilliseconds.toDouble();
+    final minMs = widget.start.inMilliseconds.toDouble();
+    final maxMs = max(minMs + 1, widget.end.inMilliseconds.toDouble());
     final sliderValueMs =
         (_scrubbing
                 ? (_scrubValueMs ?? pos.inMilliseconds.toDouble())
                 : pos.inMilliseconds.toDouble())
-            .clamp(0.0, maxMs)
+            .clamp(minMs, maxMs)
             .toDouble();
     final shownPos = Duration(milliseconds: sliderValueMs.toInt());
 
@@ -218,6 +235,7 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                       Expanded(
                         child: Slider(
                           value: sliderValueMs,
+                          min: minMs,
                           max: maxMs,
                           onChangeStart: (_) {
                             if (controller.value.isPlaying) controller.pause();
@@ -243,7 +261,7 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                         ),
                       ),
                       Text(
-                        _fmt(dur),
+                        _fmt(widget.end),
                         style: AppTheme.tabular(
                           theme.textTheme.bodyMedium,
                         )?.copyWith(color: scheme.onSurfaceVariant),

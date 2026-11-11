@@ -23,7 +23,8 @@ String markName(int i) => '${_ends[i ~/ 4]}, ${_corners[i % 4]}';
 enum _Mode { none, place, drag, view }
 
 /// The 8 stump corners: far (batter's) set then near (bowler's) set, each top left, top right,
-/// bottom right, bottom left. One finger places or moves a mark with a loupe beside it; two fingers zoom and pan.
+/// bottom right, bottom left; one may be null when it can't be seen. One finger places or moves
+/// a mark with a loupe beside it; two fingers zoom and pan.
 class StumpMarker extends StatefulWidget {
   const StumpMarker({
     super.key,
@@ -32,12 +33,18 @@ class StumpMarker extends StatefulWidget {
     required this.actionLabel,
     this.initialMarks,
     this.suspect,
+    this.hand,
+    this.onHand,
   });
 
   final Uint8List frame;
-  final void Function(List<Offset>) onComplete;
+  final void Function(List<Offset?>) onComplete;
   final String actionLabel;
-  final List<Offset>? initialMarks;
+  final List<Offset?>? initialMarks;
+
+  /// The batter's hand, shown and switched here when given.
+  final String? hand;
+  final ValueChanged<String>? onHand;
 
   /// The mark the server says doesn't line up with the others.
   final int? suspect;
@@ -47,11 +54,11 @@ class StumpMarker extends StatefulWidget {
 }
 
 class _StumpMarkerState extends State<StumpMarker> {
-  late List<Offset> _marks = [
-    for (final p in (widget.initialMarks ?? const <Offset>[]).take(8))
-      Offset(p.dx.clamp(0.0, 1.0), p.dy.clamp(0.0, 1.0)),
+  late List<Offset?> _marks = [
+    for (final p in (widget.initialMarks ?? const <Offset?>[]).take(8))
+      p == null ? null : Offset(p.dx.clamp(0.0, 1.0), p.dy.clamp(0.0, 1.0)),
   ];
-  final _undo = <List<Offset>>[];
+  final _undo = <List<Offset?>>[];
   late int? _suspect = widget.suspect;
   Size? _image;
   bool _failed = false;
@@ -66,7 +73,7 @@ class _StumpMarkerState extends State<StumpMarker> {
   Offset _gestureStart = Offset.zero;
   Offset _markStart = Offset.zero;
   Matrix4 _viewStart = Matrix4.identity();
-  List<Offset> _before = const [];
+  List<Offset?> _before = const [];
 
   @override
   void initState() {
@@ -133,7 +140,9 @@ class _StumpMarkerState extends State<StumpMarker> {
     int? best;
     var bestD = 36.0;
     for (var i = 0; i < _marks.length; i++) {
-      final d = (_toScreen(_marks[i]) - screen).distance;
+      final m = _marks[i];
+      if (m == null) continue;
+      final d = (_toScreen(m) - screen).distance;
       if (d <= bestD) {
         best = i;
         bestD = d;
@@ -153,7 +162,7 @@ class _StumpMarkerState extends State<StumpMarker> {
       if (hit != null) {
         _mode = _Mode.drag;
         _active = hit;
-        _markStart = _marks[hit];
+        _markStart = _marks[hit]!;
       } else if (_marks.length < 8) {
         _mode = _Mode.place;
         _marks.add(_toNorm(d.localFocalPoint));
@@ -225,11 +234,24 @@ class _StumpMarkerState extends State<StumpMarker> {
     setState(() => _marks = _undo.removeLast());
   }
 
+  // a corner behind the batter or the bowler is skipped; the server solves from the other seven
+  void _hide() {
+    setState(() {
+      _undo.add(List.of(_marks));
+      _marks.add(null);
+    });
+  }
+
   // tapped in the wrong order, the server would solve a camera that can't exist
   String? _orderProblem() {
     for (final (i, end) in [(0, 'far'), (4, 'near')]) {
-      final [tl, tr, br, bl] = _marks.sublist(i, i + 4);
-      if (tl.dy + tr.dy >= br.dy + bl.dy || tl.dx + bl.dx >= tr.dx + br.dx) {
+      // with a corner hidden the set can't be checked this way
+      if (_marks.sublist(i, i + 4) case [
+        final tl?,
+        final tr?,
+        final br?,
+        final bl?,
+      ] when tl.dy + tr.dy >= br.dy + bl.dy || tl.dx + bl.dx >= tr.dx + br.dx) {
         return 'The $end stumps look marked out of order. Undo and mark '
             'top left, top right, bottom right, then bottom left.';
       }
@@ -252,6 +274,10 @@ class _StumpMarkerState extends State<StumpMarker> {
         _Header(
           next: _mode == _Mode.place ? _active! : _marks.length,
           suspect: _suspect,
+          onHide:
+              _mode == _Mode.none && _marks.length < 8 && !_marks.contains(null)
+              ? _hide
+              : null,
         ),
         Expanded(child: _canvas()),
         _Bar(
@@ -260,6 +286,8 @@ class _StumpMarkerState extends State<StumpMarker> {
           onFit: _viewport == null ? null : () => _fit(_viewport!),
           label: widget.actionLabel,
           onDone: _marks.length == 8 && _mode == _Mode.none ? _done : null,
+          hand: widget.hand,
+          onHand: widget.onHand,
         ),
       ],
     );
@@ -345,7 +373,7 @@ class _StumpMarkerState extends State<StumpMarker> {
                   ),
                   if (finger != null && active != null)
                     _Loupe(
-                      at: _toScreen(_marks[active]),
+                      at: _toScreen(_marks[active]!),
                       finger: finger,
                       viewport: viewport,
                     ),
@@ -361,9 +389,10 @@ class _StumpMarkerState extends State<StumpMarker> {
 
 /// Which mark is next, in words and on a small drawing of both sets of stumps.
 class _Header extends StatelessWidget {
-  const _Header({required this.next, required this.suspect});
+  const _Header({required this.next, required this.suspect, this.onHide});
   final int next;
   final int? suspect;
+  final VoidCallback? onHide;
 
   @override
   Widget build(BuildContext context) {
@@ -414,6 +443,15 @@ class _Header extends StatelessWidget {
                         : scheme.onSurfaceVariant,
                   ),
                 ),
+                if (onHide != null && s == null)
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: onHide,
+                    child: const Text("Can't see this one"),
+                  ),
               ],
             ),
           ),
@@ -502,12 +540,16 @@ class _Bar extends StatelessWidget {
     required this.onFit,
     required this.label,
     required this.onDone,
+    required this.hand,
+    required this.onHand,
   });
   final bool canUndo;
   final VoidCallback onUndo;
   final VoidCallback? onFit;
   final String label;
   final VoidCallback? onDone;
+  final String? hand;
+  final ValueChanged<String>? onHand;
 
   @override
   Widget build(BuildContext context) {
@@ -539,6 +581,23 @@ class _Bar extends StatelessWidget {
                     onPressed: onFit,
                   ),
                   const Spacer(),
+                  if (hand case final h?) ...[
+                    Flexible(
+                      flex: 3,
+                      child: ActionChip(
+                        avatar: const Icon(Icons.swap_horiz, size: 18),
+                        label: Text(
+                          h == 'left' ? 'Left-handed' : 'Right-handed',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        tooltip: 'Switch the batter\'s hand',
+                        onPressed: onHand == null
+                            ? null
+                            : () => onHand!(h == 'left' ? 'right' : 'left'),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                  ],
                   const Flexible(flex: 4, child: PitchSetupChip()),
                 ],
               ),
@@ -628,7 +687,7 @@ class _MarksPainter extends CustomPainter {
     required this.suspect,
     required this.view,
   }) : super(repaint: view);
-  final List<Offset> norm;
+  final List<Offset?> norm;
   final Size image;
   final int? active;
   final int? suspect;
@@ -638,14 +697,19 @@ class _MarksPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final marks = [
       for (final m in norm)
-        MatrixUtils.transformPoint(
-          view.value,
-          Offset(m.dx * image.width, m.dy * image.height),
-        ),
+        m == null
+            ? null
+            : MatrixUtils.transformPoint(
+                view.value,
+                Offset(m.dx * image.width, m.dy * image.height),
+              ),
     ];
     // every 4 marks outline one set, so the two never join up
     for (var i = 0; i < marks.length; i += 4) {
-      final q = marks.sublist(i, math.min(i + 4, marks.length));
+      final q = marks
+          .sublist(i, math.min(i + 4, marks.length))
+          .nonNulls
+          .toList();
       final path = Path()..addPolygon(q, q.length == 4);
       if (q.length == 4) {
         canvas.drawPath(
@@ -663,6 +727,7 @@ class _MarksPainter extends CustomPainter {
     }
     for (var i = 0; i < marks.length; i++) {
       final p = marks[i];
+      if (p == null) continue;
       final colour = i == suspect ? AppColors.umpiresCall : AppColors.track;
       // crosshair with an open centre, so the exact corner stays visible
       final cross = Paint()
@@ -723,7 +788,7 @@ class MarkStumpsScreen extends StatelessWidget {
     this.suspect,
   });
   final Uint8List frame;
-  final List<Offset> marks;
+  final List<Offset?> marks;
   final int? suspect;
 
   @override

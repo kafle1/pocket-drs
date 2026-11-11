@@ -24,11 +24,11 @@ class AppColors {
     LbwDecisionKey.out => out,
     LbwDecisionKey.notOut => notOut,
     LbwDecisionKey.umpiresCall => umpiresCall,
-    null => null,
+    LbwDecisionKey.cantTell || null => null,
   };
 
   // a check tile's colour from the server's tone for that row
-  static Color? tone(String? t) => switch (t) {
+  static Color? tone(Object? t) => switch (t) {
     'out' => out,
     'not_out' => notOut,
     'umpires_call' => umpiresCall,

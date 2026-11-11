@@ -4,9 +4,10 @@ import '../theme/app_spacing.dart';
 import '../utils/app_settings.dart';
 
 String pitchSetupLine(PitchSetup p) =>
-    '${pitchLabel(p.lengthM)} pitch, ${p.stumps.label.toLowerCase()} stumps';
+    '${pitchLabel(p.lengthM)} pitch, ${p.stumps.label.toLowerCase()} stumps, '
+    '${p.ball.label.toLowerCase()} ball';
 
-/// Lets the player say how long the pitch is and which stumps they use; returns the saved choice.
+/// Lets the player set the pitch length, stumps and ball; returns the saved choice.
 Future<PitchSetup?> showPitchSetup(BuildContext context) async {
   final current = await AppSettings.getPitchSetup();
   if (!context.mounted) return null;
@@ -19,6 +20,7 @@ Future<PitchSetup?> showPitchSetup(BuildContext context) async {
   if (next == null) return null;
   await AppSettings.setPitchLength(next.lengthM);
   await AppSettings.setStumpSize(next.stumps);
+  await AppSettings.setBallType(next.ball);
   return next;
 }
 
@@ -32,6 +34,7 @@ class _PitchSetupSheet extends StatefulWidget {
 
 class _PitchSetupSheetState extends State<_PitchSetupSheet> {
   late StumpSize _stumps = widget.initial.stumps;
+  late BallType _ball = widget.initial.ball;
   // a preset in yards, or null for a length typed in
   late int? _preset = AppSettings.pitchPresetYards
       .where(
@@ -152,6 +155,23 @@ class _PitchSetupSheetState extends State<_PitchSetupSheet> {
                     ),
                 ],
               ),
+              const SizedBox(height: AppSpacing.xl),
+              heading(
+                'Ball',
+                'Taped tennis means a tennis ball wrapped in tape.',
+              ),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  for (final b in BallType.values)
+                    ChoiceChip(
+                      label: Text(b.label),
+                      selected: _ball == b,
+                      onSelected: (_) => setState(() => _ball = b),
+                    ),
+                ],
+              ),
               const SizedBox(height: AppSpacing.lg),
               FilledButton(
                 onPressed: length == null
@@ -159,6 +179,7 @@ class _PitchSetupSheetState extends State<_PitchSetupSheet> {
                     : () => Navigator.pop<PitchSetup>(context, (
                         lengthM: length,
                         stumps: _stumps,
+                        ball: _ball,
                       )),
                 child: const Text('Save'),
               ),
@@ -203,7 +224,7 @@ class _PitchSetupChipState extends State<PitchSetupChip> {
         p == null ? 'Pitch' : '${pitchLabel(p.lengthM)} · ${p.stumps.label}',
         overflow: TextOverflow.ellipsis,
       ),
-      tooltip: 'Pitch length and stumps',
+      tooltip: 'Pitch length, stumps and ball',
       onPressed: _edit,
     );
   }

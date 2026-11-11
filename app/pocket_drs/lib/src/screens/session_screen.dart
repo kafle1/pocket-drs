@@ -21,14 +21,17 @@ import '../widgets/stump_marker.dart';
 import 'review_screen.dart';
 
 const _native = MethodChannel('pocket_drs/native');
-const _clipMs = 4000;
+// a late press still catches the ball, and the server trims the rest
+const _clipMs = 10000;
+// shorter than this right after a restart, the delivery can't be in it
+const _minClipMs = 1500;
 const _rollover = Duration(seconds: 120);
 // one full 120 s recording at 8 Mbps is about 120 MB
 const _minFreeBytes = 150 << 20;
 const _storageFull = 'Phone storage is full. Free some space, then try again.';
 
 /// Tripod session: calibrate once on a short clip, then every BALL press or
-/// volume key cuts the last 4 s of the running recording and sends it off.
+/// volume key cuts the last 10 s of the running recording and sends it off.
 class SessionScreen extends StatefulWidget {
   const SessionScreen({super.key});
 
@@ -61,7 +64,7 @@ class _SessionScreenState extends State<SessionScreen>
   bool _away = false;
   _Phase _phase = _Phase.preview;
   Uint8List? _frame;
-  List<Offset>? _stumps;
+  List<Offset?>? _stumps;
   String _hand = 'right';
   Timer? _roll;
   DeviceOrientation? _orientation;
@@ -79,6 +82,9 @@ class _SessionScreenState extends State<SessionScreen>
     _openCamera();
     AppSettings.getSpeedUnit().then((u) {
       if (mounted) setState(() => _unit = u);
+    });
+    AppSettings.getHand().then((h) {
+      if (mounted) setState(() => _hand = h);
     });
   }
 
@@ -265,7 +271,7 @@ class _SessionScreenState extends State<SessionScreen>
     }
   });
 
-  void _start(List<Offset> stumps) {
+  void _start(List<Offset?> stumps) {
     setState(() {
       _stumps = stumps;
       _phase = _Phase.running;
@@ -294,7 +300,7 @@ class _SessionScreenState extends State<SessionScreen>
   }
 
   Future<void> _cut(_Ball b, String raw, int endMs) async {
-    if (endMs < _clipMs) {
+    if (endMs < _minClipMs) {
       File(raw).delete().ignore();
       _fail(
         b,
@@ -319,17 +325,18 @@ class _SessionScreenState extends State<SessionScreen>
       File(raw).delete().ignore();
     }
     if (!_live(b)) return File(out).delete().ignore();
-    // no upload when the server would turn it away; the plan may have changed, so check first
-    if (Account.instance.me.value?.usedUp ?? false) {
-      await Account.instance.refreshMe();
-      if (Account.instance.me.value?.usedUp ?? false) {
-        File(out).delete().ignore();
-        if (mounted) showUsedUp(context);
-        return _fail(b, kUsedUp);
-      }
+    // no upload when the server would turn it away
+    if (await Account.instance.outOfReviews()) {
+      File(out).delete().ignore();
+      if (mounted) showUsedUp(context);
+      return _fail(b, kUsedUp);
     }
     try {
       final pitch = await AppSettings.getPitchSetup();
+      final info = await _native.invokeMapMethod<String, Object?>('videoInfo', {
+        'path': out,
+      });
+      // marked on a separate short recording, so there is no frame in this clip to name
       final r = await Reviews.instance.submit(
         clip: out,
         frame: _frame!,
@@ -338,8 +345,9 @@ class _SessionScreenState extends State<SessionScreen>
           handedness: _hand,
           startMs: span[0],
           endMs: span[1],
-          pitchLengthM: pitch.lengthM,
-          stumpSize: pitch.stumps,
+          pitch: pitch,
+          frameMs: null,
+          captureFps: (info?['fps'] as num?)?.toDouble(),
         ),
       );
       if (_live(b)) setState(() => b.review = r);
@@ -509,7 +517,13 @@ class _SessionScreenState extends State<SessionScreen>
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
-        BatterPicker(hand: _hand, onChanged: (h) => setState(() => _hand = h)),
+        BatterPicker(
+          hand: _hand,
+          onChanged: (h) {
+            setState(() => _hand = h);
+            AppSettings.setHand(h);
+          },
+        ),
         const SizedBox(height: AppSpacing.md),
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 250),

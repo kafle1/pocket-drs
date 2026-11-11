@@ -1,35 +1,8 @@
-/// Server-side analysis result, mapped from the new world-trajectory schema.
-///
-/// Source of truth for the JSON shape lives in
+/// The server's review result. Its shape is documented at the top of
 /// `server/app/pipeline/process_job.py`.
 library;
 
 import 'dart:ui';
-
-import '../analysis/ball_track_models.dart';
-
-// Fields the app reads or sends that the server does not have at 96c7a3c. Every name the
-// app assumed is here and only here, so matching the server later is a change in one place.
-abstract final class Assumed {
-  // lbw.confidence: number 0..1, how sure the server is of its call
-  static const confidence = 'confidence';
-  // diagnostics.no_call_code: string, which of [noCallCodes] stopped a call
-  static const noCallCode = 'no_call_code';
-  // the seven no-call exits of process_job.py, in its order
-  static const noCallCodes = [
-    'phone_too_far',
-    'no_ball',
-    'still_in_flight',
-    'path_mismatch',
-    'no_stump_path',
-    'too_unsure',
-    'lost_before_batter',
-  ];
-  // job error.details.worst_mark: int 0..7, the stump mark furthest from where the others put it
-  static const worstMark = 'worst_mark';
-  // request calibration.stump_dimensions_m: {height: number, width: number}, sent only for non-regulation stumps
-  static const stumpDimensions = 'stump_dimensions_m';
-}
 
 class AnalysisResult {
   const AnalysisResult({
@@ -37,97 +10,92 @@ class AnalysisResult {
     required this.worldTrajectory,
     required this.events,
     required this.lbw,
+    required this.noCall,
+    required this.worstMark,
     required this.overlay,
     required this.metrics,
     required this.imageWidth,
     required this.imageHeight,
     required this.warnings,
-    required this.noCallCode,
     required this.json,
   });
 
-  final BallTrackResult track;
+  /// The ball where it was seen, in the marked frame's pixels.
+  final List<OverlayPoint> track;
   final WorldTrajectory worldTrajectory;
   final AnalysisEvents? events;
   final LbwResult? lbw;
+  final NoCall? noCall;
+  // the stump mark furthest from where the solved camera puts it, 0..7
+  final int? worstMark;
 
   /// Pixel-space ball path projected by the server for the video overlay.
   final TrajectoryOverlay? overlay;
-
-  /// Broadcast delivery metrics (speed / spin / swing).
   final DeliveryMetrics? metrics;
 
-  /// Pixel dimensions of the analysed frame, the coordinate space of
-  /// [overlay] and [track]. The overlay scales against these.
+  /// Pixel size of the analysed frame, the space of [overlay] and [track].
   final int imageWidth;
   final int imageHeight;
   final List<String> warnings;
-  final String? noCallCode;
 
   /// The server's result as sent, kept so a review can be saved and opened again.
   final Map<String, Object?> json;
 
-  /// Whether the server gave a call, or refused and said why in [warnings].
-  bool get hasCall => lbw != null;
+  bool get hasCall => switch (lbw?.decision) {
+    null || LbwDecisionKey.cantTell => false,
+    _ => true,
+  };
 
   static AnalysisResult fromServerJson(Map<String, Object?> json) {
-    final imageSize = _requireMap(json, 'image_size');
-    final width = _requireInt(imageSize, 'width');
-    final height = _requireInt(imageSize, 'height');
-
-    final track = BallTrackResult.empty(width: width, height: height);
-    final trackJson = json['track'];
-    final pixelTrack = trackJson is Map
-        ? _parsePixelTrack(
-            trackJson.cast<String, Object?>(),
-            width: width,
-            height: height,
-          )
-        : track;
-
-    final worldJson = json['world_trajectory'];
-    final world = worldJson is Map
-        ? WorldTrajectory.fromJson(worldJson.cast<String, Object?>())
-        : WorldTrajectory.empty();
-
-    AnalysisEvents? events;
-    final eventsJson = json['events'];
-    if (eventsJson is Map) {
-      events = AnalysisEvents.fromJson(eventsJson.cast<String, Object?>());
+    final imageSize = _map(json['image_size']);
+    final width = _readInt(imageSize, 'width');
+    final height = _readInt(imageSize, 'height');
+    if (width == null || height == null) {
+      throw const FormatException('Missing or invalid image_size');
     }
-
-    LbwResult? lbw;
-    final lbwJson = json['lbw'];
-    if (lbwJson is Map) {
-      lbw = LbwResult.fromJson(lbwJson.cast<String, Object?>());
-    }
-
-    final warnings = <String>[];
-    final diag = json['diagnostics'];
-    final noCall = diag is Map ? diag[Assumed.noCallCode] : null;
-    if (diag is Map) {
-      final w = diag['warnings'];
-      if (w is List) {
-        for (final v in w) {
-          if (v is String && v.isNotEmpty) {
-            warnings.add(v[0].toUpperCase() + v.substring(1));
-          }
-        }
-      }
-    }
-
+    final diag = _map(json['diagnostics']);
+    final worst = _readInt(diag, 'worst_mark');
+    final lbw = json['lbw'];
+    final events = json['events'];
     return AnalysisResult(
-      track: pixelTrack,
-      worldTrajectory: world,
-      events: events,
-      lbw: lbw,
+      track: _points(_map(json['track'])['image_points']),
+      worldTrajectory: WorldTrajectory.fromJson(_map(json['world_trajectory'])),
+      events: events is Map ? AnalysisEvents.fromJson(_map(events)) : null,
+      lbw: lbw is Map ? LbwResult.fromJson(_map(lbw)) : null,
+      noCall: NoCall.fromJson(json['no_call']),
+      worstMark: worst != null && worst >= 0 && worst < 8 ? worst : null,
       overlay: TrajectoryOverlay.fromJson(json['overlay']),
       metrics: DeliveryMetrics.fromJson(json['metrics']),
       imageWidth: width,
       imageHeight: height,
-      warnings: List.unmodifiable(warnings),
-      noCallCode: noCall is String ? noCall : null,
+      warnings: [
+        for (final v
+            in diag['warnings'] is List ? diag['warnings'] as List : [])
+          if (v is String && v.isNotEmpty) v[0].toUpperCase() + v.substring(1),
+      ],
       json: json,
+    );
+  }
+}
+
+/// Why the server gave no call, and what to change, in the server's own words.
+class NoCall {
+  const NoCall({required this.code, required this.message, this.fix});
+
+  final String? code;
+  final String message;
+  final String? fix;
+
+  static NoCall? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final message = json['message'];
+    final fix = json['fix'];
+    final code = json['code'];
+    if (message is! String || message.isEmpty) return null;
+    return NoCall(
+      code: code is String ? code : null,
+      message: message,
+      fix: fix is String && fix.isNotEmpty ? fix : null,
     );
   }
 }
@@ -147,7 +115,7 @@ class DeliveryMetrics {
 
   static DeliveryMetrics? fromJson(Object? json) {
     if (json is! Map) return null;
-    final m = json.cast<String, Object?>();
+    final m = _map(json);
     return DeliveryMetrics(
       speedKmh: _readDouble(m, 'speed_kmh'),
       speedMph: _readDouble(m, 'speed_mph'),
@@ -157,17 +125,14 @@ class DeliveryMetrics {
 }
 
 /// Pixel-space ball path overlay, projected server-side onto the analysed frame.
-/// All offsets are in the frame's pixel coordinates (see [AnalysisResult.imageWidth]).
 class TrajectoryOverlay {
   const TrajectoryOverlay({
     required this.path,
     required this.bounce,
     required this.impact,
     required this.strikerStumps,
-    required this.bowlerStumps,
     required this.corridor,
     required this.pitchRect,
-    required this.centerline,
   });
 
   /// Ordered ball path: real flight first, then the predicted continuation.
@@ -175,43 +140,21 @@ class TrajectoryOverlay {
   final OverlayPoint? bounce;
   final OverlayPoint? impact;
   final StumpLine? strikerStumps;
-  final StumpLine? bowlerStumps;
-
-  /// Ground-plane pitch corridor as a 4-point polygon (pixels), or empty.
   final List<Offset> corridor;
   final List<Offset> pitchRect;
-  final List<Offset> centerline;
-
-  bool get hasPath => path.length >= 2;
 
   static TrajectoryOverlay? fromJson(Object? json) {
     if (json is! Map) return null;
-    final m = json.cast<String, Object?>();
-    final path = <OverlayPoint>[];
-    final list = m['path_px'];
-    if (list is List) {
-      for (final v in list) {
-        final p = OverlayPoint.fromJson(v);
-        if (p != null) path.add(p);
-      }
-    }
+    final m = _map(json);
+    final path = _points(m['path_px']);
     if (path.isEmpty) return null;
-    final stumps = m['stumps_px'];
-    final stumpsMap = stumps is Map
-        ? stumps.cast<String, Object?>()
-        : const <String, Object?>{};
-    final corridor = _readOffsetList(m['corridor_px']);
-    final pitchRect = _readOffsetList(m['pitch_rect_px']);
-    final centerline = _readOffsetList(m['centerline_px']);
     return TrajectoryOverlay(
-      path: List.unmodifiable(path),
+      path: path,
       bounce: OverlayPoint.fromJson(m['bounce_px']),
       impact: OverlayPoint.fromJson(m['impact_px']),
-      strikerStumps: StumpLine.fromJson(stumpsMap['striker']),
-      bowlerStumps: StumpLine.fromJson(stumpsMap['bowler']),
-      corridor: List.unmodifiable(corridor),
-      pitchRect: List.unmodifiable(pitchRect),
-      centerline: List.unmodifiable(centerline),
+      strikerStumps: StumpLine.fromJson(_map(m['stumps_px'])['striker']),
+      corridor: _offsets(m['corridor_px']),
+      pitchRect: _offsets(m['pitch_rect_px']),
     );
   }
 }
@@ -228,14 +171,12 @@ class OverlayPoint {
   final bool predicted;
 
   static OverlayPoint? fromJson(Object? json) {
-    if (json is! Map) return null;
-    final m = json.cast<String, Object?>();
-    final u = _readDouble(m, 'u');
-    final v = _readDouble(m, 'v');
-    if (u == null || v == null) return null;
+    final px = _offset(json);
+    if (px == null) return null;
+    final m = _map(json);
     return OverlayPoint(
       tMs: _readInt(m, 't_ms') ?? 0,
-      px: Offset(u, v),
+      px: px,
       predicted: m['phase'] == 'predicted',
     );
   }
@@ -248,88 +189,32 @@ class StumpLine {
   final Offset top;
 
   static StumpLine? fromJson(Object? json) {
-    if (json is! Map) return null;
-    final m = json.cast<String, Object?>();
-    final base = _readOffset(m['base']);
-    final top = _readOffset(m['top']);
+    final m = _map(json);
+    final base = _offset(m['base']);
+    final top = _offset(m['top']);
     if (base == null || top == null) return null;
     return StumpLine(base: base, top: top);
   }
 }
 
-Offset? _readOffset(Object? json) {
-  if (json is! Map) return null;
-  final m = json.cast<String, Object?>();
-  final u = _readDouble(m, 'u');
-  final v = _readDouble(m, 'v');
-  if (u == null || v == null) return null;
-  return Offset(u, v);
-}
-
-List<Offset> _readOffsetList(Object? json) {
-  final out = <Offset>[];
-  if (json is List) {
-    for (final v in json) {
-      final o = _readOffset(v);
-      if (o != null) out.add(o);
-    }
-  }
-  return out;
-}
-
-/// 3D ball trajectory in world coordinates (metres).  The pitch frame is
-/// X along the pitch length (0 = striker crease), Y across (positive off
-/// side for right-hander), Z up.  `points` are observed-and-smoothed
-/// positions from the bundle-adjusted projectile fit; `predictedToStumps`
-/// extrapolates from the impact point to the stump plane.
+/// The ball in metres: X along the pitch from the striker's stumps, Y across, Z up.
 class WorldTrajectory {
   const WorldTrajectory({
     required this.points,
     required this.predictedToStumps,
-    this.fit,
   });
-
-  factory WorldTrajectory.empty() => const WorldTrajectory(
-    points: <WorldPointM>[],
-    predictedToStumps: <WorldPointM>[],
-    fit: null,
-  );
 
   final List<WorldPointM> points;
   final List<WorldPointM> predictedToStumps;
-  final ProjectileFitInfo? fit;
 
   static WorldTrajectory fromJson(Map<String, Object?> json) {
-    final pts = <WorldPointM>[];
-    final ptsJson = json['points_m'];
-    if (ptsJson is List) {
-      for (final v in ptsJson) {
-        if (v is! Map) continue;
-        final m = v.cast<String, Object?>();
-        final p = WorldPointM.fromJson(m);
-        if (p != null) pts.add(p);
-      }
-    }
-    final pred = <WorldPointM>[];
-    final predJson = json['predicted_to_stumps_m'];
-    if (predJson is List) {
-      for (final v in predJson) {
-        if (v is! Map) continue;
-        final m = v.cast<String, Object?>();
-        final p = WorldPointM.fromJson(m);
-        if (p != null) pred.add(p);
-      }
-    }
-
-    ProjectileFitInfo? fit;
-    final fitJson = json['fit'];
-    if (fitJson is Map) {
-      fit = ProjectileFitInfo.fromJson(fitJson.cast<String, Object?>());
-    }
+    List<WorldPointM> read(Object? list) => [
+      if (list is List)
+        for (final v in list) ?WorldPointM.fromJson(_map(v)),
+    ];
     return WorldTrajectory(
-      points: List.unmodifiable(pts),
-      predictedToStumps: List.unmodifiable(pred),
-      fit: fit,
+      points: read(json['points_m']),
+      predictedToStumps: read(json['predicted_to_stumps_m']),
     );
   }
 }
@@ -340,14 +225,12 @@ class WorldPointM {
     required this.x,
     required this.y,
     required this.z,
-    this.confidence,
   });
 
   final int tMs;
   final double x;
   final double y;
   final double z;
-  final double? confidence;
 
   static WorldPointM? fromJson(Map<String, Object?> m) {
     final t = _readInt(m, 't_ms');
@@ -355,83 +238,20 @@ class WorldPointM {
     final y = _readDouble(m, 'y');
     final z = _readDouble(m, 'z');
     if (t == null || x == null || y == null || z == null) return null;
-    return WorldPointM(
-      tMs: t,
-      x: x,
-      y: y,
-      z: z,
-      confidence: _readDouble(m, 'confidence'),
-    );
-  }
-
-  Map<String, double> toViewerJson() => {'x': x, 'y': y, 'z': z};
-}
-
-class ProjectileFitInfo {
-  const ProjectileFitInfo({
-    required this.x0,
-    required this.y0,
-    required this.z0,
-    required this.vx,
-    required this.vy,
-    required this.vz,
-    required this.rmsM,
-  });
-
-  final double x0, y0, z0;
-  final double vx, vy, vz;
-  final double rmsM;
-
-  static ProjectileFitInfo fromJson(Map<String, Object?> m) {
-    return ProjectileFitInfo(
-      x0: _readDouble(m, 'x0') ?? 0,
-      y0: _readDouble(m, 'y0') ?? 0,
-      z0: _readDouble(m, 'z0') ?? 0,
-      vx: _readDouble(m, 'vx') ?? 0,
-      vy: _readDouble(m, 'vy') ?? 0,
-      vz: _readDouble(m, 'vz') ?? 0,
-      rmsM: _readDouble(m, 'rms_m') ?? 0,
-    );
+    return WorldPointM(tMs: t, x: x, y: y, z: z);
   }
 }
 
-/// Pixel-space ball detections.  Used by the 2D overlay on the captured frame
-/// (debug/inspection only, no longer feeds the 3D viewer).
-BallTrackResult _parsePixelTrack(
-  Map<String, Object?> json, {
-  required int width,
-  required int height,
-}) {
-  final pts = <BallTrackPoint>[];
-  final list = json['image_points'];
-  if (list is List) {
-    for (final v in list) {
-      if (v is! Map) continue;
-      final m = v.cast<String, Object?>();
-      final t = _readInt(m, 't_ms');
-      final u = _readDouble(m, 'u');
-      final vx = _readDouble(m, 'v');
-      final c = _readDouble(m, 'confidence') ?? 0.5;
-      if (t == null || u == null || vx == null) continue;
-      pts.add(BallTrackPoint(t: t, p: Offset(u, vx), confidence: c));
-    }
-  }
-  return BallTrackResult(points: pts, width: width, height: height);
-}
-
-/// World-space event indices into `WorldTrajectory.points`.
 class AnalysisEvents {
   const AnalysisEvents({required this.bounce, required this.impact});
 
   final EventPointM? bounce;
   final EventPointM? impact;
 
-  static AnalysisEvents fromJson(Map<String, Object?> json) {
-    return AnalysisEvents(
-      bounce: EventPointM.fromJson(json['bounce']),
-      impact: EventPointM.fromJson(json['impact']),
-    );
-  }
+  static AnalysisEvents fromJson(Map<String, Object?> json) => AnalysisEvents(
+    bounce: EventPointM.fromJson(json['bounce']),
+    impact: EventPointM.fromJson(json['impact']),
+  );
 }
 
 class EventPointM {
@@ -448,8 +268,7 @@ class EventPointM {
   final double? zM;
 
   static EventPointM? fromJson(Object? json) {
-    if (json is! Map) return null;
-    final m = json.cast<String, Object?>();
+    final m = _map(json);
     final t = _readInt(m, 't_ms');
     final x = _readDouble(m, 'x_m');
     final y = _readDouble(m, 'y_m');
@@ -461,14 +280,18 @@ class EventPointM {
 enum LbwDecisionKey {
   out,
   notOut,
-  umpiresCall;
+  umpiresCall,
+  cantTell;
 
-  static LbwDecisionKey? parse(Object? raw) => switch (raw) {
-    'out' => out,
-    'not_out' => notOut,
-    'umpires_call' => umpiresCall,
-    _ => null,
-  };
+  // upper case from the result, lower case in the admin list's older rows
+  static LbwDecisionKey? parse(Object? raw) =>
+      switch (raw is String ? raw.toUpperCase() : null) {
+        'OUT' => out,
+        'NOT_OUT' => notOut,
+        'UMPIRES_CALL' => umpiresCall,
+        'CANT_TELL' => cantTell,
+        _ => null,
+      };
 }
 
 extension LbwDecisionLabel on LbwDecisionKey? {
@@ -476,7 +299,7 @@ extension LbwDecisionLabel on LbwDecisionKey? {
     LbwDecisionKey.out => 'Out',
     LbwDecisionKey.notOut => 'Not out',
     LbwDecisionKey.umpiresCall => "Umpire's call",
-    null => 'No call',
+    LbwDecisionKey.cantTell || null => 'No call',
   };
 }
 
@@ -491,6 +314,7 @@ class LbwResult {
     required this.u95YM,
     required this.u95ZM,
     required this.confidence,
+    required this.callStands,
   });
 
   final LbwDecisionKey? decision;
@@ -504,50 +328,59 @@ class LbwResult {
   // how far the stump-plane crossing could be off, sideways and in height, 95 % of the time
   final double? u95YM;
   final double? u95ZM;
+  // how sure the server is of an out or not out, 0..1
   final double? confidence;
+  // the on-field call that stands, with umpire's call only
+  final LbwDecisionKey? callStands;
 
   static LbwResult fromJson(Map<String, Object?> json) {
-    final decision = LbwDecisionKey.parse(json['decision']);
-
-    final checksRaw = json['checks'];
-    final checks = checksRaw is Map
-        ? checksRaw.cast<String, Object?>()
-        : const <String, Object?>{};
-    final predRaw = json['prediction'];
-    final pred = predRaw is Map ? predRaw.cast<String, Object?>() : null;
+    final checks = _map(json['checks']);
+    final pred = _map(json['prediction']);
+    final reason = json['reason'];
     return LbwResult(
-      decision: decision,
-      reason: (json['reason'] as String?)?.trim() ?? '',
-      pitchedInLine: (checks['pitching_in_line'] as bool?) ?? false,
-      impactInLine: (checks['impact_in_line'] as bool?) ?? false,
-      wicketsHitting: checks['wickets_hitting'] as bool?,
-      tones: (json['tones'] as Map?)?.cast<String, Object?>() ?? const {},
-      u95YM: pred != null ? _readDouble(pred, 'U95_y_m') : null,
-      u95ZM: pred != null ? _readDouble(pred, 'U95_z_m') : null,
-      confidence: _readDouble(json, Assumed.confidence)?.clamp(0.0, 1.0),
+      decision: LbwDecisionKey.parse(json['verdict']),
+      reason: reason is String ? reason.trim() : '',
+      pitchedInLine: checks['pitching_in_line'] == true,
+      impactInLine: checks['impact_in_line'] == true,
+      wicketsHitting: switch (checks['wickets_hitting']) {
+        final bool b => b,
+        _ => null,
+      },
+      tones: _map(json['tones']),
+      u95YM: _readDouble(pred, 'U95_y_m'),
+      u95ZM: _readDouble(pred, 'U95_z_m'),
+      confidence: _readDouble(json, 'confidence')?.clamp(0.0, 1.0),
+      callStands: LbwDecisionKey.parse(json['call_stands']),
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-Map<String, Object?> _requireMap(Map<String, Object?> json, String key) {
-  final v = json[key];
-  if (v is Map) return v.cast<String, Object?>();
-  throw FormatException('Missing or invalid $key');
-}
-
-int _requireInt(Map<String, Object?> json, String key) {
-  final v = json[key];
-  if (v is num) return v.round();
-  throw FormatException('Missing or invalid $key');
-}
+Map<String, Object?> _map(Object? v) =>
+    v is Map ? v.cast<String, Object?>() : const {};
 
 int? _readInt(Map<String, Object?> json, String key) {
   final v = json[key];
-  return v is num ? v.round() : null;
+  return v is num && v.isFinite ? v.round() : null;
 }
 
 double? _readDouble(Map<String, Object?> json, String key) {
   final v = json[key];
-  return v is num ? v.toDouble() : null;
+  return v is num && v.isFinite ? v.toDouble() : null;
 }
+
+Offset? _offset(Object? json) {
+  final m = _map(json);
+  final u = _readDouble(m, 'u');
+  final v = _readDouble(m, 'v');
+  return u == null || v == null ? null : Offset(u, v);
+}
+
+List<Offset> _offsets(Object? json) => [
+  if (json is List)
+    for (final v in json) ?_offset(v),
+];
+
+List<OverlayPoint> _points(Object? json) => [
+  if (json is List)
+    for (final v in json) ?OverlayPoint.fromJson(v),
+]..sort((a, b) => a.tMs.compareTo(b.tMs));

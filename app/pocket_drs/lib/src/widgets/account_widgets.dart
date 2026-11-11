@@ -12,16 +12,9 @@ String planLine(Me me) => switch (me) {
     '${left.clamp(0, dailyLimit)} of $dailyLimit free reviews left today',
 };
 
-/// When the free reviews come back, in the phone's own time; null when the server doesn't say.
-String? resetLine(BuildContext context, Me me) {
-  final at = me.resetsAt;
-  if (at == null || me.left == null) return null;
-  final now = DateTime.now();
-  final time = TimeOfDay.fromDateTime(at).format(context);
-  final today =
-      at.year == now.year && at.month == now.month && at.day == now.day;
-  return today ? 'More at $time' : 'More tomorrow at $time';
-}
+/// When the free reviews come back; null when the server doesn't say.
+String? resetLine(Me me) =>
+    me.resetsAt == null || me.left == null ? null : whenBack(me.resetsAt!);
 
 /// Free reviews left today and when more come, near the buttons that spend one.
 class PlanStatus extends StatelessWidget {
@@ -35,7 +28,7 @@ class PlanStatus extends StatelessWidget {
       valueListenable: Account.instance.me,
       builder: (context, me, _) {
         if (me == null) return const SizedBox.shrink();
-        final reset = resetLine(context, me);
+        final reset = resetLine(me);
         final used = me.usedUp;
         return Row(
           children: [
@@ -73,7 +66,7 @@ Future<void> showUsedUp(BuildContext context) async {
   if (_usedUpOpen) return;
   _usedUpOpen = true;
   final me = Account.instance.me.value;
-  final reset = me == null ? null : resetLine(context, me);
+  final reset = me == null ? null : resetLine(me);
   try {
     await showDialog<void>(
       context: context,

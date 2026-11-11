@@ -180,6 +180,14 @@ class DecisionBanner extends StatelessWidget {
                 ),
               ),
             ),
+            if (lbw.callStands case final call?) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'The on-field call of ${call.label.toLowerCase()} stands',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.labelLarge?.copyWith(color: ink),
+              ),
+            ],
             if (!sure) ...[
               const SizedBox(height: AppSpacing.xs),
               Text(
@@ -298,23 +306,6 @@ class VerdictSummary extends StatelessWidget {
   }
 }
 
-// one concrete thing to change for each of the server's no-call reasons
-const _tips = {
-  'phone_too_far':
-      "Stand right behind the bowler's stumps with the zoom off, so the far stumps look bigger.",
-  'no_ball':
-      'Use a red or pink ball in good light, with the whole pitch from stumps to stumps in view.',
-  'still_in_flight':
-      'Trim the clip so it ends just after the ball reaches the batter.',
-  'path_mismatch':
-      'Zoom right in on each stump corner when you mark it, then send the ball again.',
-  'no_stump_path':
-      'Keep the ball in view all the way to the batter, with the phone held still.',
-  'too_unsure':
-      'Film at 60 frames a second with the phone on a tripod, and mark the corners zoomed in.',
-  'lost_before_batter':
-      'Film against a plain background so the ball stays visible up to the pad.',
-};
 const _generalTip =
     "Film from right behind the bowler's stumps with both sets of stumps in view, "
     'at 60 frames a second, with the phone held still.';
@@ -328,9 +319,11 @@ class NoCallSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final reason = result.warnings.isEmpty
-        ? "The ball's path couldn't be worked out well enough to make a call."
-        : result.warnings.first;
+    final noCall = result.noCall;
+    final reason =
+        noCall?.message ??
+        result.warnings.firstOrNull ??
+        "The ball's path couldn't be worked out well enough to make a call.";
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -377,7 +370,7 @@ class NoCallSummary extends StatelessWidget {
                       ),
                       const SizedBox(height: AppSpacing.xs),
                       Text(
-                        _tips[result.noCallCode] ?? _generalTip,
+                        noCall?.fix ?? _generalTip,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: scheme.onPrimaryContainer,
                         ),
@@ -389,7 +382,7 @@ class NoCallSummary extends StatelessWidget {
             ),
           ),
         ),
-        for (final n in result.warnings.skip(1)) ...[
+        for (final n in result.warnings.where((w) => w != reason)) ...[
           const SizedBox(height: AppSpacing.sm),
           Text(n, style: theme.textTheme.bodyMedium),
         ],

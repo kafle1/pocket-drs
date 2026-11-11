@@ -135,7 +135,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           me == null ? 'Loading your reviews' : planLine(me),
                         ),
                         subtitle: switch (me) {
-                          final me? => switch (resetLine(context, me)) {
+                          final me? => switch (resetLine(me)) {
                             final r? => Text(r),
                             null => null,
                           },

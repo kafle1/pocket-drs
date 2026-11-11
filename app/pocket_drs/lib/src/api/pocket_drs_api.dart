@@ -19,43 +19,60 @@ const String kServerUrl = String.fromEnvironment(
   defaultValue: 'https://pocketdrs-saarathi.centralindia.cloudapp.azure.com',
 );
 
-/// The calibration block of a request. [stumps] is the 8 normalised stump taps: striker
-/// TL, TR, BR, BL then bowler TL, TR, BR, BL.
+/// The calibration block of a request. [stumps] is the 8 normalised stump taps, striker
+/// TL, TR, BR, BL then bowler TL, TR, BR, BL; one may be null when it can't be seen.
 Map<String, Object?> calibrationJson({
-  required List<Offset> stumps,
-  required double pitchLengthM,
+  required List<Offset?> stumps,
   required StumpSize stumpSize,
+  required int? frameMs,
 }) => {
   'stump_quads_norm': [
-    for (final p in stumps) {'x': p.dx, 'y': p.dy},
+    for (final p in stumps) p == null ? null : {'x': p.dx, 'y': p.dy},
   ],
-  // taps alone can't recover scale, so the player's pitch length sets it
-  'pitch_dimensions_m': {'width': 3.05, 'length': pitchLengthM},
-  // regulation is the server's own default, so only other stumps are named
-  if (stumpSize != StumpSize.regulation)
-    Assumed.stumpDimensions: {
-      'height': stumpSize.heightM,
-      'width': stumpSize.widthM,
-    },
+  'stumps_m': {'height': stumpSize.heightM, 'width': stumpSize.widthM},
+  'frame_ms': ?frameMs,
 };
+
+/// What the umpire gave on the field, so a close call can stand as umpire's call.
+enum OnFieldCall {
+  out('Out'),
+  notOut('Not out'),
+  none('No umpire');
+
+  const OnFieldCall(this.label);
+  final String label;
+  String get wire => switch (this) {
+    out => 'out',
+    notOut => 'not_out',
+    none => 'none',
+  };
+}
 
 /// One analysis request.
 Map<String, Object?> jobRequest({
-  required List<Offset> stumps,
+  required List<Offset?> stumps,
   required String handedness,
   required int startMs,
   required int endMs,
-  required double pitchLengthM,
-  required StumpSize stumpSize,
+  required PitchSetup pitch,
+  required int? frameMs,
+  required double? captureFps,
+  OnFieldCall call = OnFieldCall.none,
+  bool shotPlayed = true,
 }) => {
   'segment': {'start_ms': startMs, 'end_ms': endMs},
   'calibration': calibrationJson(
     stumps: stumps,
-    pitchLengthM: pitchLengthM,
-    stumpSize: stumpSize,
+    stumpSize: pitch.stumps,
+    frameMs: frameMs,
   ),
-  'tracking': {'sample_fps': 60, 'max_frames': 240},
+  'tracking': {'ball_type': pitch.ball.name},
   'batsman_handedness': handedness,
+  'pitch_length_m': pitch.lengthM,
+  if (captureFps != null && captureFps > 0 && captureFps <= 1000)
+    'capture_fps': captureFps,
+  'on_field_call': call.wire,
+  'shot_played': shotPlayed,
 };
 
 /// A random v4 UUID, made once per clip and sent again on every retry of it.
@@ -77,6 +94,7 @@ enum ApiErrorKind {
   signIn,
   usedUp,
   jobInProgress,
+  outdated,
 }
 
 const kCantConnect =
@@ -88,34 +106,57 @@ const _oddReply =
     'Got an unexpected reply from the server. Try again in a minute.';
 const kSignInAgain = 'Please sign in again to keep going.';
 const kUsedUp = "You've used today's free reviews. More come back tomorrow.";
+const kOutdated = 'Update Pocket DRS to keep reviewing.';
+const kStoreUrl =
+    'https://play.google.com/store/apps/details?id=com.pocketdrs.pocket_drs';
 
 class ApiException implements Exception {
   final ApiErrorKind kind;
   final String message;
   final int? statusCode;
+  final String? code;
   // the account's job still running, when the server turned a second one away
   final String? jobId;
-  ApiException(this.kind, this.message, {this.statusCode, this.jobId});
+  ApiException(
+    this.kind,
+    this.message, {
+    this.statusCode,
+    this.code,
+    this.jobId,
+  });
   @override
   String toString() => message;
 }
 
-const _jobGone =
-    'This ball is no longer on the server. Results are kept for 24 hours. '
-    'Send it again.';
+/// The server's error object, `{code, message, ...}`, or empty when the body isn't one.
+Map<String, Object?> _error(String body) {
+  try {
+    final v = jsonDecode(body);
+    final e = v is Map ? v['error'] : null;
+    return e is Map ? e.cast<String, Object?>() : const {};
+  } on FormatException {
+    return const {};
+  }
+}
 
-// one place for what each http status means to the player; [jobGone] says a 404 means the job expired
-void _throwForStatus(int code, {required bool jobGone}) {
+// one place for what each http status means to the player; the server's own sentence wins when it sent one
+void _throwForStatus(int code, String body) {
   if (code >= 200 && code < 300) return;
-  final (kind, msg) = switch (code) {
+  final err = _error(body);
+  final errCode = err['code'] is String ? err['code'] as String : null;
+  final (kind, fallback) = switch (code) {
     400 => (
       ApiErrorKind.badResponse,
       "The clip couldn't be sent. Pick it again and retry.",
     ),
     401 => (ApiErrorKind.signIn, kSignInAgain),
-    402 => (ApiErrorKind.usedUp, kUsedUp),
+    402 || 429 => (ApiErrorKind.usedUp, kUsedUp),
     403 => (ApiErrorKind.badResponse, 'Only the admin can do this.'),
-    404 when jobGone => (ApiErrorKind.badResponse, _jobGone),
+    409 => (
+      ApiErrorKind.jobInProgress,
+      'Another of your balls is still being sent or checked. This one goes once it finishes.',
+    ),
+    426 => (ApiErrorKind.outdated, kOutdated),
     408 => (
       ApiErrorKind.timeout,
       'The upload took too long. Try again on a better connection.',
@@ -136,7 +177,21 @@ void _throwForStatus(int code, {required bool jobGone}) {
     ),
     _ => (ApiErrorKind.badResponse, _oddReply),
   };
-  throw ApiException(kind, msg, statusCode: code);
+  var message =
+      err['message'] is String && (err['message'] as String).isNotEmpty
+      ? err['message'] as String
+      : fallback;
+  if (err['resets_at'] case final num at) {
+    message =
+        '$message ${whenBack(DateTime.fromMillisecondsSinceEpoch(at.toInt() * 1000))}.';
+  }
+  throw ApiException(
+    kind,
+    message,
+    statusCode: code,
+    code: errCode,
+    jobId: err['job_id'] is String ? err['job_id'] as String : null,
+  );
 }
 
 // the server gives back the free review of a failed check or one with no call
@@ -148,19 +203,15 @@ String _jobErrorMessage(String? code) => switch (code) {
     "The server couldn't read this video. Try another clip.",
   'TIMED_OUT' =>
     'This clip took too long to check. Trim it to just the delivery and send it again.',
-  'CALIBRATION_DEGENERATE' =>
-    "The stump marks don't line up with each other. Zoom in and move the marks onto the corners.",
   _ =>
     'Something went wrong checking this ball. Try again, or try another clip.',
 };
 
 /// A job the server finished with an error; retrying the same clip won't help.
 class JobFailedException implements Exception {
-  JobFailedException(this.code, this.message, {this.worstMark});
+  JobFailedException(this.code, this.message);
   final String? code;
   final String message;
-  // the stump mark that disagrees with the others, 0..7, when the marks were the problem
-  final int? worstMark;
   @override
   String toString() => message;
 }
@@ -208,16 +259,12 @@ class PocketDrsApi {
     return r;
   }
 
-  Future<String> _get(
-    String path, {
-    int seconds = 15,
-    bool jobGone = false,
-  }) async {
+  Future<String> _get(String path, {int seconds = 15}) async {
     final (code, body) = await _send(
       (abort) => http.AbortableRequest('GET', _u(path), abortTrigger: abort),
       Duration(seconds: seconds),
     );
-    _throwForStatus(code, jobGone: jobGone);
+    _throwForStatus(code, body);
     return body;
   }
 
@@ -230,35 +277,18 @@ class PocketDrsApi {
       }
       return req;
     }, const Duration(seconds: 15));
-    // admin changes name what was wrong; same words as the website
-    final reason = switch (code == 400 || code == 404
-        ? _errorCode(body)
-        : null) {
-      'bad_email' => 'That does not look like an email.',
-      'admin_plan_locked' => "The admin's plan can't be changed.",
-      _ => null,
-    };
-    if (reason != null) {
-      throw ApiException(ApiErrorKind.badResponse, reason, statusCode: code);
-    }
-    _throwForStatus(code, jobGone: false);
+    _throwForStatus(code, body);
     return body;
   }
 
-  static String? _errorCode(String body) {
-    try {
-      final v = jsonDecode(body);
-      return v is Map ? v['error'] as String? : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
+  /// Uploads one clip; [onSent] gets the share sent so far, and completing [cancel] stops it.
   Future<String> createJob({
     required Uint8List videoBytes,
     required String videoFilename,
     required Map<String, Object?> requestJson,
     required String idempotencyKey,
+    void Function(double)? onSent,
+    Future<void>? cancel,
   }) async {
     // the server's deadline is min(1800, 60 + bytes/25000) s; 30 s more lets its own "took too long" reply land first
     final uploadSeconds = min(1830, 90 + (videoBytes.length / 25000).ceil());
@@ -269,30 +299,24 @@ class PocketDrsApi {
           http.AbortableMultipartRequest(
               'POST',
               _u('/v1/jobs'),
-              abortTrigger: abort,
+              abortTrigger: cancel == null
+                  ? abort
+                  : Future.any([abort, cancel]),
             )
             ..headers['Idempotency-Key'] = idempotencyKey
             ..fields['request_json'] = jsonEncode(requestJson)
+            // a known length keeps the content-length header the server requires
             ..files.add(
-              http.MultipartFile.fromBytes(
+              http.MultipartFile(
                 'video_file',
-                videoBytes,
+                _chunks(videoBytes, onSent),
+                videoBytes.length,
                 filename: videoFilename.isEmpty ? 'video.mp4' : videoFilename,
               ),
             ),
       Duration(seconds: uploadSeconds),
     );
-    // one live job per account: the screen offers the running one instead
-    if (code == 409 && _errorCode(body) == 'job_in_progress') {
-      final running = _map(body)['job_id'];
-      throw ApiException(
-        ApiErrorKind.jobInProgress,
-        'Another of your balls is still being checked. This one can go once it finishes.',
-        statusCode: 409,
-        jobId: running is String ? running : null,
-      );
-    }
-    _throwForStatus(code, jobGone: false);
+    _throwForStatus(code, body);
 
     final Object? decoded;
     try {
@@ -310,7 +334,7 @@ class PocketDrsApi {
   }
 
   Future<JobStatus> getJobStatus(String jobId) async {
-    final body = await _get('/v1/jobs/$jobId', jobGone: true);
+    final body = await _get('/v1/jobs/$jobId');
     try {
       final decoded = jsonDecode(body);
       if (decoded is! Map) throw const FormatException('not an object');
@@ -321,11 +345,7 @@ class PocketDrsApi {
   }
 
   Future<AnalysisResult> getJobResult(String jobId) async {
-    final body = await _get(
-      '/v1/jobs/$jobId/result',
-      seconds: 30,
-      jobGone: true,
-    );
+    final body = await _get('/v1/jobs/$jobId/result', seconds: 30);
     final Object? decoded;
     try {
       decoded = jsonDecode(body);
@@ -358,13 +378,13 @@ class PocketDrsApi {
 
   /// Deletes the account and its reviews on the server; repeating it is harmless.
   Future<void> deleteAccount() async {
-    final (code, _) = await _send(
+    final (code, body) = await _send(
       (abort) =>
           http.AbortableRequest('DELETE', _u('/v1/me'), abortTrigger: abort),
       const Duration(seconds: 30),
       device: false,
     );
-    _throwForStatus(code, jobGone: false);
+    _throwForStatus(code, body);
   }
 
   /// Polls [jobId] until it finishes and returns its result, a call or the server's reason for none.
@@ -411,12 +431,7 @@ class PocketDrsApi {
             final result = await getJobResult(jobId);
             unawaited(Account.instance.refreshMe());
             Account.instance.logEvent('analysis_completed', {
-              'decision': switch (result.lbw?.decision) {
-                LbwDecisionKey.out => 'out',
-                LbwDecisionKey.notOut => 'not_out',
-                LbwDecisionKey.umpiresCall => 'umpires_call',
-                null => 'none',
-              },
+              'decision': result.lbw?.decision?.name ?? 'none',
             });
             return result;
           } catch (e) {
@@ -431,7 +446,6 @@ class PocketDrsApi {
         throw JobFailedException(
           status.errorCode,
           '${_jobErrorMessage(status.errorCode)} $notCounted',
-          worstMark: status.worstMark,
         );
       }
       final ms = attempt < 10 ? 500 : (attempt < 30 ? 800 : 1200);
@@ -504,6 +518,19 @@ class PocketDrsApi {
   void close() => _client.close();
 }
 
+// handed out in pieces so the screen can show how much of the clip has gone
+Stream<List<int>> _chunks(
+  Uint8List bytes,
+  void Function(double)? onSent,
+) async* {
+  const size = 64 << 10;
+  for (var i = 0; i < bytes.length; i += size) {
+    final end = min(i + size, bytes.length);
+    yield Uint8List.sublistView(bytes, i, end);
+    onSent?.call(end / bytes.length);
+  }
+}
+
 // timeouts, dropped connections and 5xx can pass; anything else is the real answer
 bool _isTransient(Object e) =>
     e is ApiException &&
@@ -521,7 +548,6 @@ class JobStatus {
     required this.pct,
     required this.stage,
     this.errorCode,
-    this.worstMark,
     this.queuePosition,
   });
 
@@ -529,7 +555,6 @@ class JobStatus {
   final int? pct;
   final String? stage;
   final String? errorCode;
-  final int? worstMark;
   // 1 means next in line; absent once it runs
   final int? queuePosition;
 
@@ -549,14 +574,11 @@ class JobStatus {
 
     final err = json['error'];
     final code = err is Map ? err['code'] : null;
-    final details = err is Map ? err['details'] : null;
-    final worst = details is Map ? details[Assumed.worstMark] : null;
     return JobStatus(
       status: status,
       pct: pct,
       stage: stage,
       errorCode: code is String ? code : null,
-      worstMark: worst is int && worst >= 0 && worst < 8 ? worst : null,
       queuePosition: switch (json['queue_position']) {
         final int q when q > 0 => q,
         _ => null,
