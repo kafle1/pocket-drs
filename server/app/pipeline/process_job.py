@@ -47,7 +47,7 @@ from .reconstruction import BALL_RADIUS_M, sample_path, speed_sigma
 from .tracking import ColourMotionDetector, YoloDetector, corridor_mask, drop_impossible
 from .trajectory import MAX_GAP_S, find_ball
 from .uncertainty import GUARD_K, calibrated, calibration_sigma, camera_end, measurands
-from .video import VideoDecodeError, read_frames
+from .video import ClipRefused, VideoDecodeError, read_frames
 
 _log = logging.getLogger("pocket_drs.pipeline")
 
@@ -55,6 +55,7 @@ YOLO_WEIGHTS = Path(__file__).resolve().parents[2] / "models" / "cricket_ball.pt
 # a correct full-pitch tap calibration sits well under 10 px; the bound scales with frame width
 CALIB_REJECT_PX, CALIB_REJECT_FRAC = 25.0, 0.03
 MAX_IMPACT_X_M = 3.0      # in front of the batter's stumps; a long stride puts the front pad about 2.5 m out
+EDGE_FRAC = 0.005         # a mark this close to the frame edge stands in for a stump base out of view
 MAX_BEHIND_M = 10.0       # further back, zoomed in, the picture flattens the pitch and can't tell 2 m from 10 m
 # a speed known no better than this is left out rather than shown wrong
 MAX_SPEED_SIGMA_KMH = 8.0
@@ -123,6 +124,15 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
     cal = req.calibration
     marks = lambda norm, px: [(p.x * width, p.y * height) for p in norm] if norm else [(p.x * scale, p.y * scale) for p in px or []]
     taps = np.array(marks(cal.stump_quads_norm, cal.stump_quads_px) + marks(cal.crease_marks_norm, cal.crease_marks_px), dtype=float)
+    edge = EDGE_FRAC * max(width, height)
+    if np.any((taps < edge) | (taps > np.array([width, height]) - edge)):
+        raise CalibrationError("A mark sits on the edge of the picture, so those stumps may be cut off. Film with "
+                               "both sets of stumps whole in view, then mark them again.")
+    lo, hi = taps[:8].reshape(2, 4, 2).min(1), taps[:8].reshape(2, 4, 2).max(1)
+    mid = (lo + hi) / 2
+    if np.all((mid[0] > lo[1]) & (mid[0] < hi[1])) or np.all((mid[1] > lo[0]) & (mid[1] < hi[0])):
+        raise CalibrationError("Both sets of marks are on the same stumps. Mark the batter's stumps and the "
+                               "bowler's; both ends must be in the picture.")
     pose = _resolve((width, height), cal, taps)
     L = cal.pitch_dimensions_m.length
     fit = fitting_length((width, height), [tuple(p) for p in taps[:8]], [tuple(p) for p in taps[8:]],
@@ -295,5 +305,7 @@ def map_exception_to_api_error(exc: Exception) -> ApiError:
         return ApiError(code="VIDEO_DECODE_FAILED", message=str(exc))
     if isinstance(exc, CalibrationError):
         return ApiError(code="CALIBRATION_DEGENERATE", message=str(exc))
+    if isinstance(exc, ClipRefused):
+        return ApiError(code="CLIP_REFUSED", message=str(exc))
     # anything else is our bug, and its text would only show the user a traceback's last line
     return ApiError(code="INTERNAL_ERROR", message="Something went wrong checking this ball. Try again, or try another clip.")

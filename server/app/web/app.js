@@ -25,11 +25,6 @@ const OFFLINE = "Can't reach the server. Check your internet, or try again later
 const SIGN_IN_AGAIN = "Please sign in again to keep going.";
 // the server gives back the free review of a failed check or one with no call
 const NOT_COUNTED = "This one didn't use up a free review.";
-const JOB_ERRORS = {
-  VIDEO_DECODE_FAILED: "The server couldn't read this video. Try another clip.",
-  CALIBRATION_DEGENERATE: "The stump marks don't line up. Mark the tops and bottoms of both sets of stumps again.",
-  INTERNAL_ERROR: "Something went wrong checking this ball. Try again, or try another clip.",
-};
 const ERRORS = {
   device_id_required: "This browser can't be recognised. Reload the page and try again.",
   bad_email: "That does not look like an email.",
@@ -460,8 +455,8 @@ async function poll(jobId) {
     runText("Checking the ball", `${STAGES[stage] || "Working on your delivery"} (${pct}%)`, pct);
     if (st.status === "succeeded") return (await patient(`/v1/jobs/${jobId}/result`)).result;
     if (st.status === "failed") {
-      const err = st.error || {};
-      throw Object.assign(new Error(`${JOB_ERRORS[err.code] || JOB_ERRORS.INTERNAL_ERROR} ${NOT_COUNTED}`), { jobFailed: true });
+      // the server words every failure for the user, down to which mark or setting to fix
+      throw Object.assign(new Error(`${st.error.message} ${NOT_COUNTED}`), { jobFailed: true });
     }
     await sleep(2000);
   }

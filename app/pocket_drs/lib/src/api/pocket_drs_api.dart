@@ -115,16 +115,6 @@ void _throwForStatus(int code, {required bool jobGone}) {
 // the server gives back the free review of a failed check or one with no call
 const notCounted = "This one didn't use up a free review.";
 
-// plain words for a failed job by the server's error code; its own message can be a raw decoder error
-String _jobErrorMessage(String? code) => switch (code) {
-  'VIDEO_DECODE_FAILED' =>
-    "The server couldn't read this video. Try another clip.",
-  'CALIBRATION_DEGENERATE' =>
-    "The stump marks don't line up. Mark the tops and bottoms of both sets of stumps again.",
-  _ =>
-    'Something went wrong checking this ball. Try again, or try another clip.',
-};
-
 /// A job the server finished with an error; retrying the same clip won't help.
 class JobFailedException implements Exception {
   JobFailedException(this.code, this.message);
@@ -390,7 +380,8 @@ class PocketDrsApi {
         unawaited(Account.instance.refreshMe());
         throw JobFailedException(
           status.errorCode,
-          '${_jobErrorMessage(status.errorCode)} $notCounted',
+          // the server words every failure for the user, down to which mark or setting to fix
+          '${status.errorMessage} $notCounted',
         );
       }
       final ms = attempt < 10 ? 500 : (attempt < 30 ? 800 : 1200);
@@ -490,12 +481,14 @@ class JobStatus {
     required this.pct,
     required this.stage,
     this.errorCode,
+    this.errorMessage,
   });
 
   final String status;
   final int? pct;
   final String? stage;
   final String? errorCode;
+  final String? errorMessage;
 
   static JobStatus fromJson(Map<String, Object?> json) {
     final status = json['status'];
@@ -513,11 +506,13 @@ class JobStatus {
 
     final err = json['error'];
     final code = err is Map ? err['code'] : null;
+    final message = err is Map ? err['message'] : null;
     return JobStatus(
       status: status,
       pct: pct,
       stage: stage,
       errorCode: code is String ? code : null,
+      errorMessage: message is String ? message : null,
     );
   }
 }

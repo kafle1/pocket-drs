@@ -6,10 +6,16 @@ import numpy as np
 
 MAX_SIDE_PX = 1920     # 4K frames add nothing the tracker uses and would need 25 MB each
 MAX_GRABS = 5000       # 20 s of 240 fps video; frames skipped by the sample gap still cost a decode each
+MIN_FPS = 27.0         # the frame-rate checks covered 30 a second and up, so allow a little under for 29.97 jitter
+PHONE_ASPECTS = (16 / 9, 4 / 3)
 
 
 class VideoDecodeError(RuntimeError):
     pass
+
+
+class ClipRefused(ValueError):
+    """The clip itself can't give a call; the message says why in the user's words."""
 
 
 def read_frames(path: str, *, start_ms: int, end_ms: int, sample_fps: int, max_frames: int,
@@ -56,6 +62,15 @@ def read_frames(path: str, *, start_ms: int, end_ms: int, sample_fps: int, max_f
         cap.release()
     if not frames:
         raise VideoDecodeError("No frames in the selected part of the video")
+    fps = (len(times) - 1) * 1000.0 / (times[-1] - times[0]) if len(times) > 2 and times[-1] > times[0] else 0.0
+    if fps < MIN_FPS <= sample_fps:
+        raise ClipRefused(f"This clip has about {fps:.0f} frames a second, too few to follow the ball. "
+                          "Film at 30 frames a second or more; 60 is best.")
+    h, w = frames[0].shape[:2]
+    # a phone films 16:9 or 4:3; any other shape was cropped, which moves the lens centre the calibration assumes
+    if min(abs(max(w, h) / min(w, h) / a - 1) for a in PHONE_ASPECTS) > 0.02:
+        warnings.append(f"the picture is {w} x {h}, so it was cropped or edited; use the video straight from "
+                        "the camera for a surer call")
     # most phone cameras default to 30 a second, which sees a fast ball in half as many places
     if len(times) > 2 and float(np.median(np.diff(times))) > 25:
         fps = 1000 / float(np.median(np.diff(times)))
