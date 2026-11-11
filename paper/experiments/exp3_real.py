@@ -30,6 +30,7 @@ from real_clip import CLIPS, build_request           # noqa: E402
 OUT = os.path.join(HERE, "raw")
 os.makedirs(OUT, exist_ok=True)
 
+
 def label(parity):
     return "all" if parity is None else ("even" if parity == 0 else "odd")
 

@@ -48,7 +48,7 @@ from uq import (Effects, fly, CAMS, QTY, RATE_TEST5, taps, solve, observe, truth
                 replace, OUT, save_json, CalibrationError)
 from synth import random_delivery
 from app.pipeline.reconstruction import find_bounce_split
-from app.pipeline.uncertainty import MODEL_FORMS
+from app.pipeline.uncertainty import LATERAL, MODEL_FORMS
 
 SEED = 606
 TAP_PX = 2.0
@@ -100,8 +100,7 @@ def run(args):
     row["split"] = find_bounce_split(sorted(dets)) is not None      # a bounce seen in the image
     est = estimate(pose, dets)
     tq = truth_q(tr)
-    lat = ("pitch_y", "impact_y", "y")
-    tq = {q: v * leg if q in lat and v is not None else v for q, v in tq.items()}
+    tq = {q: v * leg if q in LATERAL and v is not None else v for q, v in tq.items()}
     for q in QTY:
         row[f"truth_{q}"] = tq[q]
     if est is None:
@@ -113,7 +112,7 @@ def run(args):
                tap_sigma_px=pose.tap_sigma_px, est_e=est["e"], est_dvy=est["dvy"],
                true_dvy=None if vy_pre is None else d.turn_ms - d.friction * vy_pre)
     for q in QTY:
-        est[q] = est[q] * leg if q in lat and est[q] is not None else est[q]
+        est[q] = est[q] * leg if q in LATERAL and est[q] is not None else est[q]
         row[f"est_{q}"] = est[q]
         row[f"err_{q}"] = None if est[q] is None or tq[q] is None else est[q] - tq[q]
         row[f"sfit_{q}"] = est["s_" + q]
@@ -231,7 +230,8 @@ def main():
         best, held, par, oof, _ = model_error(r_, sf ** 2 + sc ** 2, xb, folds[idx])
         for j, m in zip(idx, oof):
             use[j][f"smod_{q}"] = float(m)
-        summary["forms"][q] = dict(chosen=best, cal_unbounded=sum(r.get(f"err_{q}") is not None for r in use) - len(idx), params_m=par, heldout_nll={k: round(v, 2) for k, v in held.items()},
+        summary["forms"][q] = dict(chosen=best, cal_unbounded=sum(r.get(f"err_{q}") is not None for r in use) - len(idx),
+                                   params_m=par, heldout_nll={k: round(v, 2) for k, v in held.items()},
                                    mean_err_mm=float(np.mean(r_) * 1000), median_abs_err_mm=float(np.median(np.abs(r_)) * 1000),
                                    median_sigma_fit_mm=float(np.median(sf) * 1000), median_sigma_cal_mm=float(np.median(sc) * 1000),
                                    median_sigma_mod_mm=float(np.median(oof) * 1000))

@@ -8,7 +8,6 @@ import json
 import math
 import os
 import re
-
 import sys
 
 import numpy as np
@@ -17,8 +16,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RAW = os.path.join(HERE, "raw")
 PAPER = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(PAPER, "..", "server"))
-from app.pipeline.reconstruction import GRAVITY                 # noqa: E402
-from app.pipeline.uncertainty import GUARD_K, calibrated      # noqa: E402
+from app.pipeline.reconstruction import GRAVITY                # noqa: E402
+from app.pipeline.uncertainty import GUARD_K, calibrated       # noqa: E402
 TABLES = os.path.join(PAPER, "tables")
 os.makedirs(TABLES, exist_ok=True)
 
@@ -683,12 +682,12 @@ if have("exp6_model_error.json", "exp6_worldb.csv"):
         for q in cov:
             m(f"CalNoBounce{E}Cov{q.upper()}", sum(cov[q]), "{}"); m(f"CalNoBounce{E}Cov{q.upper()}N", len(cov[q]), "{}")
     # how well the anchored fit recovers the bounce itself, against the simulator's truth
-    w6 = [r for r in rows("exp6_worldb.csv") if r["ok"] and r["bounce"]]
+    w6 = [r for r in W if r["ok"] and r["bounce"]]
     m("GeoMedRestErr", med([abs(r["est_e"] - r["restitution"]) for r in w6 if r["est_e"] is not None]), "{:.3f}")
     m("GeoMedDevErr", med([abs(r["est_dvy"] - r["true_dvy"]) for r in w6 if r["est_dvy"] is not None and r["true_dvy"] is not None]), "{:.2f}")
     m("GeoBounceN", sum(1 for r in w6 if r["est_e"] is not None), "{}")
-    m("CalFailedSolves", sum(r["cal_failed"] or 0 for r in rows("exp6_worldb.csv")), "{}")
-    m("CalFailedDeliveries", sum(1 for r in rows("exp6_worldb.csv") if r["cal_failed"]), "{}")
+    m("CalFailedSolves", sum(r["cal_failed"] or 0 for r in W), "{}")
+    m("CalFailedDeliveries", sum(1 for r in W if r["cal_failed"]), "{}")
     L += [r"\midrule", r"Nominal & 68.3 & 95.0 & 68.3 & 95.0 \\", r"\bottomrule", r"\end{tabular}"]
     write_table("coverage.tex", L)
     # the multiple of each sigma that really covers 68.3 % and 95 % of errors (diagnostic, review item 11)
@@ -779,6 +778,7 @@ if have("exp7_risk.json"):
     m("RiskShippedMissedOut", sh["missed_out"], "{}")
     m("RiskCalOutRecallFive", 100.0 * sh["true_out_called_out"] / b7["truth_mix"]["out"])
     m("RiskShippedMaxSpecCal", sh["max_specific_false_out_cal_sigma_pct"]); m("RiskShippedOutsOverFiveCal", sh["outs_over_5pct_cal_sigma"], "{}")
+
 
 def rule_label(key):
     """Column head for an exp8 decision rule, with the guard factor it actually used."""

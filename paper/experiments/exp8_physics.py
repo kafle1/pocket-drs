@@ -17,9 +17,9 @@ computed once per delivery on the baseline (uq.cal_sigma) and sigma_mod comes fr
 cross-validated model applied at each fit's own bounce distance.
 
 Part 2, taps. The first 300 deliveries of exp6's World B, reproduced exactly (same camera end,
-taps and detections, lateral values leg-side signed; the unperturbed estimate is checked against exp6's). Every tap is moved
-by d = 2, 5, 10 px in a random direction, or all twelve by +-d px in v (a consistent
-high or low tap). Reported: how far the stump-plane point moves and how many verdicts
+taps and detections, lateral values leg-side signed; the unperturbed estimate is checked
+against exp6's). Every tap is moved by d = 2, 5, 10 px in a random direction, or all twelve
+by +-d px in v (a consistent high or low tap). Reported: how far the stump-plane point moves and how many verdicts
 flip, under the fit sigma at k = 1, under the full sigma with the k chosen in exp7 at 1 % and
 5 %, and under the calibrated rule the app ships (uncertainty.calibrated with the rule file:
 bias removed, U95 / 1.96 as sigma, exp7's guard k; sigma_cal carried over from exp6).

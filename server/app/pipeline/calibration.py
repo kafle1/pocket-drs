@@ -211,8 +211,8 @@ def solve_camera_pose(
     end (mark_points). FOV and pitch length are swept when not supplied.
 
     The corners sit off the stump plane and break the focal-length/pitch-length ambiguity the
-    stumps alone leave open. They are dropped when they disagree with the stumps, because the
-    stump height is the one dimension the Laws fix exactly.
+    stumps alone leave open. They are dropped when they disagree with the stumps, because stumps
+    are made to the size the Laws set, while a club or net pitch may not be marked to it.
 
     The winning pose then gets a pixel least-squares refine over rotation, translation and the focal
     length when it was swept (pitch length stays where the sweep put it). A refine that fails or
@@ -233,13 +233,13 @@ def solve_camera_pose(
     lo = np.array([FOV_RANGE_DEG[0], LENGTH_RANGE_M[0]])
     hi = np.array([FOV_RANGE_DEG[1], LENGTH_RANGE_M[1]])
 
-    def _marks(L, use_corners):
+    def marks(L, use_corners):
         obj = mark_points(L, pitch_width_m, at_striker)
         return (obj, np.vstack([stump_img, corner_img])) if use_corners else (obj[:8], stump_img)
 
     def solve(fov, L, use_corners):
         K = intrinsics(width, height, float(fov))
-        obj, img = _marks(L, use_corners)
+        obj, img = marks(L, use_corners)
         sol = _pnp(obj, img, K)
         return None if sol is None else (sol[0], sol[1], sol[2], K, float(fov), float(L))
 
@@ -277,7 +277,7 @@ def solve_camera_pose(
     err, R, t, K, fov, L = best
     refined = False
     if refine:
-        out = _refine(*_marks(L, used_corners), K, R, t, err, fov_deg is None, (width, height))
+        out = _refine(*marks(L, used_corners), K, R, t, err, fov_deg is None, (width, height))
         if isinstance(out, str):
             _log.warning("calibration refine rejected, keeping the unrefined pose: %s", out)
         else:

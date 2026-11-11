@@ -58,8 +58,8 @@ def decide(
 ) -> Verdict:
     """``leg_sign`` maps world +y onto the batter's leg side (+1 or -1). Lateral quantities
     are metres from the middle-stump line, distances in the reasons are from the outer edge of
-    the stumps; ``stump_z`` is the ball-centre height at the
-    stump plane. Any None means the quantity was not measured."""
+    the stumps; ``stump_z`` is the ball-centre height at the stump plane. Any None means the
+    quantity was not measured."""
     R = BALL_RADIUS_M
     w = STUMP_OUTER_HALF_M
     reasons: list[str] = []

@@ -39,10 +39,10 @@ from scipy.stats import beta, norm
 
 from uq import QTY, OUT, verdict, specific_risk, save_json, load_json
 from app.pipeline.uncertainty import RULE_PATH
-GUARD_ALPHA = "0.05"
 
 K_GRID = np.round(np.arange(0.0, 3.0001, 0.05), 2)
 ALPHAS = (0.01, 0.05)
+GUARD_ALPHA = "0.05"
 SETS = ("fit", "fit+cal", "full", "calibrated")
 
 
@@ -181,7 +181,7 @@ def main():
     sp = [specific_risk(r["est_c"], r["sig"]["calibrated"])[0] for r in shipped_outs]
     summary["shipped"]["max_specific_false_out_cal_sigma_pct"] = 100 * max(sp) if sp else 0.0
     summary["shipped"]["outs_over_5pct_cal_sigma"] = int(sum(x > 0.05 for x in sp))
-    # the rule before this revision, fit sigma and k = 1, with its OUT calls scored under the calibrated U95 / 1.96
+    # the former rule, fit sigma and k = 1, with its OUT calls scored under the calibrated U95 / 1.96
     sp = [specific_risk(r["est_c"], r["sig"]["calibrated"])[0] for r in rows if verdict(r["est"], r["sig"]["fit"], 1.0) == "out"]
     summary["former"] = dict(outs=len(sp), max_specific_false_out_cal_sigma_pct=100 * max(sp) if sp else 0.0,
                              outs_over_5pct_cal_sigma=int(sum(x > 0.05 for x in sp)))

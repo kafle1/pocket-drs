@@ -286,7 +286,7 @@ def _on_bound(x: np.ndarray, lower: np.ndarray, upper: np.ndarray) -> bool:
 
 
 def _covariance(measured, priors, theta: np.ndarray) -> np.ndarray:
-    """Gauss-Newton covariance at the robust solution, one way for every fit: the measured rows
+    """Gauss-Newton covariance at the robust solution: the measured rows
     (raw residuals, raw Jacobian) are scaled by their fitted variance, prior rows are already in
     units of their own sd and add their information unscaled."""
     r = measured(theta)
