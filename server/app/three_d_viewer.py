@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .pipeline.process_job import _finite
+from .pipeline.process_job import finite
 from .pipeline.reconstruction import BALL_RADIUS_M
 
 _TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "three_d_viewer.html.tmpl"
@@ -21,7 +21,8 @@ OUT, CALL, NONE = "out", "umpires_call", "none"
 
 def _verdict(lbw: dict[str, Any] | None, bounce: dict[str, Any], stump_half: float) -> dict[str, Any] | None:
     """The three DRS rows and the final call, coloured as decision.py made them."""
-    if not lbw or "tones" not in lbw:
+    decision = {"OUT": OUT, "NOT_OUT": "not_out", "UMPIRES_CALL": CALL}.get((lbw or {}).get("verdict"))
+    if decision is None or "tones" not in lbw:
         return None
     tone, reason = lbw["tones"], str(lbw.get("reason") or "")
 
@@ -37,7 +38,7 @@ def _verdict(lbw: dict[str, Any] | None, bounce: dict[str, Any], stump_half: flo
             ("Impact", value("impact", "In line", f"Outside {side}"), tone["impact"]),
             ("Wickets", value("wickets", "Hitting", "Missing"), tone["wickets"])]
     return {
-        "decision": lbw["decision"],
+        "decision": decision,
         "reason": reason[:1].upper() + reason[1:],
         "rows": [{"label": a, "value": b, "tone": c} for a, b, c in rows],
     }
@@ -79,6 +80,6 @@ def build_payload(result: dict[str, Any]) -> dict[str, Any]:
 def render_html(result: dict[str, Any]) -> str:
     """Return the full HTML page with the payload inlined."""
     template = _TEMPLATE_PATH.read_text()
-    payload = _finite(build_payload(result))
+    payload = finite(build_payload(result))
     # "</" inside the inlined json would end the script tag early
     return template.replace("__PAYLOAD__", json.dumps(payload, allow_nan=False).replace("</", "<\\/"))

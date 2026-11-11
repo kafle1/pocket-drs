@@ -24,8 +24,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = Path(HERE).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "server"))
 sys.path.insert(0, str(ROOT / "server" / "scripts"))
+from app.pipeline import video                       # noqa: E402
 from app.pipeline.process_job import run_pipeline   # noqa: E402
 from real_clip import CLIPS, build_request           # noqa: E402
+
+FULL_FPS = video.SAMPLE_FPS
 
 OUT = os.path.join(HERE, "raw")
 os.makedirs(OUT, exist_ok=True)
@@ -38,11 +41,11 @@ def label(parity):
 def run(name, req, parity):
     """parity: None for every frame, 0 or 1 to keep only even or odd sampled frames."""
     req = json.loads(json.dumps(req))
+    video.SAMPLE_FPS = FULL_FPS
     if parity is not None:
-        fps = int(req["tracking"]["sample_fps"])
         # sample at half rate, offset by one frame for the odd set
-        req["tracking"]["sample_fps"] = fps // 2
-        req["segment"]["start_ms"] = int(req["segment"]["start_ms"]) + (parity * 1000 // fps)
+        video.SAMPLE_FPS = FULL_FPS / 2
+        req["segment"]["start_ms"] = int(req["segment"]["start_ms"]) + (parity * 1000 // int(FULL_FPS))
     art = Path(tempfile.mkdtemp(prefix=f"pdrs_real_{name}_"))
     out = run_pipeline(video_path=ROOT / f"{name}.mp4", request_json=req, artifacts_dir=art, progress=None).result
     lbw = out.get("lbw") or {}
@@ -56,7 +59,7 @@ def run(name, req, parity):
                 n_track=len(out["track"]["image_points"]),
                 length_m=round(out["calibration"]["pose"]["pitch_length_m"], 1),
                 discard_px=None if residual is None else float(residual.group(1)),
-                verdict=lbw.get("decision"), reason=lbw.get("reason"),
+                verdict={"OUT": "out", "NOT_OUT": "not_out", "UMPIRES_CALL": "umpires_call"}.get(lbw.get("verdict")), reason=lbw.get("reason") or (out["no_call"] or {}).get("message"),
                 # the app's calibrated output: bias removed, u and U95 from the shipped rule
                 **{f"{k}_mm": None if pred.get(f"{m}_m") is None else round(pred[f"{m}_m"] * 1000)
                    for k, m in (("y", "y_at_stumps"), ("z", "z_at_stumps"), ("u_y", "u_y"), ("u_z", "u_z"), ("U95_y", "U95_y"),

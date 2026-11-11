@@ -9,6 +9,7 @@ kit and shadows; trajectory.py keeps the one set that flies like a bowled ball.
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 
 import cv2
 import numpy as np
@@ -28,7 +29,8 @@ YOLO_IMGSZ = 1280
 
 # Limits for dropping detections no ball in play could make. Each comes from the Laws of
 # Cricket, a record, or the app's own flight-fit bounds; none was fitted to footage.
-BALL_RADIUS_M = (0.0326, 0.0365)   # Laws 4.1, 4.6: circumference 20.5 cm (under 13) to 22.9 cm (men)
+# Laws 4.1, 4.6: circumference 20.5 cm (under 13) to 22.9 cm (men); a tennis ball's 6.54 to 6.86 cm width falls inside
+BALL_RADIUS_RANGE_M = (0.0326, 0.0365)
 MAX_BALL_SPEED_MS = 45.0           # 162 km/h, above the fastest recorded delivery, 161.3 km/h
 CREASE_DEPTH_M = 1.22              # Law 7.4: return creases run 2.44 m behind the popping crease, 1.22 m behind the stumps
 FLIGHT_HALF_WIDTH_M = 3.0          # return crease at 1.32 m (Law 7.4) plus an arm; the fit's release bound
@@ -38,6 +40,8 @@ FLIGHT_CEILING_M = 4.0             # above any release; the fit's release bound
 BOX_SIZE_SLACK, BOX_PAD_PX = 2.0, 2.0
 # exposure is at most one frame period; past 240 fps assume 1/240 s, in case the rate is misreported
 EXPOSURE_FPS_CAP = 240.0
+# background still off by more than this after lining a frame up with the tapped one: the phone moved
+ALIGN_MAX_PX = 3.0
 
 
 def corridor_mask(frame_shape: tuple[int, ...], pose: CameraPose) -> np.ndarray:
@@ -51,6 +55,42 @@ def corridor_mask(frame_shape: tuple[int, ...], pose: CameraPose) -> np.ndarray:
     mask = np.zeros(frame_shape[:2], dtype=np.uint8)
     cv2.fillConvexPoly(mask, cv2.convexHull(np.stack([u, v], axis=1).astype(np.int32)), 255)
     return mask
+
+
+def align(frames: list[np.ndarray], ref: int) -> list[np.ndarray | None] | None:
+    """Per frame, the homography taking its pixels onto the tapped frame's, from background points
+    followed out of the tapped frame; None for a frame already in line. None overall when the phone
+    moved in a way one homography can't undo."""
+    half = lambda f: cv2.cvtColor(cv2.resize(f, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY)
+    g0 = half(frames[ref])
+    pts = cv2.goodFeaturesToTrack(g0, 400, 0.01, 12)
+    if pts is None or len(pts) < 20:
+        return [None] * len(frames)              # nothing still to line up on, so take the frames as they are
+    corners = np.float32([[0, 0], [g0.shape[1], 0], [0, g0.shape[0]], [g0.shape[1], g0.shape[0]]])[:, None]
+    out = []
+    for f in frames:
+        moved, st, _ = cv2.calcOpticalFlowPyrLK(g0, half(f), pts, None, winSize=(21, 21), maxLevel=4)
+        ok = st[:, 0] == 1
+        if ok.sum() < 20:
+            return None
+        H, _ = cv2.findHomography(moved[ok], pts[ok], cv2.RANSAC, 1.0)
+        if H is None:
+            return None
+        # players and the ball move too, so judge the fit by the median point
+        if 2 * float(np.median(np.linalg.norm(cv2.perspectiveTransform(moved[ok], H) - pts[ok], axis=2))) > ALIGN_MAX_PX:
+            return None
+        S = np.diag([2.0, 2.0, 1.0])
+        H = S @ H @ np.linalg.inv(S)
+        out.append(None if np.abs(cv2.perspectiveTransform(corners * 2, H) - corners * 2).max() < 0.25 else H)
+    return out
+
+
+def to_ref(dets: list[dict], H: np.ndarray | None) -> list[dict]:
+    """Detections moved into the tapped frame's pixels."""
+    if H is None or not dets:
+        return dets
+    p = cv2.perspectiveTransform(np.float32([[d["x"], d["y"]] for d in dets])[:, None], H)[:, 0]
+    return [{**d, "x": float(x), "y": float(y)} for d, (x, y) in zip(dets, p)]
 
 
 def drop_impossible(dets: list[dict], pose, fps: float) -> list[dict]:
@@ -78,11 +118,11 @@ def drop_impossible(dets: list[dict], pose, fps: float) -> list[dict]:
         q = math.sqrt(1.0 + xn * xn + yn * yn)         # ray length per unit camera depth
         # a sphere at range s images with semi-axes f q R / s and f q^2 R / s; blur over travel
         # metres grows the box radius by at most f q travel sqrt(2 + (|xn| + |yn|)^2) / (4 s)
-        r_min = f_lo * q * BALL_RADIUS_M[0] / (BOX_SIZE_SLACK * s_out) - BOX_PAD_PX
+        r_min = f_lo * q * BALL_RADIUS_RANGE_M[0] / (BOX_SIZE_SLACK * s_out) - BOX_PAD_PX
         r_max = math.inf
         if s_in > 0:                                   # else the camera stands inside the volume
             blur = travel * math.sqrt(2.0 + (abs(xn) + abs(yn)) ** 2) / 4.0
-            r_max = f_hi * q * (BOX_SIZE_SLACK * q * BALL_RADIUS_M[1] + blur) / s_in + BOX_PAD_PX
+            r_max = f_hi * q * (BOX_SIZE_SLACK * q * BALL_RADIUS_RANGE_M[1] + blur) / s_in + BOX_PAD_PX
         if r_min <= r <= r_max:
             out.append(d)
     return out
@@ -131,7 +171,7 @@ class ColourMotionDetector:
     _RANGES = {
         "red": [((0, 110, 70), (10, 255, 255)), ((170, 110, 70), (180, 255, 255))],
         "pink": [((150, 60, 130), (175, 255, 255)), ((0, 60, 130), (8, 255, 255))],
-        "white": [((0, 0, 210), (180, 35, 255))],
+        "yellow": [((22, 70, 90), (48, 255, 255))],   # a tennis ball's yellow-green; not tuned on clips
     }
     _MERGE_PX = 25.0
 
@@ -173,13 +213,18 @@ class ColourMotionDetector:
         return merged
 
 
+@lru_cache(maxsize=1)
+def _yolo(weights_path: str):
+    from ultralytics import YOLO
+    return YOLO(weights_path)
+
+
 class YoloDetector:
-    """The fine-tuned cricket-ball model. No pitch mask: the airborne arc rises well above the
-    pitch quad and the model already rejects non-ball pixels."""
+    """The fine-tuned cricket-ball model, loaded once per worker. No pitch mask: the airborne arc
+    rises well above the pitch quad and the model already rejects non-ball pixels."""
 
     def __init__(self, weights_path: str):
-        from ultralytics import YOLO
-        self._model = YOLO(weights_path)
+        self._model = _yolo(weights_path)
 
     def detect(self, frame: np.ndarray) -> list[dict]:
         res = self._model.predict(frame, imgsz=YOLO_IMGSZ, conf=YOLO_CONF, verbose=False)[0]

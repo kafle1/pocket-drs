@@ -118,9 +118,9 @@ def one(clip, req, truth, pose, scen, i):
     pred = (out.get("lbw") or {}).get("prediction") or {}
     chosen = next((name for name, o in ctx["tracks"] if o is not None
                    and any(p["t_ms"] == o.points[0]["t_ms"] and p["u"] == o.points[0]["u"] for p in pts)), None)
-    note = (out["diagnostics"]["warnings"] or [""])[0]
+    note = (out["no_call"] or {}).get("message") or (out["diagnostics"]["warnings"] or [""])[0]
     err = lambda k, a: None if pred.get(k) is None else round(abs(pred[k] - truth.stumps[a]) * 100, 2)
-    row = dict(scenario=scen, i=i, truth=truth_verdict(truth), verdict=(out.get("lbw") or {}).get("decision"),
+    row = dict(scenario=scen, i=i, truth=truth_verdict(truth), verdict={"OUT": "out", "NOT_OUT": "not_out", "UMPIRES_CALL": "umpires_call"}.get((out.get("lbw") or {}).get("verdict")),
                track_from=chosen, n_track=len(pts), fake_in_track=sum(1 for p in pts if p["radius_px"] == FAKE_R),
                y_err_cm=err("y_at_stumps_m", 1), z_err_cm=err("z_at_stumps_m", 2),
                **{f"{k}_dets": n[k] for k in ("ball", "fake", "other")},
@@ -146,10 +146,11 @@ def main():
         clip = clips / f"striker_ref_{i:03d}.mp4"
         cal = render(truth, cam, clip, fps=60.0)
         n_frames = cal.pop("n_frames")
-        cal["crease_marks_px"] = [{"x": p["x"] + nx, "y": p["y"] + ny} for p, (nx, ny) in zip(cal["crease_marks_px"], noise[:4])]
-        cal["stump_quads_px"] = [{"x": p["x"] + nx, "y": p["y"] + ny} for p, (nx, ny) in zip(cal["stump_quads_px"], noise[4:])]
+        W, H = cam.width, cam.height
+        cal["crease_marks_norm"] = [{"x": p["x"] + nx / W, "y": p["y"] + ny / H} for p, (nx, ny) in zip(cal["crease_marks_norm"], noise[:4])]
+        cal["stump_quads_norm"] = [{"x": p["x"] + nx / W, "y": p["y"] + ny / H} for p, (nx, ny) in zip(cal["stump_quads_norm"], noise[4:])]
         req = {"segment": {"start_ms": 0, "end_ms": int(1000 * (n_frames - 1) / 60.0)}, 
-               "tracking": {"sample_fps": 60, "max_frames": n_frames, "ball_color": "red"},
+               "tracking": {"ball_type": "leather", "ball_color": "red"},
                "calibration": cal, "batsman_handedness": "right"}
         jobs.append((clip, req, truth, i))
     rows = [one(clip, req, truth, pose, scen, i) for scen in SCENARIOS for clip, req, truth, i in jobs]

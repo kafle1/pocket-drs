@@ -42,12 +42,6 @@ class Segment(BaseModel):
         return self
 
 
-class PitchDimensions(BaseModel):
-    model_config = Strict
-    width: float = Field(default=3.05, ge=1.0, le=5.0)
-    length: float = Field(default=20.12, ge=10.0, le=25.0)
-
-
 class StumpDimensions(BaseModel):
     model_config = Strict
     # outer edge to outer edge, and ground to the top of the stumps; street and portable sets differ
@@ -57,35 +51,30 @@ class StumpDimensions(BaseModel):
 
 class Calibration(BaseModel):
     model_config = Strict
-    pitch_dimensions_m: PitchDimensions = Field(default_factory=PitchDimensions)
     stumps_m: StumpDimensions = Field(default_factory=StumpDimensions)
-    # eight stump corners: striker TL, TR, BR, BL, then bowler TL, TR, BR, BL
-    stump_quads_norm: list[Point2D] | None = None
-    stump_quads_px: list[Point2D] | None = None
+    # eight stump corners: striker TL, TR, BR, BL, then bowler TL, TR, BR, BL; one may be null when hidden
+    stump_quads_norm: list[Point2D | None]
     # optional four popping-crease ends, clockwise on the screen from the striker end
     crease_marks_norm: list[Point2D] | None = None
-    crease_marks_px: list[Point2D] | None = None
+    # the video time of the frame the marks were tapped on; the first frame when missing
+    frame_ms: int | None = Field(default=None, ge=0, le=86_400_000)
 
     @model_validator(mode="after")
     def _marks_present(self):
-        stumps = self.stump_quads_norm or self.stump_quads_px
-        if stumps is None or len(stumps) != 8:
-            raise ValueError("calibration.stump_quads_norm or stump_quads_px with 8 points is required")
-        if any(not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0) for p in self.stump_quads_norm or []):
-            raise ValueError("calibration.stump_quads_norm points must be in [0, 1]")
-        creases = self.crease_marks_norm or self.crease_marks_px
-        if creases is not None and len(creases) != 4:
-            raise ValueError("calibration.crease_marks_norm or crease_marks_px needs 4 points")
-        if any(not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0) for p in self.crease_marks_norm or []):
-            raise ValueError("calibration.crease_marks_norm points must be in [0, 1]")
+        if len(self.stump_quads_norm) != 8 or sum(p is None for p in self.stump_quads_norm) > 1:
+            raise ValueError("calibration.stump_quads_norm needs 8 points, at most one of them null")
+        if self.crease_marks_norm is not None and len(self.crease_marks_norm) != 4:
+            raise ValueError("calibration.crease_marks_norm needs 4 points")
+        if any(not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0) for p in [*self.stump_quads_norm, *(self.crease_marks_norm or [])] if p):
+            raise ValueError("calibration marks must be in [0, 1]")
         return self
 
 
 class Tracking(BaseModel):
     model_config = Strict
-    sample_fps: int = Field(default=30, ge=1, le=240)
-    max_frames: int = Field(default=180, ge=1, le=300)
-    ball_color: Literal["red", "pink", "white"] = "red"
+    ball_type: Literal["leather", "tennis", "tape"] = "tennis"
+    # the colour finder's first pick; the ball type's usual colours are tried after it
+    ball_color: Literal["red", "pink", "yellow"] | None = None
 
 
 class CreateJobRequest(BaseModel):
@@ -94,6 +83,11 @@ class CreateJobRequest(BaseModel):
     calibration: Calibration
     tracking: Tracking = Tracking()
     batsman_handedness: Literal["right", "left"] = "right"
+    pitch_length_m: float = Field(default=20.12, ge=10.0, le=25.0)
+    # frames a second the phone really filmed at; a slow-motion file plays slower than that
+    capture_fps: float | None = Field(default=None, gt=0, le=1000)
+    on_field_call: Literal["out", "not_out", "none"] = "none"
+    shot_played: bool = True
 
 
 class ProgressInfo(BaseModel):

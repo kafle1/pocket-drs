@@ -35,9 +35,8 @@ def build_request(name: str) -> dict:
     striker, bowler = CLIPS[name]
     return {
         "segment": {"start_ms": 0, "end_ms": 600000},
-        "tracking": {"sample_fps": 60, "max_frames": 180, "ball_color": "red"},
-        "calibration": {"pitch_dimensions_m": {"width": 3.05, "length": 20.12},
-                        "stump_quads_norm": [{"x": x, "y": y} for x, y in striker + bowler]},
+        "tracking": {"ball_type": "leather", "ball_color": "red"},
+        "calibration": {"stump_quads_norm": [{"x": x, "y": y} for x, y in striker + bowler]},
         "batsman_handedness": "right",
     }
 
@@ -74,7 +73,7 @@ def render(name: str, result: dict, out_dir: Path) -> None:
             if m and m["t_ms"] <= t_ms:
                 cv2.circle(frame, (int(m["u"]), int(m["v"])), 14, colour, 3)
         if lbw:
-            cv2.putText(frame, f"{lbw['decision'].replace('_', ' ').upper()}  {lbw['reason']}", (30, 60),
+            cv2.putText(frame, f"{lbw['verdict'].replace('_', ' ')}  {lbw.get('reason') or (result['no_call'] or {}).get('message')}", (30, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
         writer.write(frame)
         if sample is None and path and t_ms >= path[len(path) // 2]["t_ms"]:
@@ -99,7 +98,7 @@ def main() -> int:
     q = result["calibration"]["quality"]
     lbw = result.get("lbw") or {}
     print(f"{name}: reproj {q['reproj_error_px']:.1f} px  track {len(result['track']['image_points'])} points  "
-          f"verdict {lbw.get('decision')}  {lbw.get('reason') or ''}")
+          f"verdict {lbw.get('verdict')}  {lbw.get('reason') or (result['no_call'] or {}).get('message') or ''}")
     for w in result["diagnostics"]["warnings"]:
         print("  warning:", w)
     if "--no-render" not in sys.argv and result.get("overlay"):

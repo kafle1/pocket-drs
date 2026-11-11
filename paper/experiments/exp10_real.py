@@ -204,7 +204,7 @@ def main():
                                     corner_dist_mm=[None if e is None else float(np.hypot(*e)) for e in corner_err])
         wt = res.get("world_trajectory")
         if wt is None:
-            ent["declined"] = res["diagnostics"]["warnings"]
+            ent["declined"] = [(res["no_call"] or {}).get("message")] + res["diagnostics"]["warnings"]
             continue
         pose = res["calibration"]["pose"]
         pts = res["track"]["image_points"]
@@ -213,7 +213,7 @@ def main():
         if model["bounce_observed"]:      # without a seen bounce nothing but the size cue fixes the scale
             # gravity: before the bounce, from the same detections the app fitted
             t_b = model["t_b_s"]
-            g = fit_g(pose, detections(pts), t_b, w0[0], model["v_pre_ms"])
+            g = fit_g(pose, detections(pts, size[1]), t_b, w0[0], model["v_pre_ms"])
             if g:
                 ent["gravity"] = g
         # ball size

@@ -30,6 +30,7 @@ import real_clip                                     # noqa: E402
 CAMERAS = {"striker": Camera(end="striker", back_m=2.8, height_m=1.7), "bowler": Camera(end="bowler", back_m=2.8, height_m=1.7)}
 FPS, TAP_PX = 60.0, 2.0
 CLIPS = Path(tempfile.gettempdir()) / "pdrs_scoreboard"
+VERDICT = {"OUT": "out", "NOT_OUT": "not_out", "UMPIRES_CALL": "umpires_call"}
 
 
 def _quiet():
@@ -42,7 +43,7 @@ def _quiet():
 
 def request(cal: dict, n_frames: int) -> dict:
     return {"segment": {"start_ms": 0, "end_ms": int(1000 * (n_frames - 1) / FPS)},
-            "tracking": {"sample_fps": int(FPS), "max_frames": n_frames, "ball_color": "red"},
+            "tracking": {"ball_type": "leather", "ball_color": "red"},
             "calibration": cal, "batsman_handedness": "right"}
 
 
@@ -53,13 +54,15 @@ def rendered(job):
     cal = render(truth, CAMERAS[end], clip, fps=FPS)
     n = cal.pop("n_frames")
     rng = np.random.default_rng([7, i])
-    for key in [k for k in cal if k.endswith("_px")]:
-        cal[key] = [{"x": p["x"] + rng.normal(0, TAP_PX), "y": p["y"] + rng.normal(0, TAP_PX)} for p in cal[key]]
+    W, H = CAMERAS[end].width, CAMERAS[end].height
+    for key in [k for k in cal if k.endswith("_norm")]:
+        cal[key] = [{"x": p["x"] + rng.normal(0, TAP_PX) / W, "y": p["y"] + rng.normal(0, TAP_PX) / H} for p in cal[key]]
     try:
         out = run_pipeline(video_path=clip, request_json=request(cal, n), artifacts_dir=Path(tempfile.mkdtemp()), progress=None).result
     except Exception as e:                           # noqa: BLE001
         return end, i, truth_verdict(truth), "refused", str(e)[:80]
-    return end, i, truth_verdict(truth), (out.get("lbw") or {}).get("decision") or "no_verdict", (out["diagnostics"]["warnings"] or [""])[0][:80]
+    nc = out["no_call"] or {}
+    return end, i, truth_verdict(truth), VERDICT.get(out["lbw"]["verdict"], "no_verdict"), f"{nc.get('code', '')}: {nc.get('message', '')}"[:80]
 
 
 def real(name: str, dump: Path | None) -> dict:
@@ -70,12 +73,12 @@ def real(name: str, dump: Path | None) -> dict:
         return dict(clip=name, stage="calibration", outcome=str(e)[:90])
     if dump:
         (dump / f"{name}.json").write_text(json.dumps(out))
-    pose, lbw = out["calibration"]["pose"], out.get("lbw")
+    pose, lbw, nc = (out["calibration"] or {}).get("pose") or {}, out["lbw"], out["no_call"]
     n = len((out.get("track") or {}).get("image_points") or [])
-    return dict(clip=name, stage="verdict" if lbw else "tracking" if not n else "decline", track=n,
-                outcome=lbw["decision"] + ": " + lbw["reason"] if lbw else out["diagnostics"]["warnings"][0][:90],
-                L=round(pose["pitch_length_m"], 2), fov=round(pose["fov_deg"], 1),
-                cam=[round(c, 2) for c in pose["cam_center_world_m"]])
+    return dict(clip=name, stage="decline" if nc else "verdict", track=n,
+                outcome=f"{lbw['verdict']}: " + (f"{nc['code']}: {nc['message']}" if nc else lbw["reason"]),
+                L=pose.get("pitch_length_m"), fov=pose.get("fov_deg") and round(pose["fov_deg"], 1),
+                cam=[round(c, 2) for c in pose.get("cam_center_world_m") or []])
 
 
 def main():

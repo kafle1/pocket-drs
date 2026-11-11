@@ -54,10 +54,11 @@ def main():
         clip = CLIPS / f"{CAM_NAME}_{i:03d}.mp4"
         cal = render(truth, cam, clip, fps=FPS)
         n_frames = cal.pop("n_frames")
-        for key in ("crease_marks_px", "stump_quads_px"):
-            cal[key] = [{"x": p["x"] + rng.normal(0, TAP_PX), "y": p["y"] + rng.normal(0, TAP_PX)} for p in cal[key]]
+        for key in ("crease_marks_norm", "stump_quads_norm"):
+            cal[key] = [{"x": p["x"] + rng.normal(0, TAP_PX) / cam.width, "y": p["y"] + rng.normal(0, TAP_PX) / cam.height}
+                        for p in cal[key]]
         req = {"segment": {"start_ms": 0, "end_ms": int(1000 * (n_frames - 1) / FPS)},
-               "tracking": {"sample_fps": int(FPS), "max_frames": n_frames, "ball_color": "red"},
+               "tracking": {"ball_type": "leather", "ball_color": "red"},
                "calibration": cal, "batsman_handedness": "right"}
         art = Path(tempfile.mkdtemp(prefix="pdrs_exp2_"))
         row = dict(i=i, camera=CAM_NAME, speed_kmh=d.speed_kmh, length_m=d.length_m, line_m=d.line_m,
@@ -73,7 +74,7 @@ def main():
         pred = lbw.get("prediction") or {}
         ev = (out.get("events") or {}).get("bounce") or {}
         track = out.get("track") or {}
-        verdict = lbw.get("decision") or "no_verdict"
+        verdict = {"OUT": "out", "NOT_OUT": "not_out", "UMPIRES_CALL": "umpires_call"}.get(lbw.get("verdict"), "no_verdict")
         y, z = pred.get("y_at_stumps_m"), pred.get("z_at_stumps_m")
         rows.append(dict(row, verdict=verdict, n_track=len(track.get("image_points") or []),
                          reproj_px=round(out["calibration"]["quality"]["reproj_error_px"], 2),

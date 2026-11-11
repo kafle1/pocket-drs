@@ -77,8 +77,7 @@ def render(truth: Truth, cam: Camera, path: Path, *, fps: float, ball_bgr=(40, 4
         raise ValueError("a calibration mark is behind the camera for this placement")
     quads, creases = [q[:2] for q in projected[:8]], [q[:2] for q in projected[8:]]
     return {
-        "pitch_dimensions_m": {"width": PITCH_WIDTH_M, "length": PITCH_LENGTH_M},
-        "crease_marks_px": [{"x": u, "y": v} for u, v in creases],
-        "stump_quads_px": [{"x": u, "y": v} for u, v in quads],
+        "crease_marks_norm": [{"x": u / W, "y": v / H} for u, v in creases],
+        "stump_quads_norm": [{"x": u / W, "y": v / H} for u, v in quads],
         "n_frames": len(times),
     }
