@@ -66,16 +66,10 @@ dimensions and the batter's handedness; `server/scripts/real_clip.py` builds one
 
 ## Reproduce the paper
 
-```bash
-cd paper
-../server/.venv/bin/python experiments/exp1_geometry.py     # ~75 min, 21 600 reconstructions
-../server/.venv/bin/python experiments/exp2_rendered.py     # ~55 min, renders and runs 100 clips
-../server/.venv/bin/python experiments/exp3_real.py         # ~10 min, the three real clips
-../server/.venv/bin/python experiments/make_numbers.py      # numbers.tex and tables/
-../server/.venv/bin/python experiments/make_figures.py
-pdflatex main && bibtex main && pdflatex main && pdflatex main
-../server/.venv/bin/python experiments/verify_claims.py     # fails if the manuscript is stale
-```
+`paper/experiments/README.md` lists every script in the order to run it, what each needs and
+writes, and how long it took. The environment that produced the results is pinned in
+`paper/experiments/requirements-frozen.txt` (Python 3.12.2). Then build the PDF with
+`pdflatex main && bibtex main && pdflatex main && pdflatex main` in `paper/`.
 
 Every run is seeded. `experiments/synth.py` is the generator (its physics is richer than the
 estimator's model on purpose), `experiments/render.py` turns a delivery into a clip the app would
