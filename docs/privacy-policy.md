@@ -1,6 +1,6 @@
 # Pocket DRS privacy policy
 
-Last updated: 31 October 2026
+Last updated: 11 November 2026
 
 This page explains what Pocket DRS collects, why, and how long it keeps it. Pocket DRS has no ads
 and never sells your data.
@@ -8,46 +8,54 @@ and never sells your data.
 ## Signing in
 
 You sign in with your Google account. Google handles the sign-in through Firebase Authentication,
-so the app never sees your Google password. From your Google account we keep:
+so the app never sees your Google password. On our server we keep:
 
 - your email address
 - your name
 - a link to your profile photo
 - your plan (free or premium)
-- how many reviews you have used, and when you first and last used the app
+- when you first and last used the app
 
-We keep this so you can sign in again and so we know how many free reviews you have left. It stays
-until you ask us to delete it.
+We keep this so you can sign in again. It stays until you delete your account.
 
 ## Your phone's identifier
 
-Each free account gets 5 reviews, and each phone gets 5 too, so a new account on the same phone
-does not reset the count. To count them, the app sends an identifier for the phone. On Android this
-is the phone's Android ID. In a web browser it is a random code the page makes and saves in that
-browser. We use it only to count free reviews on that phone. Next to it we store how many reviews
-it has used, the last email that used it, and when.
+Each account gets 5 free reviews a day, and so does each phone, so a second account on the same
+phone doesn't start the day afresh. To count them, the app sends an identifier for the phone. On
+Android this is the phone's Android ID. In a web browser it is a random code the page makes and
+saves in that browser. It is stored only with the record of each review, described below, and goes
+with it.
 
-## Your videos
+## Your videos and reviews
 
 When you send a ball, the app uploads a short clip without sound (usually a few seconds), the stump
 marks you tapped, which hand the batter bats with, and the pitch length. Our server is in Central
 India.
 
 - The clip is deleted as soon as the server has finished checking it.
-- The result is numbers only: where the ball went, the speed and the verdict. It is deleted once it
-  is more than 24 hours old, the next time anyone sends a ball.
-- We also keep a short record of each review (when it was sent, which account and phone, and
-  whether it worked) so your review count stays right.
+- The result is numbers only: where the ball went and the verdict. It is deleted 24 hours after
+  the check, within the hour after that.
+- Each review also leaves a short record: when it was sent, your email, the phone's identifier,
+  whether it worked and the verdict. It is used to count your free reviews for the day and is
+  deleted 24 hours after the review was sent, within the hour after that.
 
-Our server log holds the time and the page asked for. It never holds your network address or your
-video.
+## Backups
+
+Once a day the server copies its database (your account details and the review records above) to a
+backup on the same server. The last 7 copies are kept, so anything deleted is gone from the
+backups within 7 days.
+
+## Server log
+
+The server log holds the time, the page asked for and how long the answer took. It never holds your
+network address, your email or your video. Old lines are dropped once the log reaches 30 MB.
 
 ## Usage statistics
 
 The app and the website use Google Analytics for Firebase to count things like sign-ins, reviews
-started, finished or failed, and the verdict (out, not out, umpire's call). Your email and your videos are
-never sent in these events. Google Analytics also collects general details it gathers in every app
-that uses it, such as the phone or browser model, the app version and a rough country.
+started, finished or failed, and the verdict (out, not out, umpire's call). Your email and your
+videos are never sent in these events. Google Analytics also collects general details it gathers in
+every app that uses it, such as the phone or browser model, the app version and a rough country.
 
 ## What stays on your phone
 
@@ -66,15 +74,21 @@ that uses it, such as the phone or browser model, the app version and a rough co
 
 The app doesn't use the microphone or your location.
 
-## Deleting your data
+## Deleting your account
 
-Email kafleniraj@gmail.com from the address you signed in with and ask us to delete your account.
-We will remove your account details and review history.
+Delete your account in the app under Settings, or at https://pocket-drs-app.web.app/delete-account
+after signing in. Either way the server deletes your account details, your review records and any
+result it still holds straight away, stops any review still running, and deletes your Google
+sign-in from Pocket DRS. Backups follow within 7 days.
 
 ## Children
 
 Pocket DRS is not meant for children under 13 and we don't knowingly collect their data. If you
-think a child has signed in, email us and we will delete the account.
+think a child has signed in, contact us and we will delete the account.
+
+## Contact
+
+Email: SUPPORT_EMAIL (replace with the support mailbox before publishing)
 
 ## Changes
 

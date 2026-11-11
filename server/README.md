@@ -22,8 +22,8 @@ image, restarts the container and waits for `/healthz` to answer.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `ADMIN_EMAILS` | `kafleniraj@gmail.com` | Comma-separated emails that get admin rights and unlimited reviews |
-| `POCKET_DRS_DB` | `/data/pocketdrs.db` | SQLite file for accounts, devices and review counts |
+| `ADMIN_EMAILS` | none | Comma-separated emails that get admin rights and unlimited reviews |
+| `POCKET_DRS_DB` | `/data/pocketdrs.db` | SQLite file for accounts and the last day's reviews; a copy goes to `backups/` next to it every night and the last 7 are kept |
 | `FIREBASE_WEB_CONFIG` | `/data/firebase-web.json` | Firebase web config served at `/config.json` for the browser app |
 | `POCKET_DRS_DATA_DIR` | `/data` in the image | Where job folders (clip, status, result) are written, next to the accounts database |
 | `POCKET_DRS_LOG_LEVEL` | `info` | Log level |

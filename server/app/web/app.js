@@ -5,6 +5,7 @@ const FB = "https://www.gstatic.com/firebasejs/11.0.2/";
 // the page is also served from firebase hosting, so every server call names the server
 const API = "https://pocketdrs-saarathi.centralindia.cloudapp.azure.com";
 const $ = (id) => document.getElementById(id);
+const PAGE = location.pathname.replace(/\/+$/, "");
 const show = (id, on) => { $(id).hidden = !on; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const MAX_BYTES = 200 * 1024 * 1024;
@@ -23,18 +24,19 @@ const DECISIONS = { out: "Out", not_out: "Not out", umpires_call: "Umpire's call
 // same sentences as the android app (pocket_drs_api.dart)
 const OFFLINE = "Can't reach the server. Check your internet, or try again later.";
 const SIGN_IN_AGAIN = "Please sign in again to keep going.";
-// the server gives back the free review of a failed check or one with no call
+// a failed check or one with no call doesn't count against the day's free reviews
 const NOT_COUNTED = "This one didn't use up a free review.";
 const JOB_ERRORS = {
   VIDEO_DECODE_FAILED: "The server couldn't read this video. Try another clip.",
   CALIBRATION_DEGENERATE: "The stump marks don't line up. Mark the tops and bottoms of both sets of stumps again.",
   INTERNAL_ERROR: "Something went wrong checking this ball. Try again, or try another clip.",
+  TIMED_OUT: "This clip took too long to check. Trim it to just the delivery and send it again.",
 };
 const ERRORS = {
   device_id_required: "This browser can't be recognised. Reload the page and try again.",
   bad_email: "That does not look like an email.",
   admin_plan_locked: "The admin's plan can't be changed.",
-  not_found: "That phone is not on the list any more.",
+  job_in_progress: "Another ball of yours is still being checked. Send this one once it's done.",
 };
 const STATUS = {
   400: "The clip couldn't be sent. Pick it again and retry.",
@@ -90,6 +92,8 @@ async function boot() {
 boot().catch(() => { $("boot").textContent = "The page didn't load. Check your internet and reload."; });
 
 show("in-app", IN_APP);
+show("delete-hint", PAGE === "/delete-account");
+if (PAGE === "/delete-account" && location.hash === "#done") $("delete-hint").textContent = "Your account and everything stored for it are deleted.";
 $("copy-link").addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(location.href);
@@ -132,7 +136,7 @@ async function authHeaders() {
 
 function refuse(status, body) {
   if (status === 401) { fa.signOut(auth); throw new Error(SIGN_IN_AGAIN); }
-  if (status === 402) { usedUp(); throw new Error(""); }
+  if (status === 402) { usedUp(body); throw new Error(""); }
   const msg = ERRORS[body && body.error] || STATUS[status] || (status >= 500 ? "Something went wrong on the server. Try again." : "Got an unexpected reply from the server. Try again in a minute.");
   throw Object.assign(new Error(msg), { status, transient: status >= 502 && status <= 504 });
 }
@@ -162,15 +166,16 @@ async function loadMe() {
     return;
   }
   showError("");
-  const adminPage = location.pathname.replace(/\/+$/, "") === "/admin";
+  const adminPage = PAGE === "/admin", deletePage = PAGE === "/delete-account";
   $("who").textContent = "Signed in as " + me.email;
   show("admin-link", me.is_admin && !adminPage);
-  show("review", !adminPage);
+  show("review", !adminPage && !deletePage);
+  show("delete", deletePage);
   show("admin", adminPage && me.is_admin);
   show("not-admin", adminPage && !me.is_admin);
   renderQuota();
   if (adminPage && me.is_admin) { loadAdmin(); setInterval(() => document.hidden || loadJobs(), 20000); }
-  if (!adminPage) resume();
+  if (!adminPage && !deletePage) resume();
 }
 $("retry").addEventListener("click", loadMe);
 
@@ -178,27 +183,47 @@ async function refreshMe() {
   try { me = await api("/v1/me"); renderQuota(); } catch { /* the next tap shows any problem */ }
 }
 
-const freeLeft = () => (me && !me.is_admin && me.remaining != null ? Math.max(0, Math.min(me.remaining, me.device_remaining)) : null);
+const freeLeft = () => (me && me.remaining != null ? me.remaining : null);
 let toldUsedUp = false;
 
 function renderQuota() {
   const left = freeLeft();
   $("quota").textContent = me.is_admin ? "Admin, unlimited reviews"
-    : left == null ? "Premium, unlimited reviews" : `${Math.min(left, me.free_limit)} of ${me.free_limit} free reviews left`;
+    : left == null ? "Premium, unlimited reviews" : `${left} of ${me.daily_limit} free reviews left today`;
+  const at = new Date(me.resets_at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  $("used-up").textContent = `You've used today's ${me.daily_limit} free reviews on this account or this phone. You get ${me.daily_limit} more at ${at}.`;
   show("used-up", left === 0);
-  if (left === 0 && !toldUsedUp) { toldUsedUp = true; track("trials_used_up"); }
-  $("contact").href = `mailto:${me.contact_email}?subject=PocketDRS%20premium`;
-  $("contact-email").textContent = me.contact_email;
+  if (left === 0 && !toldUsedUp) { toldUsedUp = true; track("daily_limit_reached"); }
   renderGo();
 }
 
-function usedUp() {
+function usedUp(body) {
   if (!me) return;
   me.remaining = 0;
+  if (body && body.resets_at) me.resets_at = body.resets_at;
   renderQuota();
   $("used-up").scrollIntoView({ behavior: "smooth", block: "center" });
 }
-$("contact").addEventListener("click", () => track("contact_admin_tapped"));
+
+$("delete-btn").addEventListener("click", async () => {
+  const b = $("delete-btn");
+  b.disabled = true;
+  showError("");
+  try {
+    // google only deletes a sign-in made in the last few minutes, and the popup must open straight from the tap
+    await fa.reauthenticateWithPopup(auth.currentUser, new fa.GoogleAuthProvider());
+    await api("/v1/me", { method: "DELETE" });
+    store.del("pdrs_job");
+    // deleting the sign-in signs out, which reloads the page onto this note
+    history.replaceState(null, "", "/delete-account#done");
+    await fa.deleteUser(auth.currentUser);
+  } catch (e) {
+    b.disabled = false;
+    if (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") return;
+    showError(e.code === "auth/user-mismatch" ? "Pick the Google account you are signed in with."
+      : e.code ? "The account couldn't be deleted. Try again." : e.message);
+  }
+});
 
 // review flow
 
@@ -457,7 +482,8 @@ async function poll(jobId) {
     const st = await patient(`/v1/jobs/${jobId}`);
     const pct = (st.progress && st.progress.pct) || 0;
     const stage = (st.progress && st.progress.stage) || st.status;
-    runText("Checking the ball", `${STAGES[stage] || "Working on your delivery"} (${pct}%)`, pct);
+    const where = st.queue_position ? `, number ${st.queue_position}` : "";
+    runText("Checking the ball", `${STAGES[stage] || "Working on your delivery"}${where} (${pct}%)`, pct);
     if (st.status === "succeeded") return (await patient(`/v1/jobs/${jobId}/result`)).result;
     if (st.status === "failed") {
       const err = st.error || {};
@@ -565,50 +591,34 @@ let adminSeq = 0, jobsSeq = 0, jobsEmail = "";
 async function loadAdmin() {
   const seq = ++adminSeq, q = encodeURIComponent($("q").value.trim());
   loadJobs();
-  let stats, users, devices;
+  let stats, users;
   try {
-    [stats, { users }, { devices }] = await Promise.all([
-      api("/v1/admin/stats"), api(`/v1/admin/users?q=${q}`), api(`/v1/admin/devices?q=${q}`),
-    ]);
+    [stats, { users }] = await Promise.all([api("/v1/admin/stats"), api(`/v1/admin/users?q=${q}`)]);
   } catch (e) {
     if (seq === adminSeq) toast(e.message);
     return;
   }
   if (seq !== adminSeq) return;
   $("stats").textContent = `${plural(stats.users, "person", "people")}, ${stats.premium} premium. `
-    + `${plural(stats.jobs_today, "review")} today (${stats.failed_today} failed), ${stats.jobs_total} in all.`;
-  const limit = me.free_limit;
+    + `${plural(stats.jobs_today, "review")} today (${stats.failed_today} failed).`;
   fill("users", users, "No one found.", (u) => {
     const li = el("li");
-    const plan = u.plan === "free" ? `Free, ${u.used} of ${limit} used` : u.plan === "premium" ? "Premium" : "Admin";
+    const plan = u.plan === "free" ? "Free" : u.plan === "premium" ? "Premium" : "Admin";
     const seen = !u.name && !u.jobs ? "Not signed in yet" : "Last seen " + when(u.last_seen);
     const info = el("div", null, "info");
-    info.append(el("strong", u.email), el("div", `${u.name ? u.name + ". " : ""}${plan}. ${plural(u.jobs, "review")}. ${seen}.`, "muted small"));
+    info.append(el("strong", u.email), el("div", `${u.name ? u.name + ". " : ""}${plan}. ${plural(u.jobs, "review")} in the last day. ${seen}.`, "muted small"));
     li.append(info);
     const row = el("div", null, "row");
     if (u.plan !== "admin") row.append(
       u.plan === "premium"
         ? btn("Make free", (b) => act(b, "make_free", setUser(u.email, { plan: "free" }), `${u.email} is on the free plan now.`))
         : btn("Make premium", (b) => act(b, "make_premium", setUser(u.email, { plan: "premium" }), `${u.email} is premium now.`), "primary"),
-      btn("Reset free reviews", (b) => act(b, "reset_used", setUser(u.email, { reset_used: true }), `Free reviews reset for ${u.email}.`)),
     );
     row.append(btn("See reviews", () => {
       jobsEmail = u.email;
       loadJobs();
       $("jobs-title").scrollIntoView({ behavior: "smooth" });
     }));
-    li.append(row);
-    return li;
-  });
-  fill("devices", devices, "No phones found.", (d) => {
-    const li = el("li");
-    const info = el("div", null, "info");
-    info.append(el("strong", d.last_email || "Phone not signed in yet"),
-      el("div", `${d.used} of ${limit} free used. ${phone(d.device_id)}. Last seen ${when(d.last_seen)}.`, "muted small"));
-    li.append(info);
-    const row = el("div", null, "row");
-    row.append(btn("Reset", (b) => act(b, "reset_device",
-      () => api(`/v1/admin/devices/${encodeURIComponent(d.device_id)}/reset`, { method: "POST" }), "Phone reset.")));
     li.append(row);
     return li;
   });

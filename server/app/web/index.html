@@ -8,7 +8,7 @@
 <title>Pocket DRS</title>
 <meta name="description" content="Check leg before wicket calls from one phone video.">
 <meta property="og:title" content="Pocket DRS: was it out?">
-<meta property="og:description" content="Film the ball on your phone and get the LBW call with a 3D replay. 5 free reviews.">
+<meta property="og:description" content="Film the ball on your phone and get the LBW call with a 3D replay. 5 free reviews every day.">
 <meta property="og:url" content="https://pocket-drs-app.web.app/">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary">
@@ -29,7 +29,8 @@
     <div class="hero">
       <div class="pitch">
         <h1>Was it out? Check the LBW from your phone.</h1>
-        <p class="lead">Film one ball from behind the bowler's stumps. Pocket DRS tracks the ball and gives the call, with its path drawn on your own clip.</p>
+        <p class="lead">Film one ball from behind the bowler's stumps. Pocket DRS tracks the ball and gives the call, with its path drawn on your own clip. No licence to buy and no demo call to book.</p>
+        <p id="delete-hint" class="notice" hidden>Sign in with the Google account you want to delete.</p>
         <div id="in-app" class="notice" hidden>
           <p>Google sign-in doesn't work inside this app. Open this page in Safari or Chrome.</p>
           <button id="copy-link" class="button">Copy link</button>
@@ -39,23 +40,23 @@
           <a class="button" href="https://github.com/kafle1/pocket-drs/releases/latest/download/pocket-drs-arm64.apk">Download for Android</a>
         </div>
         <p id="signin-error" class="error" hidden></p>
-        <p class="muted small">5 free reviews when you sign in. On iPhone, carry on right here in Safari.</p>
+        <p class="muted small">5 free reviews every day. On iPhone, carry on right here in Safari.</p>
       </div>
     </div>
 
     <section class="how">
-      <h2>Three steps, about half a minute</h2>
+      <h2>Three steps</h2>
       <ol>
         <li><strong>Film the ball.</strong> Phone still, behind the bowler's stumps, camera at 60 frames a second.</li>
-        <li><strong>Mark the stumps.</strong> Tap the four corners of each set of stumps once.</li>
-        <li><strong>Get the call.</strong> Out, not out or umpire's call, with the speed and a 3D replay.</li>
+        <li><strong>Mark the stumps.</strong> Tap the four corners of each set of stumps. You mark them yourself and can set the pitch length, so it works on any pitch.</li>
+        <li><strong>Get the call.</strong> Out, not out or umpire's call, with the reason and a 3D replay.</li>
       </ol>
     </section>
 
     <section class="drs">
       <div>
-        <h2>The same three checks as TV DRS</h2>
-        <p class="muted">Where it pitched, where it hit the pad, and whether it was going on to hit the stumps. Too close to tell is umpire's call, like on TV. A clip that can't support a call gets no call, never a guess.</p>
+        <h2>Three checks, one call</h2>
+        <p class="muted">Where it pitched, where it hit the pad, and whether it was going on to hit the stumps. When it's too close to call, you get umpire's call. When a clip can't be judged, you get no call and the reason why.</p>
         <dl class="rows">
           <div><dt>Pitching</dt><dd class="tone out">In line</dd></div>
           <div><dt>Impact</dt><dd class="tone not_out">Outside leg</dd></div>
@@ -65,8 +66,8 @@
     </section>
 
     <footer class="foot">
-      <p>For coaching and practice, not match officiating.</p>
-      <p><a href="https://github.com/kafle1/pocket-drs/blob/main/docs/GUIDE.md">User guide</a> <a href="https://github.com/kafle1/pocket-drs/blob/main/docs/privacy-policy.md">Privacy</a> <a href="https://github.com/kafle1/pocket-drs">Source code</a></p>
+      <p>For coaching and practice, not match officiating. Not affiliated with the ICC or Hawk-Eye.</p>
+      <p><a href="https://github.com/kafle1/pocket-drs/blob/main/docs/GUIDE.md">User guide</a> <a href="https://github.com/kafle1/pocket-drs/blob/main/docs/privacy-policy.md">Privacy</a> <a href="https://github.com/kafle1/pocket-drs/blob/main/docs/privacy-policy.md#contact">Contact</a> <a href="/delete-account">Delete account</a> <a href="https://github.com/kafle1/pocket-drs">Source code</a></p>
     </footer>
   </section>
 
@@ -81,10 +82,7 @@
 
     <div id="review">
       <div id="quota" class="quota"></div>
-      <div id="used-up" class="notice" hidden>
-        <p>No free reviews left on this account or this phone. Contact the admin for premium access at <strong id="contact-email"></strong>.</p>
-        <a id="contact" class="button primary">Contact admin</a>
-      </div>
+      <p id="used-up" class="notice" hidden></p>
 
       <div id="step-pick" class="card">
         <h2>Pick a delivery</h2>
@@ -167,6 +165,12 @@
     <p id="error" class="error" role="alert" hidden></p>
     <button id="retry" hidden>Try again</button>
 
+    <div id="delete" class="card" hidden>
+      <h2>Delete your account</h2>
+      <p class="muted">This deletes your Pocket DRS account, your sign-in and every review the server still holds for you. It can't be undone.</p>
+      <button id="delete-btn" class="primary">Delete my account</button>
+    </div>
+
     <div id="admin" hidden>
       <h2>Admin</h2>
       <p id="stats" class="muted"></p>
@@ -184,8 +188,6 @@
       <ul id="jobs" class="list"></ul>
       <div class="section-head"><h3>People</h3></div>
       <ul id="users" class="list"></ul>
-      <div class="section-head"><h3>Phones</h3></div>
-      <ul id="devices" class="list"></ul>
     </div>
     <p id="not-admin" class="notice" hidden>This page is only for the admin. <a href="/">Go back</a></p>
     <p id="toast" class="toast" role="status" hidden></p>

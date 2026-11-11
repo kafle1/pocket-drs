@@ -24,10 +24,10 @@ Pocket DRS runs on Android 7.1.1 or newer. Download it from the
 Each file is about 20 MB. Open it on your phone, and allow installs from your browser when Android
 asks. When the app opens, tap **Continue with Google** to sign in.
 
-Every account gets 5 free reviews, and the home screen shows how many are left. Each phone also
-gets 5, so a phone shared by several people runs out after 5 reviews in total. Only a ball that
-gets a call uses one up; a ball that fails or gets no call gives it back. When they run out, tap
-**Contact admin** to ask for premium access, which has no limit.
+Every account gets 5 free reviews a day, and the home screen shows how many are left. Each phone
+also gets 5 a day, so a phone shared by several people runs out after 5 reviews in total. Only a
+ball that gets a call uses one up; a ball that fails or gets no call doesn't count. When they run
+out, the app tells you the time you get 5 more.
 
 On an iPhone, or any phone without the app, open
 [the PocketDRS website](https://pocket-drs-app.web.app) in Safari or
@@ -196,7 +196,7 @@ If a message below appears, here is what it means and what to try.
 | Can't reach the server. Check your internet, or try again later. | Your phone could not reach the server. Your internet is probably down. | Check your Wi-Fi or mobile data, then try again. |
 | No reply in time. Check your internet, or try again later. | The server took too long to answer. | Check your connection, then try again. |
 | The server is off right now. Try again later. | The server's computer is online, but the checking program on it is not running. | Try again later. |
-| No free reviews left on this account or this phone. Contact the admin for premium access. | Your account, or this phone, has used all its free reviews. | Tap **Contact admin** to ask for premium access. |
+| You've used today's 5 free reviews on this account or this phone. | Your account, or this phone, has used today's free reviews. | Come back at the time the message gives. |
 | The server is busy. Try this ball again in a minute. | The public server has too many jobs running at once. | Wait a minute, then try again. |
 | Something went wrong checking this ball. Try again. | The server hit an error while checking. | Try again. If it keeps happening, the server may be down. |
 | The server no longer has this ball, maybe after a restart. Send it again. | The server restarted while checking your ball, or the ball is more than a day old. | Tap the circular arrow next to the ball to send it again. |
