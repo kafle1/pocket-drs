@@ -78,3 +78,6 @@ bench/
 
 # firebase deploy cache
 .firebase/
+
+# detector weights, rebuilt as server/models/DETECTOR.md says
+server/models/*.pt

@@ -1,0 +1,64 @@
+1. relative smallest singular value (columns scaled) against fps; slope of log smin on log h
+  general  (2,3) 6.17e-04 1.69e-04 1.95e-04 9.11e-05 3.90e-05  slope 0.89
+  general  (3,2) 3.32e-04 3.10e-04 1.83e-05 1.83e-05 1.80e-05  slope 1.25
+  general  (2,4) 5.44e-04 1.57e-04 1.73e-04 8.09e-05 3.50e-05  slope 0.89
+  general  (4,2) 3.71e-04 3.29e-04 2.13e-05 2.10e-05 2.02e-05  slope 1.24
+  general  (3,3) 1.38e-03 6.70e-04 3.41e-04 1.65e-04 7.98e-05  slope 1.02
+  in_plane (2,3) 6.72e-18 1.75e-17 2.88e-17 1.43e-17 2.60e-17  slope -0.36
+  in_plane (3,2) 2.96e-17 2.02e-17 3.36e-17 4.16e-17 2.89e-18  slope 0.57
+  in_plane (2,4) 4.95e-08 1.63e-09 2.73e-10 1.56e-11 8.04e-13  slope 3.85
+  in_plane (4,2) 4.47e-09 5.66e-10 3.92e-12 4.94e-13 6.14e-14  slope 4.25
+  in_plane (3,3) 1.15e-03 4.72e-04 2.90e-04 1.38e-04 6.42e-05  slope 1.01
+  offset 0.00 m at 240 fps: (2,3) 1.7e-17 (3,2) 2.0e-17 (2,4) 1.6e-09 (3,3) 4.7e-04
+  offset 0.01 m at 240 fps: (2,3) 4.8e-06 (3,2) 7.7e-06 (2,4) 3.8e-06 (3,3) 4.7e-04
+  offset 0.03 m at 240 fps: (2,3) 1.4e-05 (3,2) 2.3e-05 (2,4) 1.1e-05 (3,3) 4.7e-04
+  offset 0.10 m at 240 fps: (2,3) 4.7e-05 (3,2) 7.7e-05 (2,4) 3.7e-05 (3,3) 4.9e-04
+  offset 0.30 m at 240 fps: (2,3) 1.2e-04 (3,2) 2.3e-04 (2,4) 1.0e-04 (3,3) 6.0e-04
+  offset 1.00 m at 240 fps: (2,3) 2.9e-04 (3,2) 6.2e-04 (2,4) 2.8e-04 (3,3) 1.1e-03
+1b. which crossing component has a finite bound (y* z*), rows N- = 0..5, columns N+ = 0..5, 240 fps
+  general
+    N-=0  ..  --  --  YY  YY  YY
+    N-=1  --  --  --  YY  YY  YY
+    N-=2  --  --  --  YY  YY  YY
+    N-=3  --  --  YY  YY  YY  YY
+    N-=4  --  --  YY  YY  YY  YY
+    N-=5  --  --  YY  YY  YY  YY
+  in_plane
+    N-=0  ..  --  Y-  Y-  YY  YY
+    N-=1  --  --  Y-  Y-  YY  YY
+    N-=2  --  Y-  Y-  Y-  YY  YY
+    N-=3  --  Y-  Y-  YY  YY  YY
+    N-=4  --  Y-  YY  YY  YY  YY
+    N-=5  --  Y-  YY  YY  YY  YY
+2. camera height and g, general-position delivery, 240 fps
+  height 0.036 g 9.81 (3,3) rank 9 smin 9.47e-06 crossing estimable True
+  height 0.036 g 9.81 (5,5) rank 9 smin 2.87e-05 crossing estimable True
+  height 0.036 g 0.00 (3,3) rank 8 smin 7.36e-17 crossing estimable False
+  height 0.036 g 0.00 (5,5) rank 8 smin 5.05e-17 crossing estimable False
+  height 0.200 g 9.81 (3,3) rank 9 smin 1.55e-03 crossing estimable True
+  height 0.200 g 9.81 (5,5) rank 9 smin 3.14e-03 crossing estimable True
+  height 0.200 g 0.00 (3,3) rank 9 smin 1.58e-03 crossing estimable True
+  height 0.200 g 0.00 (5,5) rank 9 smin 3.24e-03 crossing estimable True
+  height 1.700 g 9.81 (3,3) rank 9 smin 6.70e-04 crossing estimable True
+  height 1.700 g 9.81 (5,5) rank 9 smin 1.36e-03 crossing estimable True
+  height 1.700 g 0.00 (3,3) rank 9 smin 6.61e-04 crossing estimable True
+  height 1.700 g 0.00 (5,5) rank 9 smin 1.33e-03 crossing estimable True
+  camera at contact height, g 0.00: |J d| / (|J| |d|) = 1.04e-18
+  camera at contact height, g 9.81: |J d| / (|J| |d|) = 3.43e-06
+3. depth: medians over the 100-delivery grid, 60 fps, 1 px, deliveries with N- >= 2 and N+ >= 3
+  striker_ref  n  75 range   3.0 m  depth sd   23.1 cm | along-ray only y,z  3.02   6.56 | across-ray only y,z  1.24  2.30 | bound y,z  1.97   4.41 | dz/dx ray -0.385 path -0.071
+  striker_low  n  75 range   2.9 m  depth sd   36.1 cm | along-ray only y,z  4.75   5.64 | across-ray only y,z  1.85  1.76 | bound y,z  2.85   3.85 | dz/dx ray -0.207 path -0.071
+  striker_high n  75 range   4.5 m  depth sd   24.2 cm | along-ray only y,z  2.40   9.18 | across-ray only y,z  0.90  2.41 | bound y,z  1.84   6.95 | dz/dx ray -0.495 path -0.071
+  striker_side n  75 range   3.4 m  depth sd   12.8 cm | along-ray only y,z  4.96   3.47 | across-ray only y,z  1.61  1.07 | bound y,z  3.50   2.48 | dz/dx ray -0.385 path -0.071
+  bowler_ref   n  75 range  22.9 m  depth sd  303.5 cm | along-ray only y,z  0.92  32.30 | across-ray only y,z  1.64  3.89 | bound y,z  1.96  35.78 | dz/dx ray +0.047 path -0.071
+  bowler_side  n  75 range  24.2 m  depth sd  242.1 cm | along-ray only y,z 20.07  30.33 | across-ray only y,z  2.83  3.58 | bound y,z 22.34  33.38 | dz/dx ray +0.057 path -0.071
+4. one post-contact frame: the analytic null direction d1 (dv+ = r1/tau1) and the crossing shift it causes
+  N- 3 N+ 1: |J d1|/(|J| |d1|) 0.0e+00, rank 8, finite y* z* [False, False], crossing shift per unit d1 -5.6609/-11.1355 m, predicted (tau*/tau1) A r1 -5.6609/-11.1355 m
+  N- 5 N+ 1: |J d1|/(|J| |d1|) 0.0e+00, rank 8, finite y* z* [False, False], crossing shift per unit d1 -5.6609/-11.1355 m, predicted (tau*/tau1) A r1 -5.6609/-11.1355 m
+  in-plane, camera yawed and rolled 8 deg about its centre (centre moved 5.1e-16 m); finite y* z* at 240 fps
+    N-=0  ..  --  Y-  Y-  YY  YY
+    N-=1  --  --  Y-  Y-  YY  YY
+    N-=2  --  Y-  Y-  Y-  YY  YY
+    N-=3  --  Y-  Y-  YY  YY  YY
+    N-=4  --  Y-  YY  YY  YY  YY
+    N-=5  --  Y-  YY  YY  YY  YY

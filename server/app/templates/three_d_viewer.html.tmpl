@@ -101,7 +101,6 @@
   <div id="stage">
     <div id="metrics">
       <div class="metric"><span>Speed</span><b id="m-speed">–</b><i>km/h</i></div>
-      <div class="metric"><span>Swing</span><b id="m-swing">–</b><i>cm</i></div>
       <div class="metric"><span>Spin</span><b id="m-spin">–</b><i>deg</i></div>
     </div>
     <div id="hint">Drag to turn, pinch to zoom</div>
@@ -327,7 +326,6 @@ if (ahead.length) {
 // ---------------------------------------------------------------- HUD
 const fmt = (v, d) => v == null ? "–" : Number(v).toFixed(d);   // null is "not measured", not zero
 $("m-speed").textContent = fmt(P.speed_kmh, 0);
-$("m-swing").textContent = fmt(P.swing_cm, 1);
 $("m-spin").textContent = fmt(P.spin_deg, 0);
 const CALL_TEXT = { out: "OUT", not_out: "NOT OUT", umpires_call: "UMPIRE'S CALL" };
 const rowsEl = $("rows"), chips = [];

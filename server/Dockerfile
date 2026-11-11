@@ -15,6 +15,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app app
+# the detector weights are not in git; build them as models/DETECTOR.md says before building the image
+COPY models/cricket_ball.pt models/
 
 ENV POCKET_DRS_DATA_DIR=/data
 

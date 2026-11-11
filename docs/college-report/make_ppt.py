@@ -28,7 +28,7 @@ from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches, Pt
 
 BASE = Path(__file__).resolve().parent
-TEMPLATE = Path("/Users/nirajkafle/Desktop/niraj/dev-projects/pocket-drs/dump/bit_template.pptx")
+TEMPLATE = BASE / "bit_template.pptx"
 FIG = BASE / "figures"
 OUT = BASE / "pocketdrs_presentation.pptx"
 

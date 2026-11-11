@@ -339,4 +339,4 @@ def _model(arc: _Arc, other, t_first: float) -> Trajectory:
         return flight_trajectory(np.concatenate([p, arc.th[3:] - np.array([0.0, 0.0, GRAVITY * s])]))
     th, tb, vb = other[2], other[3], other[4]
     v_pre, v_post = (th[3:], vb) if arc.post else (vb, th[3:])
-    return Trajectory(tb - t_first, float(th[0]), float(th[1]), v_pre, v_post, 0.0, True)
+    return Trajectory(tb - t_first, float(th[0]), float(th[1]), v_pre, v_post, True)

@@ -54,6 +54,9 @@ class Calibration(BaseModel):
     # eight stump corners: striker TL, TR, BR, BL, then bowler TL, TR, BR, BL
     stump_quads_norm: list[Point2D] | None = None
     stump_quads_px: list[Point2D] | None = None
+    # optional four pitch corners, clockwise on the screen from the striker end
+    pitch_corners_norm: list[Point2D] | None = None
+    pitch_corners_px: list[Point2D] | None = None
 
     @model_validator(mode="after")
     def _marks_present(self):
@@ -62,6 +65,11 @@ class Calibration(BaseModel):
             raise ValueError("calibration.stump_quads_norm or stump_quads_px with 8 points is required")
         if any(not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0) for p in self.stump_quads_norm or []):
             raise ValueError("calibration.stump_quads_norm points must be in [0, 1]")
+        corners = self.pitch_corners_norm or self.pitch_corners_px
+        if corners is not None and len(corners) != 4:
+            raise ValueError("calibration.pitch_corners_norm or pitch_corners_px needs 4 points")
+        if any(not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0) for p in self.pitch_corners_norm or []):
+            raise ValueError("calibration.pitch_corners_norm points must be in [0, 1]")
         return self
 
 

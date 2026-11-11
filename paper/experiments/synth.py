@@ -21,9 +21,8 @@ import numpy as np
 import os
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "server"))
-from app.pipeline.calibration import (CameraPose, intrinsics, solve_camera_pose,       # noqa: E402
-                                      STUMP_HEIGHT_M, STUMP_OUTER_HALF_M, PITCH_LENGTH_M,
-                                      PITCH_WIDTH_M)
+from app.pipeline.calibration import (CameraPose, intrinsics, solve_camera_pose, mark_points,  # noqa: E402
+                                      PITCH_LENGTH_M, PITCH_WIDTH_M)
 from app.pipeline.reconstruction import GRAVITY, BALL_RADIUS_M                          # noqa: E402
 
 CREASE_X = 1.22          # popping crease: where the batter's pad intercepts the ball
@@ -31,6 +30,7 @@ BALL_MASS = 0.16
 AIR_DENSITY = 1.2
 DRAG_CD = 0.5
 DRAG_K = 0.5 * AIR_DENSITY * DRAG_CD * math.pi * BALL_RADIUS_M ** 2 / BALL_MASS   # 1/m
+SIDE_K = 0.5 * AIR_DENSITY * math.pi * BALL_RADIUS_M ** 2 / BALL_MASS             # 1/m, times Cs v^2
 
 
 @dataclass(frozen=True)
@@ -45,6 +45,8 @@ class Delivery:
     turn_ms: float = 0.0       # lateral velocity added at contact (spin), m/s, +leg
     swing_ms2: float = 0.0     # lateral acceleration in the air before contact, +leg
     drag: bool = False
+    cd: float = DRAG_CD        # drag coefficient when drag is on
+    cs: float = 0.0            # swing side-force coefficient before contact, +leg (Mehta 2005)
 
 
 @dataclass(frozen=True)
@@ -66,11 +68,11 @@ class Camera:
             eye = np.array([PITCH_LENGTH_M + self.back_m, self.offset_m, self.height_m])
             look = np.array([PITCH_LENGTH_M - 10.0, 0.0, 0.3])
         f = look - eye; f /= np.linalg.norm(f)
-        r = np.cross(f, [0.0, 0.0, 1.0]); r /= np.linalg.norm(r)      # image right, so image down is world down
-        d = np.cross(f, r)
+        r = np.cross(f, [0.0, 0.0, 1.0]); r /= np.linalg.norm(r)      # screen right, phone held upright
+        d = np.cross(f, r)                                             # screen down
         R = np.stack([r, d, f])
         return CameraPose(K=K, R=R, t=-R @ eye, reproj_error_px=0.0, fov_deg=self.fov_deg,
-                          pitch_length_m=PITCH_LENGTH_M, pitch_width_m=PITCH_WIDTH_M)
+                          pitch_length_m=PITCH_LENGTH_M, pitch_width_m=PITCH_WIDTH_M, used_corners=True)
 
 
 @dataclass(frozen=True)
@@ -120,8 +122,10 @@ def fly(d: Delivery, dt: float = 1e-3) -> Truth:
         a = np.array([0.0, 0.0, -GRAVITY])
         if not bounced:
             a[1] += d.swing_ms2
+            if d.cs:
+                a[1] += SIDE_K * d.cs * float(v @ v)
         if d.drag:
-            a -= DRAG_K * np.linalg.norm(v) * v
+            a -= (DRAG_K if d.cd == DRAG_CD else DRAG_K * d.cd / DRAG_CD) * np.linalg.norm(v) * v
         v_new = v + a * dt
         p_new = p + v * dt + 0.5 * a * dt * dt
         if not bounced and p_new[2] <= BALL_RADIUS_M and v_new[2] < 0:
@@ -174,14 +178,26 @@ def observe(truth: Truth, pose: CameraPose, *, fps: float, noise_px: float, radi
     return out
 
 
-def calibration_taps(pose: CameraPose, *, noise_px: float, rng: np.random.Generator):
-    """The eight stump corners the user taps, perturbed, and the pose the server solves from them."""
-    w, h = STUMP_OUTER_HALF_M, STUMP_HEIGHT_M
-    side = [(-w, h), (w, h), (w, 0.0), (-w, 0.0)]
-    su, sv, _ = pose.project(np.array([(0.0, dy, dz) for dy, dz in side] + [(PITCH_LENGTH_M, dy, dz) for dy, dz in side]))
+def at_striker(pose: CameraPose) -> bool:
+    """Whether the true camera stands behind the striker's stumps."""
+    return float(pose.centre_world[0]) < PITCH_LENGTH_M / 2
+
+
+def calibration_taps(pose: CameraPose, *, noise_px: float, rng: np.random.Generator,
+                     fov_deg: float | None = None, pitch_length_m: float | None = PITCH_LENGTH_M):
+    """The twelve marks the user taps, perturbed, and the pose the app would solve from them.
+
+    Like the app, the solver gets the regulation pitch length and has to find the focal
+    length itself. Pass ``fov_deg=pose.fov_deg`` or ``pitch_length_m=None`` for the ablations."""
+    marks = mark_points(PITCH_LENGTH_M, PITCH_WIDTH_M, at_striker(pose))
+    stump_pts, corner_pts = marks[:8], marks[8:]
+    su, sv, _ = pose.project(stump_pts)
+    cu, cv, _ = pose.project(corner_pts)
     stumps = [(float(a + rng.normal(0, noise_px)), float(b + rng.normal(0, noise_px))) for a, b in zip(su, sv)]
-    return solve_camera_pose(image_size=(int(pose.cx * 2), int(pose.cy * 2)), stump_quads_px=stumps,
-                             pitch_length_m=PITCH_LENGTH_M)
+    corners = [(float(a + rng.normal(0, noise_px)), float(b + rng.normal(0, noise_px))) for a, b in zip(cu, cv)]
+    solved = solve_camera_pose(image_size=(int(pose.cx * 2), int(pose.cy * 2)), stump_quads_px=stumps,
+                               pitch_corners_px=corners, fov_deg=fov_deg, pitch_length_m=pitch_length_m)
+    return solved, stumps, corners
 
 
 # --------------------------------------------------------------------------- #

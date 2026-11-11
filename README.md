@@ -17,33 +17,18 @@ asks for premium. See the [user guide](docs/GUIDE.md) or the
 
 ## How it works
 
-The phone is calibrated from the 8 stump corners you mark. The ball is found by colour and motion,
-and RANSAC over 3-D flights picks out the delivery. One camera can't measure depth, but the bounce
-is on the ground plane, so the contact pixel gives a metric anchor. From there a drag-and-swing
-model is fitted, and its uncertainty is carried to the stump plane and into the Law 36 bands.
+The phone is calibrated from the 8 stump corners you mark. A detector trained on cricket balls and a
+colour and motion finder both propose ball candidates, and a search over 3-D flights a bowler could
+produce picks out the delivery. One camera can't measure depth, but the bounce is on the ground plane,
+so the contact pixel gives a metric anchor. Two parabolas are fitted from there, and their uncertainty,
+calibrated per camera end on simulated deliveries, is carried to the stump plane and into the Law 36 bands.
 
 ## Results
 
-Synthetic test: 150 random deliveries per cell at 60 Hz, 1 px detection noise, swing, and air drag
-that changes from ball to ball and that the model doesn't know. The detections are made up, so the
-ball detector isn't tested here. Only an exact call counts as right, and a no call counts as wrong. `paper/experiments/bench_app.py` reruns it in about 4 minutes.
-
-| Camera | Stump marks exact | 1 px off | 2 px off | 4 px off | Given out when it wasn't out |
-|---|---|---|---|---|---|
-| Behind the bowler (the app's setup) | 97% | 95% | 92% | 83% | 0 to 4 in 150 |
-| Behind the batter | 97% | 99% | 99% | 96% | none |
-
-Of the 4 wrong outs with marks 4 px off, 3 were umpire's call and 1 was not out.
-
-On rendered clips the whole pipeline runs, ball detector included. Of 100 clips from each end, 95
-were right from behind the bowler and 99 from behind the batter. None gave out on a not-out ball
-or the other way round. Every miss is one step off, umpire's call against a clear decision. From
-behind the bowler the speed is shown on 59 of the 100 balls, with a median error of 5 km/h.
-`paper/experiments/exp2_rendered.py --camera bowler_ref` (or `striker_ref`) reruns it in about
-15 minutes. Point `POCKET_DRS_OUT` and `POCKET_DRS_CLIPS` at a scratch folder so the paper's files
-stay as they are.
-
-The paper under `paper/` describes an earlier model, and its numbers are not these.
+`paper/experiments/scoreboard.py` prints the current numbers in one table: 100 rendered deliveries
+from each end with the whole pipeline running, ball detector included, scored against the truth, and
+the three bundled real clips. The paper under `paper/` describes an earlier model, and its numbers are
+not these.
 
 ## Run
 

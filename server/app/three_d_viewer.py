@@ -70,7 +70,6 @@ def build_payload(result: dict[str, Any]) -> dict[str, Any]:
         "bounce": event(bounce),
         "impact": event(impact),
         "speed_kmh": metrics.get("speed_kmh"),
-        "swing_cm": metrics.get("swing_cm"),
         "spin_deg": metrics.get("spin_deg"),
         "verdict": _verdict(result.get("lbw"), bounce),
     }

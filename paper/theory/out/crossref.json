@@ -1,0 +1,241 @@
+{
+ "ribnick2009": {
+  "doi": "10.1109/tpami.2008.247",
+  "title": "Estimating 3D Positions and Velocities of Projectiles from Monocular Views",
+  "container": "IEEE Transactions on Pattern Analysis and Machine Intelligence",
+  "authors": [
+   "E. Ribnick",
+   "S. Atev",
+   "N.P. Papanikolopoulos"
+  ],
+  "year": 2009,
+  "volume": "31",
+  "issue": "5",
+  "pages": "938-944",
+  "publisher": "Institute of Electrical and Electronics Engineers (IEEE)",
+  "type": "journal-article"
+ },
+ "hartley2004": {
+  "doi": "10.1017/cbo9780511811685",
+  "title": "Multiple View Geometry in Computer Vision",
+  "container": "",
+  "authors": [
+   "Richard Hartley",
+   "Andrew Zisserman"
+  ],
+  "year": 2004,
+  "volume": null,
+  "issue": null,
+  "pages": null,
+  "publisher": "Cambridge University Press",
+  "type": "monograph"
+ },
+ "stoica2001": {
+  "doi": "10.1109/78.890346",
+  "title": "Parameter estimation problems with singular information matrices",
+  "container": "IEEE Transactions on Signal Processing",
+  "authors": [
+   "P. Stoica",
+   "T.L. Marzetta"
+  ],
+  "year": 2001,
+  "volume": "49",
+  "issue": "1",
+  "pages": "87-90",
+  "publisher": "Institute of Electrical and Electronics Engineers (IEEE)",
+  "type": "journal-article"
+ },
+ "rothenberg1971": {
+  "doi": "10.2307/1913267",
+  "title": "Identification in Parametric Models",
+  "container": "Econometrica",
+  "authors": [
+   "Thomas J. Rothenberg"
+  ],
+  "year": 1971,
+  "volume": "39",
+  "issue": "3",
+  "pages": "577",
+  "publisher": "JSTOR",
+  "type": "journal-article"
+ },
+ "gill1995": {
+  "doi": "10.2307/3318681",
+  "title": "Applications of the van Trees Inequality: A Bayesian Cram\u00e9r-Rao Bound",
+  "container": "Bernoulli",
+  "authors": [
+   "Richard D. Gill",
+   "Boris Y. Levit"
+  ],
+  "year": 1995,
+  "volume": "1",
+  "issue": "1/2",
+  "pages": "59",
+  "publisher": "JSTOR",
+  "type": "journal-article"
+ },
+ "huber1964": {
+  "doi": "10.1214/aoms/1177703732",
+  "title": "Robust Estimation of a Location Parameter",
+  "container": "The Annals of Mathematical Statistics",
+  "authors": [
+   "Peter J. Huber"
+  ],
+  "year": 1964,
+  "volume": "35",
+  "issue": "1",
+  "pages": "73-101",
+  "publisher": "Institute of Mathematical Statistics",
+  "type": "journal-article"
+ },
+ "huber1973": {
+  "doi": "10.1214/aos/1176342503",
+  "title": "Robust Regression: Asymptotics, Conjectures and Monte Carlo",
+  "container": "The Annals of Statistics",
+  "authors": [
+   "Peter J. Huber"
+  ],
+  "year": 1973,
+  "volume": "1",
+  "issue": "5",
+  "pages": null,
+  "publisher": "Institute of Mathematical Statistics",
+  "type": "journal-article"
+ },
+ "gorman1990": {
+  "doi": "10.1109/18.59929",
+  "title": "Lower bounds for parametric estimation with constraints",
+  "container": "IEEE Transactions on Information Theory",
+  "authors": [
+   "J.D. Gorman",
+   "A.O. Hero"
+  ],
+  "year": 1990,
+  "volume": "36",
+  "issue": "6",
+  "pages": "1285-1301",
+  "publisher": "Institute of Electrical and Electronics Engineers (IEEE)",
+  "type": "journal-article"
+ },
+ "hero1996": {
+  "doi": "10.1109/78.533723",
+  "title": "Exploring estimator bias-variance tradeoffs using the uniform CR bound",
+  "container": "IEEE Transactions on Signal Processing",
+  "authors": [
+   "A.O. Hero",
+   "J.A. Fessler",
+   "M. Usman"
+  ],
+  "year": 1996,
+  "volume": "44",
+  "issue": "8",
+  "pages": "2026-2041",
+  "publisher": "Institute of Electrical and Electronics Engineers (IEEE)",
+  "type": "journal-article"
+ },
+ "seber1989": {
+  "doi": "10.1002/0471725315",
+  "title": "Nonlinear Regression",
+  "container": "Wiley Series in Probability and Statistics",
+  "authors": [
+   "G. A. F. Seber",
+   "C. J. Wild"
+  ],
+  "year": 1989,
+  "volume": null,
+  "issue": null,
+  "pages": null,
+  "publisher": "Wiley",
+  "type": "monograph"
+ },
+ "vantrees2007": {
+  "doi": "10.1109/9780470544198",
+  "title": "Bayesian Bounds for Parameter Estimation and Nonlinear Filtering/Tracking",
+  "container": "",
+  "authors": [
+   "Harry L. Van Trees",
+   "Kristine L. Bell"
+  ],
+  "year": 2007,
+  "volume": null,
+  "issue": null,
+  "pages": null,
+  "publisher": "IEEE",
+  "type": "edited-book"
+ },
+ "kay1993": {
+  "query": "Fundamentals of Statistical Signal Processing Estimation Theory Kay",
+  "hits": [
+   {
+    "doi": "10.2307/1269750",
+    "title": "Fundamentals of Statistical Signal Processing: Estimation Theory",
+    "container": "Technometrics",
+    "authors": [
+     "Sailes K. Sengupta",
+     "Steven M. Kay"
+    ],
+    "year": 1995,
+    "volume": "37",
+    "issue": "4",
+    "pages": "465",
+    "publisher": "JSTOR",
+    "type": "journal-article"
+   },
+   {
+    "doi": "10.1017/cbo9781139193535.004",
+    "title": "Fundamentals of estimation theory",
+    "container": "Optimal Combining and Detection",
+    "authors": [],
+    "year": 2010,
+    "volume": null,
+    "issue": null,
+    "pages": "49-78",
+    "publisher": "Cambridge University Press",
+    "type": "book-chapter"
+   },
+   {
+    "doi": "10.1016/0967-0661(94)90195-3",
+    "title": "Fundamentals of statistical signal processing: Estimation theory",
+    "container": "Control Engineering Practice",
+    "authors": [
+     "K.Venkatesh Prasad"
+    ],
+    "year": 1994,
+    "volume": "2",
+    "issue": "4",
+    "pages": "728",
+    "publisher": "Elsevier BV",
+    "type": "journal-article"
+   },
+   {
+    "doi": "10.1080/00401706.1995.10484391",
+    "title": "Fundamentals of Statistical Signal Processing: Estimation Theory",
+    "container": "Technometrics",
+    "authors": [
+     "Sailes K. Sengijpta"
+    ],
+    "year": 1995,
+    "volume": "37",
+    "issue": "4",
+    "pages": "465-466",
+    "publisher": "Informa UK Limited",
+    "type": "journal-article"
+   },
+   {
+    "doi": "10.1201/9781420046076-c14",
+    "title": "Spectrum Estimation and Modeling",
+    "container": "Electrical Engineering Handbook",
+    "authors": [
+     "Petar Djuric",
+     "Steven Kay"
+    ],
+    "year": 2009,
+    "volume": null,
+    "issue": null,
+    "pages": "1-24",
+    "publisher": "CRC Press",
+    "type": "book-chapter"
+   }
+  ]
+ }
+}

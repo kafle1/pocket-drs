@@ -46,7 +46,7 @@ def macros_defined():
     return not missing
 
 
-LATEX_BUILTIN = {"IEEEPARstart", "IEEEkeywords", "Delta", "Phi", "Theta", "Big", "Bigl", "Bigr", "IEEEtran"}
+LATEX_BUILTIN = {"IEEEPARstart", "IEEEkeywords", "Delta", "Phi", "Theta", "Sigma", "Big", "Bigl", "Bigr", "IEEEtran"}
 
 
 def literal_numbers():
@@ -56,9 +56,9 @@ def literal_numbers():
     body = tex[start:end]
     body = re.sub(r"\\(ref|label|cite|includegraphics|input)\{[^}]*\}", "", body)
     body = re.sub(r"\$m\{=\}[0-9.]+\$", "", body)
-    hits = re.findall(r"(?<![\w\\{])(\d+(?:\.\d+)?)\s*(?:~|\\%|%|\\,)?\s*(s\b|veh/h|px|ms|m\b|\\%|%)", body)
-    allowed = {"14.0", "13.4", "60", "80", "120", "21.6", "45", "200", "2307", "5.2", "4.5", "0.54", "0.80", "94", "19",
-               "260", "82", "3", "0.55", "0.79", "0.30", "0.49", "0.51", "0.60", "1.0", "0.96", "1.8", "0.3"}
+    hits = re.findall(r"(?<![\w\\{])(\d+(?:\.\d+)?)\s*(?:~|\\%|%|\\,)?\s*(km/h|cm|mm|ms|Hz|px|m\b|s\b|\\%|%)", body)
+    # sweep settings, risk limits, interval levels, the stump width and pitch geometry
+    allowed = {"0.8", "1", "1.5", "2", "3", "5", "6", "8", "12", "20", "23", "30", "40", "60", "95", "120", "240"}
     flagged = sorted({n for n, _ in hits if n not in allowed})
     if flagged:
         print("WARN literal numbers in results (check each is a design constant, not a result):", ", ".join(flagged))

@@ -1,3 +1,9 @@
+@IEEEtranBSTCTL{IEEEexample:BSTcontrol,
+  CTLdash_repeated_names = "no",
+  CTLuse_forced_etal = "yes",
+  CTLmax_names_forced_etal = "6",
+  CTLnames_show_etal = "1"
+}
 @article{ribnick2009projectiles,
   author  = {Ribnick, Evan and Atev, Stefan and Papanikolopoulos, Nikolaos P.},
   title   = {Estimating {3D} positions and velocities of projectiles from monocular views},
@@ -85,6 +91,19 @@
   volume  = {17}, number = {3}, pages = {283--308}, year = {2008},
   doi     = {10.1177/0963662508093370}
 }
+@book{vovk2005alrw,
+  author    = {Vovk, Vladimir and Gammerman, Alexander and Shafer, Glenn},
+  title     = {Algorithmic Learning in a Random World},
+  publisher = {Springer}, address = {New York, NY, USA}, year = {2005},
+  doi       = {10.1007/b106715}
+}
+@article{angelopoulos2023gentle,
+  author  = {Angelopoulos, Anastasios N. and Bates, Stephen},
+  title   = {Conformal prediction: {A} gentle introduction},
+  journal = {Foundations and Trends in Machine Learning},
+  volume  = {16}, number = {4}, pages = {494--591}, year = {2023},
+  doi     = {10.1561/2200000101}
+}
 @article{mehta2005swing,
   author  = {Mehta, Rabindra D.},
   title   = {An overview of cricket ball swing},
@@ -141,7 +160,7 @@
   author  = {Virtanen, Pauli and Gommers, Ralf and Oliphant, Travis E. and others},
   title   = {{SciPy} 1.0: fundamental algorithms for scientific computing in {Python}},
   journal = {Nature Methods},
-  volume  = {17}, pages = {261--272}, year = {2020},
+  volume  = {17}, number = {3}, pages = {261--272}, year = {2020},
   doi     = {10.1038/s41592-019-0686-2}
 }
 @book{seber1989nonlinear,
@@ -222,12 +241,12 @@
   doi       = {10.1145/3595916.3626370}
 }
 
-@misc{ghimire2026cricket,
-  author    = {Ghimire, Bijaya and Mishra, Gunjan K. and Lamichhane, Badri Raj},
+@article{ghimire2026cricket,
+  author    = {Ghimire, Bijaya and Mishra, Gunjan K. and Raj, Badri},
   title     = {{3D} ball trajectory from a single camera: a cost-effective ball estimation technique for cricket},
-  howpublished = {TechRxiv preprint},
-  year      = {2026},
-  doi       = {10.36227/techrxiv.176761698.86519755/v1}
+  journal   = {Journal of Advanced Artificial Intelligence, Engineering and Technology},
+  volume    = {2}, number = {2}, year = {2026},
+  doi       = {10.56147/aaiet.2.2.110}
 }
 
 % --- instrumentation and measurement literature added for the TIM screening response ---
@@ -378,3 +397,114 @@
   volume  = {74}, pages = {1--12}, year = {2025},
   doi     = {10.1109/TIM.2025.3565061}
 }
+
+@techreport{jcgm100,
+  author      = {{JCGM}},
+  title       = {Evaluation of Measurement Data: Guide to the Expression of Uncertainty in Measurement},
+  institution = {BIPM},
+  number      = {JCGM 100:2008}, year = {2008}
+}
+@techreport{jcgm101,
+  author      = {{JCGM}},
+  title       = {Evaluation of Measurement Data: Supplement 1 to the ``Guide to the Expression of Uncertainty in Measurement'', Propagation of Distributions Using a {Monte Carlo} Method},
+  institution = {BIPM},
+  number      = {JCGM 101:2008}, year = {2008}
+}
+@techreport{jcgm106,
+  author      = {{JCGM}},
+  title       = {Evaluation of Measurement Data: The Role of Measurement Uncertainty in Conformity Assessment},
+  institution = {BIPM},
+  number      = {JCGM 106:2012}, year = {2012}
+}
+@article{kuznetsova2020open,
+  author  = {Kuznetsova, Alina and Rom, Hassan and Alldrin, Neil and Uijlings, Jasper and Krasin, Ivan and Pont-Tuset, Jordi and Kamali, Shahab and Popov, Stefan and Malloci, Matteo and Kolesnikov, Alexander and Duerig, Tom and Ferrari, Vittorio},
+  title   = {The {Open Images} Dataset {V4}: unified image classification, object detection, and visual relationship detection at scale},
+  journal = {International Journal of Computer Vision},
+  volume  = {128}, number = {7}, pages = {1956--1981}, year = {2020},
+  doi     = {10.1007/s11263-020-01316-z}
+}
+@inproceedings{lin2014coco,
+  author    = {Lin, Tsung-Yi and Maire, Michael and Belongie, Serge and Hays, James and Perona, Pietro and Ramanan, Deva and Doll{\'a}r, Piotr and Zitnick, C. Lawrence},
+  title     = {Microsoft {COCO}: common objects in context},
+  booktitle = {Proc. Eur. Conf. Computer Vision (ECCV)},
+  series    = {Lecture Notes in Computer Science}, volume = {8693}, pages = {740--755}, year = {2014},
+  doi       = {10.1007/978-3-319-10602-1_48}
+}
+@misc{rftracker,
+  author       = {{uopcrictrakcr}},
+  title        = {{cricket ball tracker}, v1},
+  howpublished = {Roboflow Universe, CC BY 4.0, \url{https://universe.roboflow.com/uopcrictrakcr/cricket-ball-tracker/dataset/1}},
+  year         = {2023}
+}
+@misc{rfcricv2,
+  author       = {{cricket-ball-zgk1s}},
+  title        = {{Cricket Ball}, v2 {CricV2}},
+  howpublished = {Roboflow Universe, CC BY 4.0, \url{https://universe.roboflow.com/cricket-ball-zgk1s/cricket-ball-qwzrd/dataset/2}},
+  year         = {2024}
+}
+
+% --- added in revision 1, each checked against Crossref or arXiv on 10 Nov 2026 ---
+@inproceedings{gossard2025tt3d,
+  author    = {Gossard, Thomas and Ziegler, Andreas and Zell, Andreas},
+  title     = {{TT3D}: table tennis {3D} reconstruction},
+  booktitle = {Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. Workshops (CVPRW)},
+  pages     = {5821--5831}, year = {2025},
+  doi       = {10.1109/CVPRW67362.2025.00581}
+}
+@inproceedings{kienzle2025spin,
+  author    = {Kienzle, Daniel and Sch{\"o}n, Robin and Lienhart, Rainer and Satoh, Shin'ichi},
+  title     = {Towards ball spin and trajectory analysis in table tennis broadcast videos via physically grounded synthetic-to-real transfer},
+  booktitle = {Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. Workshops (CVPRW)},
+  pages     = {5832--5841}, year = {2025},
+  doi       = {10.1109/CVPRW67362.2025.00582}
+}
+@inproceedings{kienzle2024physics,
+  author    = {Kienzle, Daniel and Ludwig, Katja and Lorenz, Julian and Lienhart, Rainer},
+  title     = {Towards learning monocular {3D} object localization from {2D} labels using the physical laws of motion},
+  booktitle = {Proc. Int. Conf. 3D Vision (3DV)},
+  pages     = {1564--1573}, year = {2024},
+  doi       = {10.1109/3DV62453.2024.00155}
+}
+@inproceedings{ertner2024synthnet,
+  author    = {Ertner, Morten Holck and Konglevoll, Sofus Schou and Ibh, Magnus and Gra{\ss}hof, Stella},
+  title     = {{SynthNet}: leveraging synthetic data for {3D} trajectory estimation from monocular video},
+  booktitle = {Proc. 7th ACM Int. Workshop Multimedia Content Analysis in Sports (MMSports)},
+  pages     = {51--58}, year = {2024},
+  doi       = {10.1145/3689061.3689073}
+}
+@inproceedings{tarashima2023wasb,
+  author    = {Tarashima, Shuhei and Haq, Muhammad Abdul and Wang, Yushan and Tagawa, Norio},
+  title     = {Widely applicable strong baseline for sports ball detection and tracking},
+  booktitle = {Proc. British Machine Vision Conf. (BMVC)},
+  year      = {2023},
+  note      = {arXiv:2311.05237}
+}
+@inproceedings{raj2025tracknetv4,
+  author    = {Raj, Arjun and Wang, Lei and Gedeon, Tom},
+  title     = {{TrackNetV4}: enhancing fast sports object tracking with motion attention maps},
+  booktitle = {Proc. IEEE Int. Conf. Acoustics, Speech and Signal Processing (ICASSP)},
+  pages     = {1--5}, year = {2025},
+  doi       = {10.1109/ICASSP49660.2025.10889364}
+}
+@article{angrisani2025mlgum,
+  author  = {Angrisani, Leopoldo and Arpaia, Pasquale and Criscuolo, Sabatina and D'Arco, Mauro and De Benedetto, Egidio and Duraccio, Luigi and Tedesco, Annarita},
+  title   = {Machine learning-based measurement models: a novel methodology for {GUM}-based uncertainty evaluation},
+  journal = {IEEE Transactions on Instrumentation and Measurement},
+  volume  = {74}, pages = {1--11}, year = {2025},
+  doi     = {10.1109/TIM.2025.3643048}
+}
+@article{angrisani2026mlmodel,
+  author  = {Angrisani, Leopoldo and Cacciapuoti, Maria and Criscuolo, Sabatina and D'Arco, Mauro and De Benedetto, Egidio and Duraccio, Luigi and Tedesco, Annarita},
+  title   = {Addressing nonnegligible model uncertainty in machine learning-assisted measurements},
+  journal = {IEEE Transactions on Instrumentation and Measurement},
+  volume  = {75}, pages = {2511611}, year = {2026},
+  doi     = {10.1109/TIM.2026.3694743}
+}
+@misc{fulltrack2026,
+  author       = {{FullTrack AI}},
+  title        = {{FullTrack AI}: automated stats and ball tracking from your phone},
+  howpublished = {\url{https://www.fulltrack.ai/}},
+  year         = {2026},
+  note         = {Accessed: Nov. 10, 2026}
+}
+

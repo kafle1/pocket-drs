@@ -459,7 +459,6 @@ class LbwResult {
     required this.yAtStumpsM,
     required this.zAtStumpsM,
     required this.stumpXM,
-    required this.confidence,
   });
 
   final LbwDecisionKey? decision;
@@ -472,7 +471,6 @@ class LbwResult {
   final double? yAtStumpsM;
   final double? zAtStumpsM;
   final double stumpXM;
-  final double confidence;
 
   static LbwResult fromJson(Map<String, Object?> json) {
     final decision = LbwDecisionKey.parse(json['decision']);
@@ -493,7 +491,6 @@ class LbwResult {
       yAtStumpsM: pred != null ? _readDouble(pred, 'y_at_stumps_m') : null,
       zAtStumpsM: pred != null ? _readDouble(pred, 'z_at_stumps_m') : null,
       stumpXM: pred != null ? (_readDouble(pred, 'stump_x_m') ?? 0) : 0,
-      confidence: pred != null ? (_readDouble(pred, 'confidence') ?? 0.0) : 0.0,
     );
   }
 }

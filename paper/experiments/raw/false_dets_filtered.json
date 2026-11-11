@@ -1,0 +1,36 @@
+{
+ "picks": [
+  0,
+  13,
+  26,
+  39,
+  52,
+  65,
+  78,
+  91
+ ],
+ "fake_radius_px": 90.0,
+ "weights_sha1": "c3cdaba45ca5a2dc173431c7a177dda604f628f5",
+ "summary": {
+  "clean": {
+   "correct": 8,
+   "clips": 8,
+   "fake_in_track": 0
+  },
+  "static": {
+   "correct": 8,
+   "clips": 8,
+   "fake_in_track": 0
+  },
+  "drift": {
+   "correct": 8,
+   "clips": 8,
+   "fake_in_track": 101
+  },
+  "top": {
+   "correct": 8,
+   "clips": 8,
+   "fake_in_track": 0
+  }
+ }
+}

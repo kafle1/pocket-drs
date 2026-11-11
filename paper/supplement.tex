@@ -1,0 +1,324 @@
+\documentclass[journal]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+\usepackage[hyphens]{url}
+\usepackage[hidelinks]{hyperref}
+\renewcommand{\ttdefault}{cmtt}
+\input{numbers}
+\renewcommand{\thetable}{S\arabic{table}}
+\renewcommand{\thefigure}{S\arabic{figure}}
+
+\begin{document}
+
+\title{Supplementary Material for ``Measuring a Cricket Ball's Stump-Plane Crossing and Its Uncertainty from
+a Single Phone Clip: Bounce-Anchored Reconstruction for Leg-Before-Wicket Review''}
+\author{Niraj~Kafle}
+\markboth{Supplementary material, IEEE Transactions on Instrumentation and Measurement}{Kafle: Supplementary Material}
+\maketitle
+
+This supplement holds the implementation details of Section~S0, Tables~S1 to S10 and Fig.~S1, which the
+main paper cites. Every number in them is
+generated from the raw result files by the scripts in \url{https://github.com/kafle1/pocket-drs}
+(\texttt{paper/experiments}). All results except Table~S9 are simulated. Unless a table says otherwise, a
+delivery is drawn as in Experiment~1 of the paper and the phone is the reference camera (upright, 2.8\,m
+behind the striker's stumps at 1.7\,m height); World~B deliveries alternate between that camera and the
+same placement behind the bowler's stumps, and between a right- and a left-handed batter, with lateral
+quantities signed to the leg side. Errors are signed or absolute differences from the true value, and
+coverage is the share of deliveries whose absolute error is within the stated half-width. The half-widths of
+the calibrated 68 and 95\% intervals are $w_{68}$ and $w_{95}$.
+
+\section*{S0. Calibration and tracking details}
+
+\textbf{Calibration.} The user taps the four corners of each stump set, striker's end then bowler's, and
+the four pitch corners. SQPnP solves the pose over a sweep of focal length and of pitch
+length from 2 to 25\,m (unless the length is pinned); the lowest-error pose is refined by least squares on the pixels. The stumps alone
+leave the trade-off of focal length against pitch length nearly degenerate; the pitch corners, off the stump
+plane, break it. When the corners disagree with the stumps by more than a frame-scaled tolerance, the
+corners are dropped and the stumps kept, because stumps are made to the size the Laws set, while a club or net pitch may not be marked to it. A pose whose reprojection
+error exceeds $\max(25, 0.03W)$\,px for frame width $W$, whose camera height is outside 0.1 to 5\,m, or whose
+fitted length is outside 2 to 25\,m is rejected with a request to re-tap.
+
+\textbf{Detection.} The learned detector is a YOLO model fine-tuned on photos of cricket, tennis and other
+sports balls and on cricket video frames, with YouTube-sourced frames excluded. The classical detector
+combines hue thresholding with frame-difference motion. A location detected in more than 30\% of frames
+over more than 60\% of the clip's span is static clutter and is suppressed, as is any candidate too large
+or too small for a ball anywhere in the flight volume.
+
+\textbf{Association.} Candidates are associated into one track by RANSAC over a constant-acceleration image
+model: seed pairs propose an arc, inliers within a radius scaled to the frame diagonal are counted, the
+best arc is refined by weighted least squares, and a second pass over the unclaimed detections stitches on
+the far side of a bounce when it continues the same horizontal motion. An arc the flight model cannot fit
+to 12\,px RMS is discarded and the next best is tried. A sustained reversal of horizontal image travel marks
+the bat or pad interception and ends the live track; the learned detector's track is preferred.
+
+\textbf{Contact and initialisation.} For every split index from three frames in to three frames from the
+end, one quadratic in $t$ is fitted to each pixel coordinate on each side and the total weighted residual is
+recorded, alongside that of a single quadratic over the whole track. The best split is a contact if it at
+least halves the unsplit residual. The contact instant is where the two fitted arcs meet, and the contact
+pixel is the mean of the two arcs there. Seen from far down the pitch, one pixel of error on the ground plane
+spans metres, so four further anchor candidates are tried: the horizontal positions at $t_b$ of six-parameter
+parabola fits to each side, and the back-projections of the two frames adjacent to the split. For each
+candidate the velocities before and after the contact come from the linear solves, the initial restitution
+is $e_0 = -v_z^+ / v_z^-$ clipped to $[0.25, 0.85]$, and the candidate whose refined fit explains the pixels
+best is kept.
+
+\section*{S1. Frame timing}
+
+Table~\ref{tab:fps} runs \FpsN{} simulated deliveries at four capture rates through four ways of giving the
+estimator its frame times. \emph{Timestamps}: each frame carries its own decode timestamp.
+\emph{Fixed at 60} and \emph{fixed at fps}: the app's sampler picks the frame nearest to each request on a
+60\,Hz grid or on the clip's own rate, and labels it with that frame's timestamp. \emph{Submitted at 60}: the
+submitted app's sampler, which labelled each frame with the requested time instead of its own. The last
+row of each block is the fault the revision removes; at 30\,Hz it cuts agreement from
+\FpsThirtyFixedAtSixtyAgree\% to \FpsThirtySubmittedAtSixtyAgree\%. Experiment~1 of the paper always used
+true timestamps, so its frame-rate rows never had this fault.
+
+\begin{table*}[t]
+\centering
+\caption{Frame timing. Accuracy, one-sigma coverage of the fit's own covariance, verdict agreement and
+umpire's-call share on \FpsN{} simulated deliveries, by capture rate and by how frames are timed.
+Errors in mm.}
+\label{tab:fps}
+\scriptsize
+\input{tables/fps}
+\end{table*}
+
+\section*{S2. Camera placement}
+
+Table~\ref{tab:cameras} repeats Experiment~1's reference noise (60\,Hz, 1\,px centre noise, 2\,px tap noise,
+5\% dropout, unmodelled physics on) on the same \GeoPerCell{} deliveries for six phone placements.
+
+\begin{table*}[t]
+\centering
+\caption{Camera placement. Anchored estimator on the same \GeoPerCell{} simulated deliveries for each
+placement, reference noise. False out: not-out deliveries returned as out. Errors in mm at the stump plane.}
+\label{tab:cameras}
+\scriptsize
+\input{tables/cameras}
+\end{table*}
+
+\section*{S3. Rendered clips by length and line}
+
+Table~\ref{tab:rendered} breaks down Experiment~2: the fixed grid of five speeds (90 to 145\,km/h), five lines
+and four aimed lengths, rendered to 1080 by 1920 portrait clips at 60\,Hz and run through the full app
+pipeline with the learned detector and calibration taps perturbed by \EteTapPx\,px. The rendered flights have
+no drag, swing or spin. From the striker's end, every disagreement is within 0.2\,m of the middle-stump line and returned as umpire's call:
+\EteOutToUmp{} true outs and \EteNotOutToUmp{} not-outs, most of them pitched at 2\,m. The 95\% half-width
+covers \EteCoverNinetyfiveY\% of lateral and \EteCoverNinetyfiveZ\% of height errors, and
+\EteCoverZLenTwo{} of \EteCoverZLenTwoN{} height errors where the ball pitched at 2\,m. Always saying not out
+would agree on \EteNotOutTruth{} of the \EteN{} clips. The last column gives the same deliveries rendered from the bowler's end.
+
+\begin{table}[t]
+\centering
+\caption{Experiment~2 by aimed length and line, \EteN{} rendered clips through the full pipeline. Umpire's
+call: count returned as umpire's call. Errors in mm at the stump plane.}
+\label{tab:rendered}
+\scriptsize
+\setlength{\tabcolsep}{1.5pt}
+\input{tables/rendered}
+\end{table}
+
+\section*{S4. Uncertainty budget by input}
+
+Table~\ref{tab:budget} is the uncertainty budget of the paper, following JCGM~100 with all inputs
+taken as uncorrelated. Each row gives the input's type and assumed probability density, and its
+contribution to the standard uncertainty of the crossing, for the representative delivery (120\,km/h, 6\,m,
+60\,Hz) and as the median over \BudDistN{} World~B deliveries.
+
+\begin{table*}[t]
+\centering
+\caption{Uncertainty budget of the simulated stump-plane crossing by input (JCGM~100, inputs uncorrelated).
+Contributions $u_i$ in mm.}
+\label{tab:budget}
+\scriptsize
+\input{tables/budget}
+\end{table*}
+
+\section*{S5. Monte Carlo against the linear budget}
+
+Table~\ref{tab:mc} compares the linear budget with a Monte Carlo propagation of all inputs at once through
+the full solver ($M = \McM$) on the representative delivery. In the notation of JCGM~101, $d_\mathrm{low}$ and $d_\mathrm{high}$ are the
+distances between the ends of the two 95\% intervals and $\delta$ is the numerical tolerance. The run stopped after \McBatches{} batches, before the adaptive procedure of JCGM~101 reached
+its tolerance of \McTol\,mm: twice the batch standard deviation is \McTwoSdBatch\,mm. The values are stable
+at one significant digit (tolerance \McTolOneDigit\,mm). The gaps to the linear budget are far larger than
+that sampling error. Reaching the tolerance would take about \McBatchesNeeded{} batches if the batch spread
+falls as one over the square root of the batch count. On ten other deliveries the Monte Carlo-to-linear ratio of the
+lateral standard deviation runs from \McSubRatioMinY{} to \McSubRatioMaxY. Sensitivity coefficients come from
+numerical Jacobians for vector inputs (taps, ball centres, frame times) and, for scalar ones, from the RMS
+output change over the input's density, so a bias the pipeline does not correct counts in full.
+
+\begin{table*}[t]
+\centering
+\caption{Linear (JCGM~100) and Monte Carlo (JCGM~101) propagation for the representative simulated delivery.
+All values in mm.}
+\label{tab:mc}
+\scriptsize
+\input{tables/mc}
+\end{table*}
+
+\section*{S6. Rolling shutter and frame-rate metadata}
+
+Table~\ref{tab:covsweeps} runs a subset of the World~B deliveries ($n$ in the table) under each rolling-shutter
+readout, uncorrected and corrected for the row delay, and under each frame sampler with true or slightly
+wrong frame-rate metadata. ``Fit'' is the pipeline's own covariance; ``full'' adds the calibration and model-error
+terms.
+
+\begin{table*}[t]
+\centering
+\caption{Rolling-shutter readout and frame sampling on simulated World~B deliveries. Errors in mm; one-sigma
+coverage in \%.}
+\label{tab:covsweeps}
+\scriptsize
+\input{tables/coverage_sweeps}
+\end{table*}
+
+\section*{S7. Unmodelled physics}
+
+Table~\ref{tab:physics} switches on, one at a time, each effect the estimator does not model, on otherwise
+reference World~B deliveries filmed from the striker's end. ``Combined pace'' switches on together the effects typical of a fast bowler.
+The agreement columns use the guard factor given in each column head: the full-$\sigma$ columns use the
+factors that the selection of Section~S11 gives for that $\sigma$ at 1 and 5\% (1.85 and 1.3), and the app
+column uses the app's.
+
+\begin{table*}[t]
+\centering
+\caption{Influence of each unmodelled physical effect on the simulated stump-plane crossing. Errors in mm;
+one-sigma coverage of the full uncertainty in \%; agreement with the true verdict in \%.}
+\label{tab:physics}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\resizebox{\textwidth}{!}{\input{tables/physics}}
+\end{table*}
+
+\section*{S8. Calibration tap perturbation}
+
+Table~\ref{tab:taps} perturbs the twelve calibration taps of simulated deliveries, at random or by a
+common vertical shift, re-solves the pose and refits, and reports the change in the crossing and the
+number of verdicts that flip under the guard factor in each column head, chosen as in Section~S7.
+
+\begin{table*}[t]
+\centering
+\caption{Sensitivity of the simulated crossing and verdict to calibration tap error. $\Delta$: change from
+the unperturbed taps, in mm. Flips: verdicts that change, with their share of deliveries.}
+\label{tab:taps}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\resizebox{\textwidth}{!}{\input{tables/taps}}
+\end{table*}
+
+\section*{S9. Independent checks on the real clips}
+
+Table~\ref{tab:realchecks} tests the three real clips against quantities the fit does not impose. Of
+\RealClipsFound{} clips on disk only these \RealClipsUsed{} can be calibrated; the experiment's
+configuration file lists why each other clip cannot. \emph{Corners}: the pitch corners predicted by a pose
+solved from the stumps alone, against the tapped corners; the errors are far too large for the corners to
+serve as held-out landmarks, and the stumps alone do not fix scale. \emph{Gravity}: a free vertical
+acceleration fitted to the frames before the bounce, possible only on test4, the one full-rate fit that
+returns a result, with its 95\% interval; on \SimGravN{} simulated bowler's-end deliveries the same fit gives a median of
+\SimGravMed\,m/s$^2$ and its interval contains 9.81\,m/s$^2$ on \SimGravCoverPct\%. \emph{Size}: the depth implied by the ball's
+apparent size divided by the reconstructed depth, with the share of frames where the two agree within twice
+the size depth's uncertainty; test4's anchored fit does not use the ball's size, so the check is
+independent there. The batter plays the ball in all three clips, so whether it would have hit the stumps cannot
+be seen. The table reuses test4's corner check for test5. The frames of all three clips show the same outdoor net lane from one fixed viewpoint.
+All three clips ran on a pose from the stumps alone. test3 pins the pitch length; test4 and test5 leave it
+free, a calibration mode that no simulated experiment tests, since Experiment~1 pins the pitch length; the fitted lengths of test4 and
+test5, a few metres, point to a collapsed calibration rather than only to short nets.
+
+\begin{table*}[t]
+\centering
+\caption{Independent checks on the three real clips (test3 off-spin, test4 leg-spin, test5
+off-spin, all on one outdoor net). Corner errors in mm; $g$ in m/s$^2$
+with its 95\% interval; $2u$ is twice the size depth's standard uncertainty. --: the full-rate analysis is declined.}
+\label{tab:realchecks}
+\scriptsize
+\resizebox{\textwidth}{!}{\input{tables/realchecks}}
+\end{table*}
+
+\section*{S10. The calibrated rule per camera end}
+
+Table~\ref{tab:rule} gives the rule the app reads, fitted with five-fold cross-validation on the World~B
+deliveries with a bounce fit: $n$ in the table, of \CovBN{} drawn, \CalStrikerExcluded{} excluded at the
+striker's end (\DenStrikerNotFitted{} failed fits, \DenStrikerNoBounce{} no bounce, \CalStrikerYUnbounded{} failed perturbed
+calibration solves, \DenStrikerNoCross{} no stump crossing) and \CalBowlerExcluded{} at the bowler's (\DenBowlerNotFitted,
+\DenBowlerNoBounce, \CalBowlerYUnbounded{} and \DenBowlerNoCross). The model-error form is chosen by held-out likelihood; ``constant + proportional'' adds a
+constant and a term proportional to $x_b$ in quadrature. A bias line $a + c\,x_b$ is applied only where its
+held-out likelihood, summed over the five folds, beats no bias: for height and the pitching point at both ends, and for lateral and impact at neither. $k_{68}$ and $k_{95}$ are
+split-conformal factors per third of $x_b$, given as their range over the thirds. Coverage is held out;
+split-conformal factors make it near nominal by construction when calibration and test errors are
+exchangeable, so it checks the implementation and the calibration set, not the physics.
+Lateral quantities are signed to the leg side. A fit with no bounce seen gets no bias, the largest model term and the widest factor.
+
+\begin{table*}[t]
+\centering
+\caption{The calibrated rule per camera end and quantity on simulated World~B deliveries. Pitch: lateral
+position at the bounce; impact: lateral position at the last tracked frame; $y$, $z$: stump-plane crossing.
+Model-error parameters in mm, or mm per m of $x_b$ for the proportional term; half-widths in mm,
+coverage in \%.}
+\label{tab:rule}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{llcccccccc}
+\toprule
+End & Quantity & $n$ & Model form & Bias & $k_{68}$ & $k_{95}$ & Median $w_{68}$ / $w_{95}$ & Cover 68 / 95 &
+95 by third (short / mid / long) \\
+\midrule
+Striker & pitch & \CalStrikerPitchN & \CalStrikerPitchForm{} (\CalStrikerPitchParams) & \CalStrikerPitchBias & \CalStrikerPitchKSixtyeight &
+\CalStrikerPitchKNinetyfive & \CalStrikerPitchMedU{} / \CalStrikerPitchMedUNinetyfive & \CalStrikerPitchCovSixtyeight{} /
+\CalStrikerPitchCovNinetyfive & \CalStrikerPitchCovNinetyfiveShort{} / \CalStrikerPitchCovNinetyfiveMid{} /
+\CalStrikerPitchCovNinetyfiveLong \\
+& impact & \CalStrikerImpactN & \CalStrikerImpactForm{} (\CalStrikerImpactParams) & \CalStrikerImpactBias & \CalStrikerImpactKSixtyeight &
+\CalStrikerImpactKNinetyfive & \CalStrikerImpactMedU{} / \CalStrikerImpactMedUNinetyfive & \CalStrikerImpactCovSixtyeight{} /
+\CalStrikerImpactCovNinetyfive & \CalStrikerImpactCovNinetyfiveShort{} / \CalStrikerImpactCovNinetyfiveMid{} /
+\CalStrikerImpactCovNinetyfiveLong \\
+& $y$ & \CalStrikerYN & \CalStrikerYForm{} (\CalStrikerYParams) & \CalStrikerYBias & \CalStrikerYKSixtyeight &
+\CalStrikerYKNinetyfive & \CalStrikerYMedU{} / \CalStrikerYMedUNinetyfive & \CalStrikerYCovSixtyeight{} /
+\CalStrikerYCovNinetyfive & \CalStrikerYCovNinetyfiveShort{} / \CalStrikerYCovNinetyfiveMid{} /
+\CalStrikerYCovNinetyfiveLong \\
+& $z$ & \CalStrikerZN & \CalStrikerZForm{} (\CalStrikerZParams) & \CalStrikerZBias & \CalStrikerZKSixtyeight &
+\CalStrikerZKNinetyfive & \CalStrikerZMedU{} / \CalStrikerZMedUNinetyfive & \CalStrikerZCovSixtyeight{} /
+\CalStrikerZCovNinetyfive & \CalStrikerZCovNinetyfiveShort{} / \CalStrikerZCovNinetyfiveMid{} /
+\CalStrikerZCovNinetyfiveLong \\
+\midrule
+Bowler & pitch & \CalBowlerPitchN & \CalBowlerPitchForm{} (\CalBowlerPitchParams) & \CalBowlerPitchBias & \CalBowlerPitchKSixtyeight &
+\CalBowlerPitchKNinetyfive & \CalBowlerPitchMedU{} / \CalBowlerPitchMedUNinetyfive & \CalBowlerPitchCovSixtyeight{} /
+\CalBowlerPitchCovNinetyfive & \CalBowlerPitchCovNinetyfiveShort{} / \CalBowlerPitchCovNinetyfiveMid{} /
+\CalBowlerPitchCovNinetyfiveLong \\
+& impact & \CalBowlerImpactN & \CalBowlerImpactForm{} (\CalBowlerImpactParams) & \CalBowlerImpactBias & \CalBowlerImpactKSixtyeight &
+\CalBowlerImpactKNinetyfive & \CalBowlerImpactMedU{} / \CalBowlerImpactMedUNinetyfive & \CalBowlerImpactCovSixtyeight{} /
+\CalBowlerImpactCovNinetyfive & \CalBowlerImpactCovNinetyfiveShort{} / \CalBowlerImpactCovNinetyfiveMid{} /
+\CalBowlerImpactCovNinetyfiveLong \\
+& $y$ & \CalBowlerYN & \CalBowlerYForm{} (\CalBowlerYParams) & \CalBowlerYBias & \CalBowlerYKSixtyeight &
+\CalBowlerYKNinetyfive & \CalBowlerYMedU{} / \CalBowlerYMedUNinetyfive & \CalBowlerYCovSixtyeight{} /
+\CalBowlerYCovNinetyfive & \CalBowlerYCovNinetyfiveShort{} / \CalBowlerYCovNinetyfiveMid{} /
+\CalBowlerYCovNinetyfiveLong \\
+& $z$ & \CalBowlerZN & \CalBowlerZForm{} (\CalBowlerZParams) & \CalBowlerZBias & \CalBowlerZKSixtyeight &
+\CalBowlerZKNinetyfive & \CalBowlerZMedU{} / \CalBowlerZMedUNinetyfive & \CalBowlerZCovSixtyeight{} /
+\CalBowlerZCovNinetyfive & \CalBowlerZCovNinetyfiveShort{} / \CalBowlerZCovNinetyfiveMid{} /
+\CalBowlerZCovNinetyfiveLong \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\section*{S11. Guard factor from false-out risk}
+
+Fig.~\ref{fig:risk} shows how the guard factor $\kappa$ of the main paper is chosen. The specific risk of
+an out call follows JCGM~106 with independent normal tests and a flat prior, under each camera end's
+calibrated rule, with each test's $\sigma$ set to $w_{95}/1.96$; that step assumes normal errors. Held out, \CalExceedMin{} to
+\CalExceedMax\% of errors lie beyond $1.645\,w_{95}/1.96$ on one side, against 5\% if they were normal. The
+factors are chosen in sample, on the deliveries plotted. The factors that bound the modelled risk for any
+delivery, under independent normal tests with this $\sigma$ and all four limits binding at once, are \RiskBoundFourFive{} (5\%) and \RiskBoundFourOne{} (1\%).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{risk.pdf}
+\caption{Choice of the guard factor $\kappa$ on \RiskN{} simulated World~B deliveries with the calibrated
+uncertainty. Left: largest JCGM~106 specific false-out risk among out calls against $\kappa$, with the 1 and
+5\% limits. Right: verdict agreement (dashed) and share returned as umpire's call (solid). Vertical
+lines: the chosen $\kappa$.}
+\label{fig:risk}
+\end{figure}
+
+\end{document}
