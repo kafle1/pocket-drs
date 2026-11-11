@@ -45,7 +45,7 @@ import numpy as np
 from scipy.optimize import minimize
 
 from uq import (Effects, fly, CAMS, QTY, RATE_TEST5, taps, solve, observe, truth_q, estimate, cal_sigma,
-                replace, OUT, save_json, CalibrationError)
+                replace, OUT, save_json, load_json, CalibrationError)
 from synth import random_delivery
 from app.pipeline.reconstruction import find_bounce_split
 from app.pipeline.uncertainty import LATERAL, MODEL_FORMS
@@ -65,8 +65,8 @@ def draw(i):
     d = replace(random_delivery(rng, physics=True), cd=U(0.35, 0.55))
     eff = Effects(tap_px=TAP_PX, noise_px=1.0, radius_noise=0.10, dropout=0.05, fps=60.0, jitter_s=5e-4,
                   rate_ratio=U(RATE_TEST5, 1.0), rs_s=U(-0.030, 0.030), distortion=U(-0.01, 0.01),
-                  dL=U(-0.05, 0.05), dW=U(-0.10, 0.10), dH=U(-0.01, 0.01), dw=U(-0.0025, 0.0025),
-                  top_tap=U(0.0, 0.0127))
+                  dL=U(-0.05, 0.05), dH=U(-0.01, 0.01), dw=U(-0.0025, 0.0025),
+                  top_tap=U(0.0, 0.0127), pad_x=U(0.3, 2.5))
     return d, eff, rng
 
 
@@ -84,14 +84,14 @@ def run(args):
     end, leg = end_hand(i)
     row = dict(i=i, end=end, leg=leg, speed_kmh=d.speed_kmh, length_m=d.length_m, line_m=d.line_m, cd=d.cd, swing_ms2=d.swing_ms2,
                turn_ms=d.turn_ms, restitution=d.restitution, friction=d.friction, rs_s=eff.rs_s,
-               rs_correct_s=eff.rs_correct_s, distortion=eff.distortion, rate_ratio=eff.rate_ratio, sampler=eff.sampler,
+               rs_correct_s=eff.rs_correct_s, distortion=eff.distortion, rate_ratio=eff.rate_ratio, sampler=eff.sampler, pad_x=eff.pad_x,
                ok=False, bounce=False)
     try:
-        tr = fly(d, dt=5e-4)
+        tr = fly(d, dt=5e-4, pad_x=eff.pad_x)
     except ValueError:
         return row
     pt = CAMS[end].pose()
-    xy = taps(pt, eff, rng)
+    xy = taps(pt, eff, rng)[:8]                                     # stump corners only, as the app asks
     try:
         pose = solve(pt, xy)
     except CalibrationError:
@@ -259,15 +259,20 @@ def main():
                           mean_mm=float(np.mean(e) * 1000), cov_fit=coverage(e, sf),
                           cov_full=coverage(e, np.sqrt(sf ** 2 + sc ** 2 + sm ** 2)))
         sweeps[key] = ent
-    fields = list(dict.fromkeys(k for r in sw_rows for k in r))
-    with open(os.path.join(OUT, "exp6_sweeps.csv"), "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=fields)
-        w.writeheader(); w.writerows(sw_rows)
+    if sw_rows:
+        fields = list(dict.fromkeys(k for r in sw_rows for k in r))
+        with open(os.path.join(OUT, "exp6_sweeps.csv"), "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=fields)
+            w.writeheader(); w.writerows(sw_rows)
+    elif os.path.exists(os.path.join(OUT, "exp6_model_error.json")):
+        # --n-sweep 0 keeps the last run's sweeps (an older world) so make_numbers still finds them
+        old = load_json("exp6_model_error.json")
+        sweeps, n_sw = old.get("sweeps", {}), old.get("n_sweep", 0)
     summary.update(sweeps=sweeps, n_sweep=n_sw, seed=SEED, workers=a.workers, seconds_main=round(t_main, 1),
                    seconds=round(time.time() - t0, 1),
-                   world="exp1 physics with Cd U[0.35,0.55]; 1 px centres, 10 % radius, 5 % dropout, 2 px taps; "
-                         "jitter 0.5 ms; rate U[0.99673,1]; rolling shutter U[-30,30] ms; distortion U[-1,1] %; "
-                         "dL +-5 cm, dW +-10 cm, dH +-1 cm, dw +-2.5 mm, bails U[0,1.27] cm; both camera ends, both hands; "
+                   world="exp1 physics with Cd U[0.35,0.55]; 1 px centres, 10 % radius, 5 % dropout, 2 px taps on the 8 stump corners only; "
+                         "pad at x U[0.3,2.5] m; jitter 0.5 ms; rate U[0.99673,1]; rolling shutter U[-30,30] ms; distortion U[-1,1] %; "
+                         "dL +-5 cm, dH +-1 cm, dw +-2.5 mm, bails U[0,1.27] cm; both camera ends, both hands; "
                          "frames labelled with their own timestamps")
     save_json("exp6_model_error.json", summary)
     for q in ("y", "z"):

@@ -1,158 +1,158 @@
 {
   "n": 1200,
-  "fitted": 1133,
-  "bounce_observed": 1130,
+  "fitted": 1021,
+  "bounce_observed": 993,
   "forms": {
     "pitch_y": {
       "chosen": "constant + proportional",
-      "cal_unbounded": 16,
+      "cal_unbounded": 47,
       "params_m": [
-        0.01928793252700352,
-        2.589491039472842e-11
+        0.017459709307771954,
+        2.807576257635866e-10
       ],
       "heldout_nll": {
-        "constant": -2480.28,
-        "proportional to x_b": -2263.7,
-        "constant + proportional": -2480.29
+        "constant": -2080.15,
+        "proportional to x_b": -1991.81,
+        "constant + proportional": -2080.15
       },
-      "mean_err_mm": -0.2431590879846739,
-      "median_abs_err_mm": 12.87041319011517,
-      "median_sigma_fit_mm": 4.6609645563774995,
-      "median_sigma_cal_mm": 11.042754369999571,
-      "median_sigma_mod_mm": 19.31237255469429
+      "mean_err_mm": -1.0588404878528053,
+      "median_abs_err_mm": 13.96737416243124,
+      "median_sigma_fit_mm": 4.583187402518629,
+      "median_sigma_cal_mm": 14.590064018266908,
+      "median_sigma_mod_mm": 17.378846746331917
     },
     "impact_y": {
       "chosen": "constant",
-      "cal_unbounded": 16,
+      "cal_unbounded": 47,
       "params_m": [
-        0.013628011778563933
+        0.013441362526968724
       ],
       "heldout_nll": {
-        "constant": -2434.14,
-        "proportional to x_b": -2352.8,
-        "constant + proportional": -2434.14
+        "constant": -2004.66,
+        "proportional to x_b": -1947.2,
+        "constant + proportional": -2004.66
       },
-      "mean_err_mm": -0.40596374294973286,
-      "median_abs_err_mm": 15.712179721187894,
-      "median_sigma_fit_mm": 15.078792377890718,
-      "median_sigma_cal_mm": 10.98857573358487,
-      "median_sigma_mod_mm": 13.843206941013968
+      "mean_err_mm": -0.25175384698629105,
+      "median_abs_err_mm": 17.03522470591627,
+      "median_sigma_fit_mm": 14.628750833097143,
+      "median_sigma_cal_mm": 18.309541498418927,
+      "median_sigma_mod_mm": 13.16048052644725
     },
     "y": {
-      "chosen": "constant + proportional",
-      "cal_unbounded": 17,
+      "chosen": "constant",
+      "cal_unbounded": 48,
       "params_m": [
-        0.024911043623590236,
-        6.168072485458509e-10
+        0.014855190392641507
       ],
       "heldout_nll": {
-        "constant": -1715.35,
-        "proportional to x_b": -1689.95,
-        "constant + proportional": -1715.35
+        "constant": -1358.28,
+        "proportional to x_b": -1349.61,
+        "constant + proportional": -1358.28
       },
-      "mean_err_mm": 0.3348516679773659,
-      "median_abs_err_mm": 28.856624802162003,
-      "median_sigma_fit_mm": 24.564418466189917,
-      "median_sigma_cal_mm": 14.775077850520598,
-      "median_sigma_mod_mm": 24.630619611371554
+      "mean_err_mm": -0.6374423700906883,
+      "median_abs_err_mm": 32.92507161500516,
+      "median_sigma_fit_mm": 25.408992073802228,
+      "median_sigma_cal_mm": 24.04242564762713,
+      "median_sigma_mod_mm": 15.328488324255195
     },
     "z": {
-      "chosen": "proportional to x_b",
-      "cal_unbounded": 17,
+      "chosen": "constant + proportional",
+      "cal_unbounded": 48,
       "params_m": [
-        0.01135199510283097
+        9.981733340827295e-09,
+        0.010412988219836819
       ],
       "heldout_nll": {
-        "constant": -911.37,
-        "proportional to x_b": -955.93,
-        "constant + proportional": -947.1
+        "constant": -702.52,
+        "proportional to x_b": -750.37,
+        "constant + proportional": -750.37
       },
-      "mean_err_mm": -50.566841831687015,
-      "median_abs_err_mm": 58.70337918060614,
-      "median_sigma_fit_mm": 58.279320350021486,
-      "median_sigma_cal_mm": 12.733390652273282,
-      "median_sigma_mod_mm": 67.80864252460745
+      "mean_err_mm": -46.76307524030111,
+      "median_abs_err_mm": 60.3176501491759,
+      "median_sigma_fit_mm": 57.78154753902556,
+      "median_sigma_cal_mm": 27.37634706997218,
+      "median_sigma_mod_mm": 68.17899276897529
     }
   },
   "coverage": {
     "pitch_y": {
       "fit only (as shipped)": {
-        "one": 18.58168761220826,
-        "p95": 34.8294434470377,
-        "n": 1114,
-        "median_ratio": 2.9429976640202815
+        "one": 17.864693446088793,
+        "p95": 31.92389006342495,
+        "n": 946,
+        "median_ratio": 3.120536607896284
       },
       "fit + calibration": {
-        "one": 44.97307001795332,
-        "p95": 73.33931777378815,
-        "n": 1114,
-        "median_ratio": 1.1431871911999565
+        "one": 50.84566596194503,
+        "p95": 79.17547568710359,
+        "n": 946,
+        "median_ratio": 0.9766622364642334
       },
       "fit + calibration + model": {
-        "one": 73.51885098743267,
-        "p95": 92.63913824057451,
-        "n": 1114,
-        "median_ratio": 0.560433631293729
+        "one": 70.40169133192389,
+        "p95": 92.60042283298098,
+        "n": 946,
+        "median_ratio": 0.5896133632885062
       }
     },
     "impact_y": {
       "fit only (as shipped)": {
-        "one": 44.165170556552965,
-        "p95": 72.9802513464991,
-        "n": 1114,
-        "median_ratio": 1.1680160297631115
+        "one": 39.00634249471459,
+        "p95": 68.07610993657505,
+        "n": 946,
+        "median_ratio": 1.2934417719839795
       },
       "fit + calibration": {
-        "one": 56.46319569120287,
-        "p95": 85.00897666068222,
-        "n": 1114,
-        "median_ratio": 0.8570062509519283
+        "one": 58.66807610993657,
+        "p95": 88.90063424947145,
+        "n": 946,
+        "median_ratio": 0.8202388141258008
       },
       "fit + calibration + model": {
-        "one": 69.29982046678636,
-        "p95": 94.52423698384202,
-        "n": 1114,
-        "median_ratio": 0.6238934229777244
+        "one": 70.93023255813954,
+        "p95": 94.82029598308668,
+        "n": 946,
+        "median_ratio": 0.6475827667844645
       }
     },
     "y": {
       "fit only (as shipped)": {
-        "one": 41.764176417641764,
-        "p95": 73.17731773177317,
-        "n": 1111,
-        "median_ratio": 1.2172750038912852
+        "one": 39.44562899786781,
+        "p95": 67.80383795309169,
+        "n": 938,
+        "median_ratio": 1.2648586347815138
       },
       "fit + calibration": {
-        "one": 52.38523852385239,
-        "p95": 83.34833483348335,
-        "n": 1111,
-        "median_ratio": 0.966798706540511
+        "one": 58.52878464818764,
+        "p95": 87.73987206823027,
+        "n": 938,
+        "median_ratio": 0.8289755277413622
       },
       "fit + calibration + model": {
-        "one": 66.6066606660666,
-        "p95": 92.88928892889288,
-        "n": 1111,
-        "median_ratio": 0.6710903515554884
+        "one": 64.92537313432835,
+        "p95": 91.89765458422174,
+        "n": 938,
+        "median_ratio": 0.7275180812777592
       }
     },
     "z": {
       "fit only (as shipped)": {
-        "one": 42.12421242124213,
-        "p95": 74.16741674167416,
-        "n": 1111,
-        "median_ratio": 1.2059866762250677
+        "one": 43.49680170575693,
+        "p95": 70.682302771855,
+        "n": 938,
+        "median_ratio": 1.1548056244334695
       },
       "fit + calibration": {
-        "one": 46.624662466246626,
-        "p95": 78.84788478847885,
-        "n": 1111,
-        "median_ratio": 1.089368695146891
+        "one": 54.69083155650319,
+        "p95": 86.24733475479745,
+        "n": 938,
+        "median_ratio": 0.911145546455419
       },
       "fit + calibration + model": {
-        "one": 70.92709270927092,
-        "p95": 95.76957695769576,
-        "n": 1111,
-        "median_ratio": 0.6188366608620964
+        "one": 74.84008528784648,
+        "p95": 95.3091684434968,
+        "n": 938,
+        "median_ratio": 0.5998228291245845
       }
     }
   },
@@ -1011,8 +1011,8 @@
   },
   "n_sweep": 200,
   "seed": 606,
-  "workers": 4,
-  "seconds_main": 327.1,
-  "seconds": 397.6,
-  "world": "exp1 physics with Cd U[0.35,0.55]; 1 px centres, 10 % radius, 5 % dropout, 2 px taps; jitter 0.5 ms; rate U[0.99673,1]; rolling shutter U[-30,30] ms; distortion U[-1,1] %; dL +-5 cm, dW +-10 cm, dH +-1 cm, dw +-2.5 mm, bails U[0,1.27] cm; both camera ends, both hands; frames labelled with their own timestamps"
+  "workers": 3,
+  "seconds_main": 655.8,
+  "seconds": 656.1,
+  "world": "exp1 physics with Cd U[0.35,0.55]; 1 px centres, 10 % radius, 5 % dropout, 2 px taps on the 8 stump corners only; pad at x U[0.3,2.5] m; jitter 0.5 ms; rate U[0.99673,1]; rolling shutter U[-30,30] ms; distortion U[-1,1] %; dL +-5 cm, dH +-1 cm, dw +-2.5 mm, bails U[0,1.27] cm; both camera ends, both hands; frames labelled with their own timestamps"
 }

@@ -60,6 +60,7 @@ class Effects:
     dH: float = 0.0              # true stump height minus 0.711 m
     dw: float = 0.0              # true half wicket width minus 0.1143 m
     top_tap: float = 0.0         # how far above the stump top the user taps (bails), m
+    pad_x: float = CREASE_X      # where the pad meets the ball, m from the batter's stumps; detections stop there
 
 
 # --------------------------------------------------------------------------- #
@@ -87,11 +88,12 @@ def taps(pose, eff: Effects, rng) -> np.ndarray:
 
 
 def solve(pose_true, xy: np.ndarray, **kw):
-    """The app's solve: free focal length, regulation pitch length unless kw says otherwise."""
+    """The app's solve: free focal length, regulation pitch length unless kw says otherwise.
+    xy of 8 marks is stumps only, as the app now asks; 12 adds the crease ends."""
     kw.setdefault("pitch_length_m", PITCH_LENGTH_M)
     return solve_camera_pose(image_size=(int(pose_true.cx * 2), int(pose_true.cy * 2)),
                              stump_quads_px=[tuple(p) for p in xy[:8]],
-                             crease_marks_px=[tuple(p) for p in xy[8:]], **kw)
+                             crease_marks_px=[tuple(p) for p in xy[8:]] if len(xy) > 8 else None, **kw)
 
 
 def frame_times(t_end: float, eff: Effects, rng, v0: float | None = None) -> tuple[np.ndarray, np.ndarray]:
@@ -140,7 +142,7 @@ def observe(truth, pose, eff: Effects, rng, v0: float | None = None) -> list[tup
     """Detections (t_label, u, v, radius, weight) the tracker would hand on in World B.
     v0 fixes the frame phase (video time of the release) for paired comparisons."""
     st = truth.states
-    t_end = float(st[np.argmax(st[:, 1] <= CREASE_X), 0])      # the pad intercepts at the crease
+    t_end = float(st[np.argmax(st[:, 1] <= eff.pad_x), 0])     # the pad intercepts the ball here
     label, actual = frame_times(t_end, eff, rng, v0)
     W = pose.cx * 2
     out = []
@@ -204,8 +206,12 @@ def qvec(est: dict | None) -> np.ndarray:
 
 def cal_sigma(pose_true, pose, xy, dets, est: dict, **kw) -> tuple[np.ndarray, int]:
     """1-sigma of the four measurands from tap noise, the app's way (uncertainty.calibration_sigma
-    with the tap noise implied by the residual of pose, the solve of xy), and the count of failed solves."""
-    sig, failed = calibration_sigma(lambda z: solve(pose_true, z, **kw), xy, dets, est["meas"], pose.tap_sigma_px)
+    with the tap noise implied by the residual of pose, the solve of xy, a 1 px mark bias and a 0.5 m
+    pitch-length step, each re-solve seeded at pose's lens angle), and the count of failed solves."""
+    L = kw.pop("pitch_length_m", PITCH_LENGTH_M)
+    resolve = lambda z, dL=0.0: solve(pose_true, z, pitch_length_m=L + dL, fov_start=pose.fov_deg, **kw)  # noqa: E731
+    sig, failed = calibration_sigma(resolve, xy, dets, est["meas"], pose.tap_sigma_px,
+                                    mark_bias_px=1.0, length_sigma_m=0.5)
     return np.array([sig[q] for q in QTY]), failed
 
 

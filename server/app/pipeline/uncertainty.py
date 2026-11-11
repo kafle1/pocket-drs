@@ -25,7 +25,8 @@ import cv2
 import numpy as np
 
 from .calibration import CalibrationError
-from .reconstruction import Reconstruction, StumpPlanePrediction, bounce_sigma, position_sigma, predict_stump_plane, reconstruct
+from .reconstruction import (LEATHER, Ball, Reconstruction, StumpPlanePrediction, Trajectory, bounce_sigma, position_sigma,
+                             predict_stump_plane, reconstruct)
 
 QTY = ("pitch_y", "impact_y", "y", "z")
 LATERAL = ("pitch_y", "impact_y", "y")
@@ -60,9 +61,10 @@ def camera_end(pose) -> str:
     return "striker" if float(pose.centre_world[0]) < pose.pitch_length_m / 2 else "bowler"
 
 
-def measurands(pose, dets) -> Measurands | None:
-    """Fit the delivery and read off the four measurands; impact is at the last detection."""
-    rec = reconstruct(pose, dets)
+def measurands(pose, dets, *, ball: Ball = LEATHER, bounce: Trajectory | None = None, split_rank: int = 0) -> Measurands | None:
+    """Fit the delivery and read off the four measurands; impact is at the last detection. ball, bounce
+    and split_rank go to reconstruct."""
+    rec = reconstruct(pose, dets, ball=ball, bounce=bounce, split_rank=split_rank)
     if rec is None or rec.rms_px > MAX_FIT_RMS_PX:
         return None
     pred = predict_stump_plane(rec)
@@ -75,30 +77,49 @@ def measurands(pose, dets) -> Measurands | None:
     return Measurands(rec, pred, t_i, impact, values, sigma)
 
 
-def calibration_sigma(resolve, taps_px, dets, base: Measurands, tap_sigma_px: float) -> tuple[dict, int]:
+def calibration_sigma(resolve, taps_px, dets, base: Measurands, tap_sigma_px: float, *, mark_bias_px: float = 0.0,
+                      length_sigma_m: float = 0.0, **fit) -> tuple[dict, int]:
     """1-sigma of each measurand from tap noise, and how many of the perturbed solves failed.
 
     Each tapped coordinate is moved by one step in turn, the pose re-solved with resolve((n,2)
-    taps) and the delivery refitted; the one-sided difference times tap_sigma_px is that
-    coordinate's contribution. A solve or fit that fails makes every measurand it lost
-    infinitely uncertain, so the verdict falls back to umpire's call rather than narrowing."""
-    flat = np.asarray(taps_px, dtype=float).reshape(-1)
-    step = max(tap_sigma_px, 0.5)          # a derivative step, so exact taps still give a finite slope
+    taps) and the delivery refitted with measurands(**fit); the one-sided difference times the
+    coordinate's sigma (the residual's tap noise and a fixed per-mark bias, in quadrature) is that
+    coordinate's contribution. With length_sigma_m the pitch length is moved too, through
+    resolve(taps, length_step). A solve or fit that fails makes every measurand it lost infinitely
+    uncertain, so the verdict can't narrow on it. NaN taps are hidden marks and are skipped."""
+    xy = np.asarray(taps_px, dtype=float)
+    flat = xy.reshape(-1)
+    sigma = math.hypot(tap_sigma_px, mark_bias_px)
+    step = max(sigma, 0.5)                 # a derivative step, so exact taps still give a finite slope
+    moves = [(i, step, sigma) for i in range(flat.size) if math.isfinite(flat[i])]
+    if length_sigma_m:
+        moves.append((None, length_sigma_m, length_sigma_m))
     sq = {q: 0.0 for q in QTY}
     failed = 0
-    for i in range(flat.size):
+    for i, d, s in moves:
         z = flat.copy()
-        z[i] += step
+        if i is not None:
+            z[i] += d
         try:
-            m = measurands(resolve(z.reshape(-1, 2)), dets)
+            pose = resolve(z.reshape(xy.shape)) if i is not None else resolve(z.reshape(xy.shape), d)
+            m = measurands(pose, dets, **fit)
         except (CalibrationError, cv2.error, np.linalg.LinAlgError):
             m = None
         lost = [q for q in QTY if base.values[q] is not None and (m is None or m.values[q] is None)]
         failed += bool(lost)
         for q in QTY:
             if base.values[q] is not None:
-                sq[q] += math.inf if q in lost else ((m.values[q] - base.values[q]) / step * tap_sigma_px) ** 2
+                sq[q] += math.inf if q in lost else ((m.values[q] - base.values[q]) / d * s) ** 2
     return {q: math.sqrt(v) for q, v in sq.items()}, failed
+
+
+def stability(pose, dets, base: Measurands, **fit) -> list[Measurands]:
+    """Refits that should agree with base: odd frames only, even frames only, and the image track's three
+    best bounce splits. Fits that fail are left out."""
+    seed = fit.pop("bounce", None)
+    runs = [measurands(pose, dets[1::2], bounce=seed, **fit), measurands(pose, dets[0::2], bounce=seed, **fit)]
+    runs += [measurands(pose, dets, split_rank=r, **fit) for r in range(3)]
+    return [m for m in runs if m is not None]
 
 
 def factors(entry: dict, x_b: float) -> tuple[float, float]:

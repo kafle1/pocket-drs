@@ -109,8 +109,8 @@ def _launch(d: Delivery) -> tuple[np.ndarray, np.ndarray]:
     return p0, np.array([vx, vy, vz])
 
 
-def fly(d: Delivery, dt: float = 1e-3) -> Truth:
-    """Integrate the delivery from release until it passes the stump plane."""
+def fly(d: Delivery, dt: float = 1e-3, pad_x: float = CREASE_X) -> Truth:
+    """Integrate the delivery from release until it passes the stump plane. truth.crease is read at pad_x."""
     p, v = _launch(d)
     release_speed = float(np.linalg.norm(v)) * 3.6
     rows, t = [], 0.0
@@ -139,7 +139,7 @@ def fly(d: Delivery, dt: float = 1e-3) -> Truth:
             p_new = contact + v_c * rest; p_new[2] = max(p_new[2], BALL_RADIUS_M)
             v_new = v_c + np.array([0.0, 0.0, -GRAVITY]) * rest
             bounced = True
-        for target, name in ((CREASE_X, "crease"), (0.0, "stumps")):
+        for target, name in ((pad_x, "crease"), (0.0, "stumps")):
             if p[0] > target >= p_new[0]:
                 frac = (p[0] - target) / (p[0] - p_new[0])
                 q = p + frac * (p_new - p)
