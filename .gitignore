@@ -33,6 +33,9 @@ logs/**
 
 # Runtime job outputs
 data/jobs/
+data/*.db
+data/*.db-*
+data/backups/
 **/output/
 **/temp/
 
