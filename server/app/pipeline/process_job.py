@@ -352,9 +352,13 @@ def _review(req, video_path: Path, result: dict, warnings: list[str], report: Pr
     }
 
     # ---- when the call can't stand -----------------------------------------------
-    if not all(math.isfinite(q[k]["sigma"]) for k in q) or max(q["y"]["U95"], q["z"]["U95"]) > pose.stump_width_m / 2:
-        raise NoCall("range_too_wide", "The ball's path at the stumps is known only to within "
-                     f"{100 * max(q['y']['U95'], q['z']['U95']):.0f} cm, wider than half the stumps.", STRAIGHT_FILM)
+    # height is judged against half the stumps' height, the same share of the target as width against half the width
+    wide = {"Where the ball crossed the stumps' line": (q["y"]["U95"], pose.stump_width_m / 2),
+            "How high the ball reached the stumps": (q["z"]["U95"], pose.stump_height_m / 2)}
+    if not all(math.isfinite(q[k]["sigma"]) for k in q) or any(u > lim for u, lim in wide.values()):
+        side, (u, lim) = max(wide.items(), key=lambda kv: kv[1][0] / kv[1][1])
+        raise NoCall("range_too_wide", f"{side} is known only to within {100 * u:.0f} cm, more than half the stumps' "
+                     f"{'height' if side.startswith('How high') else 'width'}.", STRAIGHT_FILM)
     if not tr.bounce_observed:
         raise NoCall("bounce_not_seen", "The bounce wasn't seen, so the path can't be checked against real deliveries.",
                      "Keep the whole pitch in view so the bounce is filmed.")
