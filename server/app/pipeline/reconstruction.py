@@ -132,6 +132,10 @@ def find_bounce_split(dets: list[Detection], *, min_side: int = 3) -> tuple[int,
     for k in range(min_side, n - min_side + 1):
         cu1, s1 = _quad_fit(t[:k], u[:k], w[:k]); cv1, s2 = _quad_fit(t[:k], v[:k], w[:k])
         cu2, s3 = _quad_fit(t[k:], u[k:], w[k:]); cv2, s4 = _quad_fit(t[k:], v[k:], w[k:])
+        tm = 0.5 * (t[k - 1] + t[k])
+        # contact sends the ball up, so on an upright camera its image motion bends up (v slows) at either end
+        if np.polyval(np.polyder(cv2), tm) >= np.polyval(np.polyder(cv1), tm):
+            continue
         sse = s1 + s2 + s3 + s4
         if best is None or sse < best[0]:
             best = (sse, k, cu1, cv1, cu2, cv2)
