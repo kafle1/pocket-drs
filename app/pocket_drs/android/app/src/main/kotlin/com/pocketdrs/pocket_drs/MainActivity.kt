@@ -5,6 +5,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.StatFs
@@ -44,6 +45,18 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                     }
+                    "videoInfo" -> {
+                        val path = call.argument<String>("path")!!
+                        val main = Handler(Looper.getMainLooper())
+                        thread {
+                            try {
+                                val info = videoInfo(path)
+                                main.post { result.success(info) }
+                            } catch (e: Exception) {
+                                main.post { result.error("videoInfo", e.message ?: e.toString(), null) }
+                            }
+                        }
+                    }
                     "keepScreenOn" -> {
                         session = call.arguments as Boolean
                         if (session) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -66,6 +79,37 @@ class MainActivity : FlutterActivity() {
             return true
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /** The clip's frame rate (0 when the file doesn't say) and length in ms. */
+    private fun videoInfo(path: String): Map<String, Any> {
+        val retriever = MediaMetadataRetriever()
+        val (durationMs, frames) = try {
+            retriever.setDataSource(path)
+            val ms = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            val n = if (Build.VERSION.SDK_INT >= 28)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)?.toLongOrNull() else null
+            ms to n
+        } finally {
+            retriever.release()
+        }
+        val extractor = MediaExtractor()
+        val declared = try {
+            extractor.setDataSource(path)
+            (0 until extractor.trackCount).map { extractor.getTrackFormat(it) }
+                .firstOrNull { it.getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true }
+                ?.takeIf { it.containsKey(MediaFormat.KEY_FRAME_RATE) }
+                // stored as an int by most muxers, a float by some
+                ?.let { f ->
+                    try { f.getInteger(MediaFormat.KEY_FRAME_RATE).toDouble() }
+                    catch (e: ClassCastException) { f.getFloat(MediaFormat.KEY_FRAME_RATE).toDouble() }
+                }
+        } finally {
+            extractor.release()
+        }
+        // phones write a nominal rate that can be wrong for variable-rate video, so the counted rate wins
+        val counted = if (frames != null && durationMs > 0) frames * 1000.0 / durationMs else null
+        return mapOf("fps" to (counted ?: declared ?: 0.0), "durationMs" to durationMs)
     }
 
     /** Copies the video track around [startUs]..[endUs] without re-encoding; returns where that window sits in the clip, in ms. */

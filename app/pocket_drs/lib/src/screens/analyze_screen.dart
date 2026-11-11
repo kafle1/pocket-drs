@@ -1,32 +1,30 @@
-import 'dart:async';
 import 'dart:io';
-import 'dart:math' show min;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../analysis/frame_decoder.dart';
 import '../account/account.dart';
-import '../api/analysis_result.dart';
 import '../api/pocket_drs_api.dart';
-import '../theme/app_colors.dart';
+import '../reviews/reviews.dart';
 import '../theme/app_spacing.dart';
-import '../theme/app_theme.dart';
 import '../utils/app_settings.dart';
 import '../widgets/account_widgets.dart';
-import '../widgets/image_marker.dart';
-import '../widgets/trajectory_video_view.dart';
+import '../widgets/batter_picker.dart';
+import '../widgets/stump_marker.dart';
 import '../widgets/video_frame_selector.dart';
 import '../widgets/video_trim_selector.dart';
+import 'filming_guide_screen.dart';
+import 'review_screen.dart';
 
 const _native = MethodChannel('pocket_drs/native');
 
-/// Single end-to-end flow: pick one video → trim it → choose a frame → tap
-/// both sets of stumps → the server tracks the ball on that same video and
-/// returns a 3D trajectory we render.
+// below this the ball jumps too far between frames to follow well
+const _minFps = 50.0;
+
+/// Pick one video, trim it to the delivery, choose a frame, mark both sets of stumps, then send it.
 class AnalyzeScreen extends StatefulWidget {
   const AnalyzeScreen({super.key});
 
@@ -34,48 +32,20 @@ class AnalyzeScreen extends StatefulWidget {
   State<AnalyzeScreen> createState() => _AnalyzeScreenState();
 }
 
-enum _Step { upload, trim, frame, stumps, processing, results }
+enum _Step { upload, trim, frame, stumps }
 
 class _AnalyzeScreenState extends State<AnalyzeScreen> {
   final _picker = ImagePicker();
 
   _Step _step = _Step.upload;
-
-  // Calibration inputs (one video drives everything).
   XFile? _video;
   Uint8List? _frameBytes;
-  // Normalised striker TL, TR, BR, BL then bowler TL, TR, BR, BL.
-  List<Offset>? _stumps;
-
-  // Trimmed segment (whole clip by default). Backend honours these as
-  // ``segment.{start_ms, end_ms}`` so it only decodes what the user
-  // bracketed, keeps tracking work proportional to the delivery, not the
-  // surrounding minutes of recording.
   int _segmentStartMs = 0;
-  int _segmentEndMs = 600000;
-  // Whether the source came from the camera roll's RECORD button (so we
-  // can optionally delete it after analysis to save phone storage).
+  int _segmentEndMs = 0;
+  // recorded in the app, so it can be deleted once sent when the player wants that
   bool _videoFromCamera = false;
-
-  // Batsman handedness, sets which side is leg vs off for the LBW decision.
-  // Sent as the request's ``batsman_handedness`` ('right' or 'left').
-  String _batsmanHandedness = 'right';
-
-  // Processing / result state.
-  int? _progressPct;
-  String? _progressStage;
-  AnalysisResult? _analysis;
-  String? _jobId;
-  // the result's times are on the cut's clock, so the result plays the cut
-  String? _cutPath;
-  // bumped on each analysis and on cancel, so a stale job can't land a result
-  int _run = 0;
-  // closed on cancel, so a dropped analysis stops uploading
-  PocketDrsApi? _api;
-  // a job the server already took, so trying again polls it instead of uploading a second copy
-  ({String key, String jobId, String? cutPath})? _resume;
-  // one key per clip and settings, so a retry after a lost reply gets the same job back
-  ({String key, String id})? _idem;
+  String _hand = 'right';
+  bool _sending = false;
 
   void _log(String m) => debugPrint(m);
 
@@ -93,30 +63,57 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       if (video == null || lost.type != RetrieveType.video) return;
       if (!mounted || _step != _Step.upload) return;
       // it could be a gallery pick too, so never auto-delete it
-      _useVideo(video, fromCamera: false);
+      await _useVideo(video, fromCamera: false);
     } catch (e) {
       _log('[PICK] lost data: $e');
     }
   }
 
-  void _useVideo(XFile video, {required bool fromCamera}) {
+  Future<void> _useVideo(XFile video, {required bool fromCamera}) async {
+    if (!await _clipLooksUsable(video) || !mounted) return;
     setState(() {
       _video = video;
       _videoFromCamera = fromCamera;
       _frameBytes = null;
-      _stumps = null;
-      _segmentStartMs = 0;
-      _segmentEndMs = 600000;
       _step = _Step.trim;
     });
   }
 
-  // ---------------------------------------------------------------- step 1: video
+  // checked on the phone, so a clip the server can't use never costs an upload or a review
+  Future<bool> _clipLooksUsable(XFile video) async {
+    final Map<String, Object?>? info;
+    try {
+      info = await _native.invokeMapMethod<String, Object?>('videoInfo', {
+        'path': video.path,
+      });
+    } on PlatformException catch (e) {
+      _log('[PICK] videoInfo: ${e.message}');
+      _showError("Couldn't read this video. Try another clip.");
+      return false;
+    }
+    final fps = (info?['fps'] as num?)?.toDouble() ?? 0;
+    final ms = (info?['durationMs'] as num?)?.toInt() ?? 0;
+    if (ms > 0 && ms < 500) {
+      _showError(
+        'This clip is under half a second, too short to hold a delivery. '
+        'Pick one that shows the whole ball.',
+      );
+      return false;
+    }
+    if (fps <= 0 || fps >= _minFps || !mounted) return true;
+    final use = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => _SlowClipSheet(fps: fps),
+    );
+    return use ?? false;
+  }
+
   Future<void> _pickVideo(ImageSource source) async {
     try {
       final video = await _picker.pickVideo(source: source);
       if (video == null || !mounted) return;
-      _useVideo(video, fromCamera: source == ImageSource.camera);
+      await _useVideo(video, fromCamera: source == ImageSource.camera);
     } on PlatformException catch (e) {
       _log('[PICK] ${e.code}: ${e.message}');
       _showError(switch (e.code) {
@@ -133,7 +130,6 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     }
   }
 
-  // ---------------------------------------------------------------- step 1.5: trim
   void _onTrimSelected(Duration start, Duration end) {
     setState(() {
       _segmentStartMs = start.inMilliseconds;
@@ -142,7 +138,6 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     });
   }
 
-  // ---------------------------------------------------------------- step 2: frame
   Future<bool> _onFrameSelected(Duration timestamp) async {
     final video = _video;
     if (video == null) return false;
@@ -169,244 +164,73 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     }
   }
 
-  // ------------------------------------------------------------ analyse
-  Future<void> _analyse() async {
-    final video = _video;
-    final stumps = _stumps;
-    if (video == null || stumps == null) return;
+  Future<void> _send(List<Offset> stumps) async {
+    final video = _video, frame = _frameBytes;
+    if (video == null || frame == null || _sending) return;
     // check before cutting and uploading a clip the server would turn away
     if (Account.instance.me.value?.usedUp ?? false) {
       await Account.instance.refreshMe();
-      // a second tap while the plan reloaded already started this ball
-      if (!mounted || _step != _Step.stumps) return;
+      if (!mounted) return;
       if (Account.instance.me.value?.usedUp ?? false) {
         showUsedUp(context);
         return;
       }
     }
-    final run = ++_run;
-    bool stale() => !mounted || run != _run;
-
-    setState(() {
-      _dropCut();
-      _step = _Step.processing;
-      _progressPct = 0;
-      _progressStage = 'queued';
-    });
-
-    final api = _api = PocketDrsApi();
-    String? cutPath;
-    String? jobId;
-    String? key;
+    setState(() => _sending = true);
+    final nav = Navigator.of(context);
+    final cut =
+        '${Directory.systemTemp.path}/pocket_drs_cut_'
+        '${DateTime.now().microsecondsSinceEpoch}.mp4';
     try {
-      final pitchLengthM = await AppSettings.getPitchLength();
-      key =
-          '${video.path}|$_segmentStartMs|$_segmentEndMs|'
-          '$_batsmanHandedness|$pitchLengthM|${stumps.join(',')}';
-      final resume = _resume;
-      _resume = null;
-      if (resume != null && resume.key == key) {
-        jobId = resume.jobId;
-        cutPath = resume.cutPath;
-      } else if (resume?.cutPath case final old?) {
-        File(old).delete().ignore();
-      }
-      AnalysisResult? analysis;
-      if (jobId != null) {
-        _log('[ANALYZE] resuming job=$jobId');
-        try {
-          analysis = await api.waitForResult(
-            jobId,
-            cancelled: stale,
-            onStatus: _onStatus,
-          );
-        } on ApiException catch (e) {
-          // the server dropped it, so this is the one case that sends the clip again
-          if (e.statusCode != 404) rethrow;
-          jobId = null;
-          // the old key would hand back the expired job
-          _idem = null;
-          if (cutPath != null) File(cutPath).delete().ignore();
-          cutPath = null;
-        }
-      }
-      if (analysis == null) {
-        // upload only the marked segment, not the whole recording
-        cutPath =
-            '${Directory.systemTemp.path}/pocket_drs_cut_'
-            '${DateTime.now().microsecondsSinceEpoch}.mp4';
-        // the cut starts at a keyframe, so the chosen part sits at span[0] inside it
-        final List<int>? span;
-        try {
-          span = await _native.invokeListMethod<int>('trim', {
-            'input': video.path,
-            'output': cutPath,
-            'startMs': _segmentStartMs,
-            'endMs': _segmentEndMs,
-          });
-        } catch (e) {
-          _log('[ANALYZE] trim: $e');
-          throw StateError(
-            "Couldn't cut this clip. Try trimming it again, or pick another clip.",
-          );
-        }
-        final startMs = span![0];
-        final endMs = span[1];
-        final bytes = await File(cutPath).readAsBytes();
-        if (stale()) throw StateError('Cancelled');
-        setState(() => _progressStage = 'uploading');
-        final idem = _idem?.key == key
-            ? _idem!
-            : (_idem = (key: key, id: newIdempotencyKey()));
-        jobId = await api.createJob(
-          idempotencyKey: idem.id,
-          videoBytes: bytes,
-          videoFilename: video.name,
-          requestJson: jobRequest(
-            stumps: stumps,
-            handedness: _batsmanHandedness,
-            startMs: startMs,
-            endMs: endMs,
-            maxFrames: 240,
-            pitchLengthM: pitchLengthM,
-          ),
-        );
-        _log('[ANALYZE] job=$jobId');
-
-        analysis = await api.waitForResult(
-          jobId,
-          cancelled: stale,
-          onStatus: _onStatus,
-        );
-      }
-      if (stale()) return;
-      setState(() {
-        _analysis = analysis;
-        _jobId = jobId;
-        _cutPath = cutPath;
-        _step = _Step.results;
+      // the cut opens on a keyframe, so the chosen part sits at span[0] inside it
+      final span = await _native.invokeListMethod<int>('trim', {
+        'input': video.path,
+        'output': cut,
+        'startMs': _segmentStartMs,
+        'endMs': _segmentEndMs,
       });
-    } catch (e) {
-      _log('[ANALYZE] error: $e');
-      // the server has this job and may still finish it, so keep it for the next try
-      final resumable =
-          jobId != null &&
-          key != null &&
-          mounted &&
-          (stale() || (e is ApiException && e.statusCode != 404));
-      if (resumable) _resume = (key: key, jobId: jobId, cutPath: cutPath);
-      if (stale()) return;
-      // Most failures are calibration (re-mark stumps), drop back to the stump
-      // step so the user can adjust and retry without restarting.
-      setState(() => _step = _Step.stumps);
-      if (e is ApiException && e.kind == ApiErrorKind.usedUp) {
-        if (mounted) showUsedUp(context);
-        return;
-      }
-      // the sign-in screen takes over, so there is nothing to say here
-      if (e is ApiException && e.kind == ApiErrorKind.signIn) return;
-      final msg = switch (e) {
-        ApiException e => e.message,
-        JobFailedException e => e.message,
-        StateError e => e.message,
-        FileSystemException _ =>
-          "Couldn't read the clip from your phone. Pick it again.",
-        _ => 'Analysis failed. Try again.',
-      };
-      _showError(resumable ? '$msg Tap Continue to check it again.' : msg);
-    } finally {
-      api.close();
-      if (_api == api) _api = null;
-      if (cutPath != null &&
-          cutPath != _cutPath &&
-          cutPath != _resume?.cutPath) {
-        File(cutPath).delete().ignore();
-      }
-    }
-  }
-
-  void _onStatus(JobStatus status) {
-    if (!mounted) return;
-    setState(() {
-      _progressPct = status.pct;
-      _progressStage = status.stage ?? status.status;
-    });
-  }
-
-  void _dropResume() {
-    final cut = _resume?.cutPath;
-    _resume = null;
-    if (cut != null) File(cut).delete().ignore();
-  }
-
-  void _dropCut() {
-    final cut = _cutPath;
-    _cutPath = null;
-    if (cut != null) File(cut).delete().ignore();
-  }
-
-  // checking again from the stumps step cuts the source again, so a recorded one goes only once the user leaves
-  Future<void> _deleteRecordedSource() async {
-    final video = _video;
-    if (video == null || !_videoFromCamera || _analysis == null) return;
-    if (!await AppSettings.getAutoDeleteSource()) return;
-    try {
-      await File(video.path).delete();
-    } catch (e) {
-      _log('[ANALYZE] auto-delete failed: $e');
-    }
-  }
-
-  @override
-  void dispose() {
-    _api?.close();
-    _deleteRecordedSource();
-    _dropCut();
-    _dropResume();
-    super.dispose();
-  }
-
-  void _restart() {
-    _deleteRecordedSource();
-    setState(() {
-      _dropCut();
-      _dropResume();
-      _step = _Step.upload;
-      _video = null;
-      _videoFromCamera = false;
-      _segmentStartMs = 0;
-      _segmentEndMs = 600000;
-      _frameBytes = null;
-      _stumps = null;
-      _progressPct = null;
-      _progressStage = null;
-      _analysis = null;
-      _jobId = null;
-    });
-  }
-
-  Future<void> _back() async {
-    // a slip of the back button shouldn't throw away an upload
-    if (_step == _Step.processing) {
-      final stop = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Stop checking this ball?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Keep going'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Stop'),
-            ),
-          ],
+      final pitch = await AppSettings.getPitchSetup();
+      final review = await Reviews.instance.submit(
+        clip: cut,
+        frame: frame,
+        request: jobRequest(
+          stumps: stumps,
+          handedness: _hand,
+          startMs: span![0],
+          endMs: span[1],
+          pitchLengthM: pitch.lengthM,
+          stumpSize: pitch.stumps,
         ),
       );
-      // it may have finished while the dialog was up
-      if (stop != true || !mounted || _step != _Step.processing) return;
+      if (_videoFromCamera && await AppSettings.getAutoDeleteSource()) {
+        File(video.path).delete().ignore();
+      }
+      nav.pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => ReviewScreen(
+            review: review,
+            onAnother: () => nav.pushReplacement(
+              MaterialPageRoute<void>(builder: (_) => const AnalyzeScreen()),
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      _log('[ANALYZE] send: $e');
+      File(cut).delete().ignore();
+      _showError(switch (e) {
+        PlatformException _ =>
+          "Couldn't cut this clip. Trim it again, or pick another clip.",
+        FileSystemException _ =>
+          "Couldn't save the clip. Free some space on the phone, then try again.",
+        StateError e => e.message,
+        _ => "Couldn't send this ball. Try again.",
+      });
+      if (mounted) setState(() => _sending = false);
     }
+  }
+
+  void _back() {
     setState(() {
       switch (_step) {
         case _Step.trim:
@@ -417,12 +241,6 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         case _Step.stumps:
           _step = _Step.frame;
           _frameBytes = null;
-        case _Step.processing:
-          _run++;
-          _api?.close();
-          _step = _Step.stumps;
-        case _Step.results:
-          _step = _Step.stumps;
         case _Step.upload:
           break;
       }
@@ -434,289 +252,121 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
-        duration: const Duration(seconds: 10),
+        duration: const Duration(seconds: 8),
         showCloseIcon: true,
       ),
     );
   }
 
-  // -------------------------------------------------------------------- build
-  static const _totalSteps = 4;
-
   String get _title => switch (_step) {
-    _Step.upload => 'Choose a video',
+    _Step.upload => 'Check a clip',
     _Step.trim => 'Trim to the delivery',
     _Step.frame => 'Pick a clear frame',
     _Step.stumps => 'Mark the stumps',
-    _Step.processing => 'Analysing',
-    _Step.results => 'Result',
   };
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final isResults = _step == _Step.results;
-    final isProcessing = _step == _Step.processing;
-    final showProgress = !isResults && !isProcessing;
-
     return PopScope(
-      // Route the Android hardware back button through the same one-stage
-      // step-back the in-app arrow uses, so back never backgrounds/exits the
-      // app mid-flow. At the first step (upload) there is nothing to step back
-      // to, so canPop lets the OS handle the pop (exit).
-      canPop: _step == _Step.upload,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        _back();
+      // back steps through the flow, and only leaves it from the first step
+      canPop: _step == _Step.upload && !_sending,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !_sending) _back();
       },
       child: Scaffold(
-        backgroundColor: isResults ? AppColors.video : scheme.surface,
         appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: (_step != _Step.upload || Navigator.canPop(context))
-              ? IconButton(
-                  tooltip: 'Back',
-                  onPressed: _step == _Step.upload
-                      ? () => Navigator.pop(context)
-                      : _back,
-                  icon: const Icon(Icons.arrow_back),
-                )
-              : null,
           title: Text(_title),
-          bottom: showProgress
-              ? PreferredSize(
-                  preferredSize: const Size.fromHeight(4),
-                  child: _StepProgress(value: (_step.index + 1) / _totalSteps),
-                )
-              : null,
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(3),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(end: (_step.index + 1) / _Step.values.length),
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutCubic,
+              builder: (context, v, _) =>
+                  LinearProgressIndicator(value: v, minHeight: 3),
+            ),
+          ),
         ),
-        body: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 250),
-          child: KeyedSubtree(key: ValueKey(_step), child: _body()),
+        body: Stack(
+          children: [
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              child: KeyedSubtree(key: ValueKey(_step), child: _body()),
+            ),
+            if (_sending) ...[
+              const ModalBarrier(dismissible: false, color: Colors.black38),
+              const Center(child: CircularProgressIndicator()),
+            ],
+          ],
         ),
       ),
     );
   }
 
   Widget _body() {
-    switch (_step) {
-      case _Step.upload:
-        return _UploadStep(
-          onPick: _pickVideo,
-          handedness: _batsmanHandedness,
-          onHandednessChanged: (h) => setState(() => _batsmanHandedness = h),
-        );
-      case _Step.trim:
-        final v = _video;
-        return v == null
-            ? const SizedBox()
-            : VideoTrimSelector(
-                videoPath: v.path,
-                onTrimSelected: _onTrimSelected,
-              );
-      case _Step.frame:
-        final v = _video;
-        return v == null
-            ? const SizedBox()
-            : VideoFrameSelector(
-                videoPath: v.path,
-                onFrameSelected: _onFrameSelected,
-              );
-      case _Step.stumps:
-        return StumpMarker(
-          frame: _frameBytes!,
-          initialMarkers: _stumps,
-          onComplete: (m) {
-            setState(() => _stumps = m);
-            _analyse();
-          },
-        );
-      case _Step.processing:
-        return _ProcessingView(pct: _progressPct, stage: _progressStage);
-      case _Step.results:
-        return ResultsView(
-          videoPath: _cutPath ?? _video!.path,
-          result: _analysis!,
-          jobId: _jobId!,
-          action: FilledButton.icon(
-            icon: const Icon(Icons.refresh),
-            label: const Text('Check another ball'),
-            onPressed: _restart,
-          ),
-        );
-    }
-  }
-}
-
-/// Thin bar under the AppBar showing progress through the 4 upload/trim/
-/// frame/stumps steps. Glides to the new value instead of jumping.
-class _StepProgress extends StatelessWidget {
-  const _StepProgress({required this.value});
-  final double value;
-
-  @override
-  Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: value),
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
-      builder: (context, v, _) => LinearProgressIndicator(value: v),
-    );
-  }
-}
-
-class _UploadStep extends StatelessWidget {
-  const _UploadStep({
-    required this.onPick,
-    required this.handedness,
-    required this.onHandednessChanged,
-  });
-  final void Function(ImageSource) onPick;
-  final String handedness;
-  final void Function(String) onHandednessChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight),
-          child: IntrinsicHeight(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Spacer(),
-                Text('Pick a delivery', style: theme.textTheme.headlineSmall),
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  'Record or choose one clip of the delivery. You trim it to the ball, '
-                  'then mark the stumps on one frame.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-                const Spacer(),
-                const PlanStatus(),
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  'Batter',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<String>(
-                    expandedInsets: EdgeInsets.zero,
-                    // the tick pushes "Right-handed" past its half on a 320 wide phone
-                    showSelectedIcon: false,
-                    segments: const [
-                      ButtonSegment(
-                        value: 'right',
-                        label: Text('Right-handed'),
-                      ),
-                      ButtonSegment(value: 'left', label: Text('Left-handed')),
-                    ],
-                    selected: {handedness},
-                    onSelectionChanged: (s) => onHandednessChanged(s.first),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xl),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    icon: const Icon(Icons.videocam_outlined),
-                    label: const Text('Record video'),
-                    onPressed: () => onPick(ImageSource.camera),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.video_library_outlined),
-                    label: const Text('Choose from phone'),
-                    onPressed: () => onPick(ImageSource.gallery),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xl),
-              ],
-            ),
-          ),
-        ),
+    final v = _video;
+    return switch (_step) {
+      _Step.upload => _UploadStep(
+        onPick: _pickVideo,
+        hand: _hand,
+        onHand: (h) => setState(() => _hand = h),
       ),
-    );
+      _Step.trim => VideoTrimSelector(
+        videoPath: v!.path,
+        onTrimSelected: _onTrimSelected,
+      ),
+      _Step.frame => VideoFrameSelector(
+        videoPath: v!.path,
+        onFrameSelected: _onFrameSelected,
+      ),
+      _Step.stumps => StumpMarker(
+        frame: _frameBytes!,
+        actionLabel: 'Check this ball',
+        onComplete: _send,
+      ),
+    };
   }
 }
 
-class _ProcessingView extends StatelessWidget {
-  const _ProcessingView({required this.pct, required this.stage});
-  final int? pct;
-  final String? stage;
-
-  // same words as the website
-  static const Map<String, String> _stageHelp = {
-    'uploading': 'Sending your clip',
-    'queued': 'Waiting in line',
-    'starting': 'Loading the video',
-    'decode': 'Reading frames from your clip',
-    'calibration': 'Reading your stump marks',
-    'tracking': 'Finding the ball in every frame',
-    'reconstruction': "Working out the ball's path",
-    'lbw': 'Making the LBW call',
-    'finalize': 'Finishing up',
-  };
+class _SlowClipSheet extends StatelessWidget {
+  const _SlowClipSheet({required this.fps});
+  final double fps;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final p = (pct ?? 0).clamp(0, 100);
-    final help = _stageHelp[stage] ?? 'Working on your delivery';
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.xl),
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.xl,
+          0,
+          AppSpacing.xl,
+          AppSpacing.lg,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              '$p%',
-              style: AppTheme.tabular(
-                theme.textTheme.displayMedium,
-              )?.copyWith(color: scheme.primary),
+              'Filmed at ${fps.round()} frames a second',
+              style: theme.textTheme.titleLarge,
             ),
-            const SizedBox(height: AppSpacing.md),
-            Text('Checking the ball', style: theme.textTheme.titleMedium),
-            const SizedBox(height: AppSpacing.xs),
+            const SizedBox(height: AppSpacing.sm),
             Text(
-              help,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              'At this speed the ball jumps a long way between frames, so the '
+              'call is often unsure or missing. Set the camera to 60 frames a '
+              'second for the next clip.',
+              style: theme.textTheme.bodyMedium,
             ),
-            const SizedBox(height: AppSpacing.lg),
-            // Determinate bar when the backend has emitted a percent, animated
-            // indeterminate bar otherwise, so the user always sees motion and
-            // can tell the difference between "stuck at this percent" and
-            // "still working but no measurable progress yet".
-            SizedBox(
-              width: 240,
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0, end: pct == null ? 0 : p / 100.0),
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeOutCubic,
-                builder: (context, v, _) => LinearProgressIndicator(
-                  value: pct == null ? null : v,
-                  color: scheme.primary,
-                  backgroundColor: scheme.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                ),
-              ),
+            const SizedBox(height: AppSpacing.xl),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Pick another clip'),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            OutlinedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Use it anyway'),
             ),
           ],
         ),
@@ -725,194 +375,77 @@ class _ProcessingView extends StatelessWidget {
   }
 }
 
-class ResultsView extends StatelessWidget {
-  const ResultsView({
-    super.key,
-    required this.videoPath,
-    required this.result,
-    required this.jobId,
-    required this.action,
+class _UploadStep extends StatelessWidget {
+  const _UploadStep({
+    required this.onPick,
+    required this.hand,
+    required this.onHand,
   });
-  final String videoPath;
-  final AnalysisResult result;
-  final String jobId;
-  final Widget action;
-
-  Future<void> _open3D(BuildContext context) async {
-    try {
-      final opened = await launchUrl(
-        Uri.parse('$kServerUrl/v1/jobs/$jobId/three-d'),
-        mode: LaunchMode.externalApplication,
-      );
-      if (!opened) throw StateError('no browser');
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Could not open the 3D view. Is a web browser installed?',
-            ),
-          ),
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final lbw = result.lbw;
-    final size = MediaQuery.sizeOf(context);
-    final wide = size.width > size.height;
-    final video = Expanded(
-      child: ColoredBox(
-        color: AppColors.video,
-        child: SafeArea(
-          bottom: false,
-          child: TrajectoryVideoView(videoPath: videoPath, result: result),
-        ),
-      ),
-    );
-    // the server's warnings explain a missing call or a missing number; with no call the reason comes first, then the rest
-    final reason = [if (lbw != null) lbw.reason, ...result.warnings]
-        .where((l) => l.isNotEmpty)
-        .map((l) => l[0].toUpperCase() + l.substring(1))
-        .join('\n');
-    final panel = _ResultPanel(
-      wide: wide,
-      decision: lbw?.decision,
-      reason: reason.isEmpty && lbw == null
-          ? "The ball's path couldn't be worked out well enough to make a call."
-          : reason,
-      // the 3D page needs the fitted path, which only comes with a call
-      onOpen3D: lbw == null ? null : () => _open3D(context),
-      action: action,
-    );
-    // on a tripod the phone is often sideways, where a panel under the video would leave it no room
-    return wide
-        ? Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              video,
-              SizedBox(width: min(360, size.width * 0.55), child: panel),
-            ],
-          )
-        : Column(
-            children: [
-              video,
-              ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: size.height * 0.55),
-                child: panel,
-              ),
-            ],
-          );
-  }
-}
-
-/// Verdict banner, reason and actions under the video. Fades in once so the
-/// result doesn't just pop into place.
-class _ResultPanel extends StatelessWidget {
-  const _ResultPanel({
-    required this.wide,
-    required this.decision,
-    required this.reason,
-    required this.onOpen3D,
-    required this.action,
-  });
-
-  final bool wide;
-  final LbwDecisionKey? decision;
-  final String reason;
-  final VoidCallback? onOpen3D;
-  final Widget action;
+  final void Function(ImageSource) onPick;
+  final String hand;
+  final void Function(String) onHand;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final verdictText = decision.label;
-    final verdictNote = switch (decision) {
-      LbwDecisionKey.umpiresCall =>
-        "Too close to call, so the on-field umpire's decision stands.",
-      null =>
-        "The app couldn't make a call on this ball. This is not a not out. $notCounted",
-      _ => null,
-    };
-    final fill = AppColors.verdict(decision);
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
-      builder: (context, t, child) => Opacity(opacity: t, child: child),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerLow,
-          borderRadius: wide
-              ? const BorderRadius.horizontal(
-                  left: Radius.circular(AppRadius.lg),
-                )
-              : const BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
-        ),
-        child: SafeArea(
-          top: wide,
-          left: false,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.xl,
-              AppSpacing.lg,
-              AppSpacing.xl,
-              AppSpacing.lg,
+    return SafeArea(
+      top: false,
+      child: LayoutBuilder(
+        builder: (context, box) => SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: box.maxHeight - AppSpacing.lg * 2,
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: AppSpacing.xl,
-                    horizontal: AppSpacing.lg,
+            child: IntrinsicHeight(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'One clip of one delivery',
+                    style: theme.textTheme.headlineSmall,
                   ),
-                  decoration: BoxDecoration(
-                    color: fill ?? scheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(AppRadius.lg),
-                  ),
-                  child: Text(
-                    verdictText,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.displaySmall?.copyWith(
-                      color: fill == null
-                          ? scheme.onSurfaceVariant
-                          : AppColors.onVerdict(fill),
-                    ),
-                  ),
-                ),
-                if (verdictNote != null) ...[
                   const SizedBox(height: AppSpacing.sm),
                   Text(
-                    verdictNote,
-                    textAlign: TextAlign.center,
+                    "Filmed from behind the bowler's stumps with both sets of "
+                    'stumps in view. You trim it to the ball, then mark the '
+                    'stumps on one frame.',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
-                ],
-                const SizedBox(height: AppSpacing.md),
-                if (reason.isNotEmpty) ...[
-                  Text(reason, style: theme.textTheme.bodyLarge),
-                  const SizedBox(height: AppSpacing.lg),
-                ],
-                if (onOpen3D != null) ...[
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.view_in_ar_outlined),
-                      label: const Text('View in 3D'),
-                      onPressed: onOpen3D,
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const FilmingGuideScreen(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.help_outline),
+                      label: const Text('How to film'),
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.sm),
+                  const Spacer(),
+                  const SizedBox(height: AppSpacing.xl),
+                  const PlanStatus(),
+                  const SizedBox(height: AppSpacing.lg),
+                  BatterPicker(hand: hand, onChanged: onHand),
+                  const SizedBox(height: AppSpacing.xl),
+                  FilledButton.icon(
+                    icon: const Icon(Icons.videocam_outlined),
+                    label: const Text('Record a clip'),
+                    onPressed: () => onPick(ImageSource.camera),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.video_library_outlined),
+                    label: const Text('Choose from phone'),
+                    onPressed: () => onPick(ImageSource.gallery),
+                  ),
                 ],
-                SizedBox(width: double.infinity, child: action),
-              ],
+              ),
             ),
           ),
         ),

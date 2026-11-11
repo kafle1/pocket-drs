@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'account/account.dart';
+import 'reviews/reviews.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
 import 'screens/home_screen.dart';
@@ -25,6 +26,7 @@ class _PocketDrsAppState extends State<PocketDrsApp> {
     super.initState();
     ThemeController.instance.ensureLoaded();
     Account.instance.signedIn.addListener(_onSignedIn);
+    _openReviews();
     _life = AppLifecycleListener(
       onResume: () => unawaited(Account.instance.refreshMe()),
     );
@@ -37,8 +39,16 @@ class _PocketDrsAppState extends State<PocketDrsApp> {
     super.dispose();
   }
 
+  // a review left running when the app was closed picks up again here
+  void _openReviews() => unawaited(
+    Reviews.instance.open(
+      Account.instance.signedIn.value ? Account.instance.uid : null,
+    ),
+  );
+
   // signing out mid-flow drops every open screen back to the sign-in gate
   void _onSignedIn() {
+    _openReviews();
     if (!Account.instance.signedIn.value) {
       _nav.currentState?.popUntil((r) => r.isFirst);
     }

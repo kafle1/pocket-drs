@@ -11,12 +11,14 @@ import '../analysis/frame_decoder.dart';
 import '../account/account.dart';
 import '../api/analysis_result.dart';
 import '../api/pocket_drs_api.dart';
+import '../reviews/reviews.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../utils/app_settings.dart';
 import '../widgets/account_widgets.dart';
-import '../widgets/image_marker.dart';
-import 'analyze_screen.dart';
+import '../widgets/batter_picker.dart';
+import '../widgets/stump_marker.dart';
+import 'review_screen.dart';
 
 const _native = MethodChannel('pocket_drs/native');
 const _clipMs = 4000;
@@ -36,28 +38,16 @@ class SessionScreen extends StatefulWidget {
 
 enum _Phase { preview, marking, running }
 
-enum _BallState { uploading, analysing, failed, done }
-
+// a ball is a card from the moment Ball is pressed; it becomes a review once its clip is cut and sent
 class _Ball {
-  _Ball(this.number, this.hand);
+  _Ball(this.number);
   final int number;
-  final String hand;
-  String? clip;
-  // the 4 s window inside the cut clip, which can open a keyframe early
-  int startMs = 0;
-  int endMs = 0;
-  _BallState state = _BallState.uploading;
+  Review? review;
   String? error;
-  bool canRetry = false;
-  String? jobId;
-  // reused on every retry of this ball, so a lost reply can't spend a second review
-  String idem = newIdempotencyKey();
-  AnalysisResult? result;
 }
 
 class _SessionScreenState extends State<SessionScreen>
     with WidgetsBindingObserver {
-  final _api = PocketDrsApi();
   late final Future<Directory> _dir = _prepareDir();
   final _balls = <_Ball>[];
   final _clock = Stopwatch();
@@ -82,6 +72,7 @@ class _SessionScreenState extends State<SessionScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    Reviews.instance.addListener(_onReviews);
     _native.setMethodCallHandler((call) async {
       if (call.method == 'mark') _mark();
     });
@@ -90,6 +81,8 @@ class _SessionScreenState extends State<SessionScreen>
       if (mounted) setState(() => _unit = u);
     });
   }
+
+  void _onReviews() => setState(() {});
 
   @override
   void dispose() {
@@ -100,8 +93,8 @@ class _SessionScreenState extends State<SessionScreen>
     if (_pending case (final c, final init)) {
       unawaited(init.then((_) {}, onError: (_) {}).whenComplete(c.dispose));
     }
+    Reviews.instance.removeListener(_onReviews);
     _lifecycle.whenComplete(() async {
-      _api.close();
       try {
         await (await _dir).delete(recursive: true);
       } catch (_) {}
@@ -286,7 +279,7 @@ class _SessionScreenState extends State<SessionScreen>
     _camOp((c) async {
       if (_phase != _Phase.running || !c.value.isRecordingVideo) return;
       final endMs = _clock.elapsedMilliseconds;
-      final b = _Ball(++_count, _hand);
+      final b = _Ball(++_count);
       setState(() => _balls.insert(0, b));
       final XFile raw;
       try {
@@ -311,131 +304,60 @@ class _SessionScreenState extends State<SessionScreen>
       return;
     }
     final out = '${(await _dir).path}/ball_${b.number}.mp4';
+    final List<int> span;
     try {
-      final span = await _native.invokeListMethod<int>('trim', {
+      span = (await _native.invokeListMethod<int>('trim', {
         'input': raw,
         'output': out,
         'startMs': max(0, endMs - _clipMs),
         'endMs': endMs,
-      });
-      b
-        ..clip = out
-        ..startMs = span![0]
-        ..endMs = span[1];
+      }))!;
     } catch (e) {
       debugPrint('[SESSION] trim: $e');
-      _fail(b, "Couldn't cut this ball's clip. Bowl it again.");
-      return;
+      return _fail(b, "Couldn't cut this ball's clip. Bowl it again.");
     } finally {
       File(raw).delete().ignore();
     }
     if (!_live(b)) return File(out).delete().ignore();
-    await _send(b);
-  }
-
-  Future<void> _send(_Ball b) async {
-    setState(
-      () => b
-        ..state = _BallState.uploading
-        ..canRetry = false,
-    );
-    // no upload when the server would turn it away
+    // no upload when the server would turn it away; the plan may have changed, so check first
     if (Account.instance.me.value?.usedUp ?? false) {
-      // they may have been given premium since, so check before refusing
       await Account.instance.refreshMe();
-      if (!_live(b)) return;
       if (Account.instance.me.value?.usedUp ?? false) {
+        File(out).delete().ignore();
         if (mounted) showUsedUp(context);
-        return _fail(b, kUsedUp, retry: true);
+        return _fail(b, kUsedUp);
       }
     }
     try {
-      b.jobId = await _api.createJob(
-        idempotencyKey: b.idem,
-        videoBytes: await File(b.clip!).readAsBytes(),
-        videoFilename: 'ball_${b.number}.mp4',
-        requestJson: jobRequest(
+      final pitch = await AppSettings.getPitchSetup();
+      final r = await Reviews.instance.submit(
+        clip: out,
+        frame: _frame!,
+        request: jobRequest(
           stumps: _stumps!,
-          handedness: b.hand,
-          startMs: b.startMs,
-          endMs: b.endMs,
-          maxFrames: 240,
-          pitchLengthM: await AppSettings.getPitchLength(),
+          handedness: _hand,
+          startMs: span[0],
+          endMs: span[1],
+          pitchLengthM: pitch.lengthM,
+          stumpSize: pitch.stumps,
         ),
       );
+      if (_live(b)) setState(() => b.review = r);
     } catch (e) {
-      final kind = e is ApiException ? e.kind : null;
-      if (kind == ApiErrorKind.usedUp && mounted) showUsedUp(context);
-      // a used-up ball can go once premium is given, and a sign-out leaves this screen anyway
-      _fail(b, _describe(e), retry: kind != ApiErrorKind.signIn);
-      return;
-    }
-    if (!_live(b)) return;
-    setState(() => b.state = _BallState.analysing);
-    try {
-      final r = await _api.waitForResult(b.jobId!, cancelled: () => !_live(b));
-      if (_live(b)) {
-        setState(
-          () => b
-            ..result = r
-            ..state = _BallState.done,
-        );
-      }
-    } catch (e) {
-      // a dropped connection is worth another go; a verdict the server refused is not
-      _fail(b, _describe(e), retry: e is ApiException);
-    }
-  }
-
-  // the first job is often still queued or running server-side, so retry
-  // resumes polling it instead of uploading a duplicate into the queue
-  Future<void> _retry(_Ball b) async {
-    final jobId = b.jobId;
-    if (jobId == null) return _send(b);
-    setState(
-      () => b
-        ..state = _BallState.analysing
-        ..canRetry = false,
-    );
-    try {
-      final r = await _api.waitForResult(jobId, cancelled: () => !_live(b));
-      if (_live(b)) {
-        setState(
-          () => b
-            ..result = r
-            ..state = _BallState.done,
-        );
-      }
-    } catch (e) {
-      if (!_live(b)) return;
-      // the job is gone server-side, so there is nothing left to resume
-      final dead = e is ApiException && e.statusCode == 404;
-      if (dead) {
-        // the old key would hand back the expired job
-        b
-          ..jobId = null
-          ..idem = newIdempotencyKey();
-        return _send(b);
-      }
-      _fail(b, _describe(e), retry: e is ApiException);
+      debugPrint('[SESSION] submit: $e');
+      _fail(b, _describe(e));
     }
   }
 
   bool _live(_Ball b) => mounted && _balls.contains(b);
 
-  void _fail(_Ball b, String error, {bool retry = false}) {
-    if (!_live(b)) return;
-    setState(
-      () => b
-        ..state = _BallState.failed
-        ..error = error
-        ..canRetry = retry,
-    );
+  void _fail(_Ball b, String error) {
+    if (_live(b)) setState(() => b.error = error);
   }
 
   void _dismiss(_Ball b) {
     setState(() => _balls.remove(b));
-    if (b.clip != null) File(b.clip!).delete().ignore();
+    if (b.review case final r?) Reviews.instance.delete(r);
   }
 
   String _describe(Object e) {
@@ -462,47 +384,9 @@ class _SessionScreenState extends State<SessionScreen>
     };
   }
 
-  Future<bool> _confirmLeave() async {
-    final leave = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Leave session?'),
-        content: const Text('The results here will be lost.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Stay'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Leave'),
-          ),
-        ],
-      ),
-    );
-    return leave ?? false;
-  }
-
-  void _openResult(_Ball b) => Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (context) => Scaffold(
-        backgroundColor: AppColors.video,
-        body: ResultsView(
-          videoPath: b.clip!,
-          result: b.result!,
-          jobId: b.jobId!,
-          action: SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.arrow_back),
-              label: const Text('Back to session'),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
+  void _openResult(Review r) => Navigator.of(
+    context,
+  ).push(MaterialPageRoute<void>(builder: (_) => ReviewScreen(review: r)));
 
   @override
   Widget build(BuildContext context) {
@@ -532,7 +416,11 @@ class _SessionScreenState extends State<SessionScreen>
                   ],
                 ),
                 Expanded(
-                  child: StumpMarker(frame: _frame!, onComplete: _start),
+                  child: StumpMarker(
+                    frame: _frame!,
+                    actionLabel: 'Start the session',
+                    onComplete: _start,
+                  ),
                 ),
               ],
             ),
@@ -542,30 +430,19 @@ class _SessionScreenState extends State<SessionScreen>
     }
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
-    return PopScope(
-      canPop: _balls.isEmpty,
-      onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) return;
-        if (await _confirmLeave() && context.mounted) {
-          Navigator.of(context).pop();
-        }
-      },
-      child: Scaffold(
-        body: SafeArea(
-          child: Flex(
-            direction: landscape ? Axis.horizontal : Axis.vertical,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                flex: 3,
-                child: ColoredBox(
-                  color: AppColors.video,
-                  child: _preview(theme),
-                ),
-              ),
-              Expanded(flex: 2, child: _panel(theme)),
-            ],
-          ),
+    // every ball is kept in the reviews, so leaving loses nothing
+    return Scaffold(
+      body: SafeArea(
+        child: Flex(
+          direction: landscape ? Axis.horizontal : Axis.vertical,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              flex: 3,
+              child: ColoredBox(color: AppColors.video, child: _preview(theme)),
+            ),
+            Expanded(flex: 2, child: _panel(theme)),
+          ],
         ),
       ),
     );
@@ -611,7 +488,7 @@ class _SessionScreenState extends State<SessionScreen>
     final busy = _op != null;
     final hint = running
         ? 'Press Ball or a volume key right after each delivery. '
-              'Swipe a card away to delete it.'
+              'Every ball is also kept in your reviews.'
         : 'Stand the phone behind the bowler\'s stumps with both sets '
               'of stumps in view, then tap Mark stumps.';
     final actionLabel = running ? 'Ball' : 'Mark stumps';
@@ -632,16 +509,7 @@ class _SessionScreenState extends State<SessionScreen>
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
-        SegmentedButton<String>(
-          segments: const [
-            ButtonSegment(value: 'right', label: Text('Right-handed')),
-            ButtonSegment(value: 'left', label: Text('Left-handed')),
-          ],
-          selected: {_hand},
-          // the tick pushes "Right-handed" past its half on a 320 wide phone
-          showSelectedIcon: false,
-          onSelectionChanged: (s) => setState(() => _hand = s.first),
-        ),
+        BatterPicker(hand: _hand, onChanged: (h) => setState(() => _hand = h)),
         const SizedBox(height: AppSpacing.md),
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 250),
@@ -681,29 +549,33 @@ class _SessionScreenState extends State<SessionScreen>
 
   Widget _card(_Ball b, ThemeData theme) {
     final scheme = theme.colorScheme;
-    final fill = b.state == _BallState.done
-        ? AppColors.verdict(b.result!.lbw?.decision)
-        : null;
-    final m = b.result?.metrics;
+    final r = b.review;
+    final result = r?.state == ReviewState.done ? r!.result : null;
+    final fill = AppColors.verdict(result?.lbw?.decision);
+    final m = result?.metrics;
     final speedValue = _unit == SpeedUnit.kmh ? m?.speedKmh : m?.speedMph;
     final speed = speedValue == null
         ? ''
-        : ' · ${speedValue.toStringAsFixed(1)} ${_unit.label}';
-    final (status, color) = switch (b.state) {
-      _BallState.uploading => ('Uploading', scheme.onSurfaceVariant),
-      _BallState.analysing => ('Analysing', scheme.onSurfaceVariant),
-      _BallState.failed => (b.error ?? 'Failed', scheme.error),
-      _BallState.done => (
-        '${b.result!.lbw?.decision.label}$speed',
-        b.result!.lbw?.decision == null
-            ? scheme.onSurfaceVariant
-            : scheme.onSurface,
-      ),
+        : ' · ${speedValue.toStringAsFixed(0)} ${_unit.label}';
+    final failed =
+        b.error != null ||
+        r?.state == ReviewState.failed ||
+        r?.state == ReviewState.expired;
+    final status = switch (r?.state) {
+      _ when b.error != null => b.error!,
+      null => 'Cutting the clip',
+      ReviewState.sending => 'Sending',
+      ReviewState.checking => 'Checking',
+      ReviewState.done =>
+        result!.hasCall
+            ? '${result.lbw!.decision.label}$speed'
+            : 'No call, tap to see why',
+      _ => r!.error ?? "Wasn't checked",
     };
     return Dismissible(
       key: ObjectKey(b),
       onDismissed: (_) => _dismiss(b),
-      child: Card.filled(
+      child: Card(
         margin: const EdgeInsets.only(bottom: AppSpacing.sm),
         child: ListTile(
           leading: CircleAvatar(
@@ -716,28 +588,31 @@ class _SessionScreenState extends State<SessionScreen>
           ),
           title: Text('Ball ${b.number}'),
           subtitle: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 250),
+            duration: const Duration(milliseconds: 220),
             child: Text(
               status,
               key: ValueKey(status),
-              style: TextStyle(color: color),
+              style: TextStyle(
+                color: failed ? scheme.error : scheme.onSurfaceVariant,
+              ),
             ),
           ),
-          trailing: switch (b.state) {
-            _BallState.uploading ||
-            _BallState.analysing => const SizedBox.square(
+          trailing: switch (r?.state) {
+            _ when b.error != null => null,
+            null ||
+            ReviewState.sending ||
+            ReviewState.checking => const SizedBox.square(
               dimension: 24,
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
-            _BallState.failed when b.canRetry => IconButton(
-              onPressed: () => _retry(b),
+            _ when r!.retryable => IconButton(
+              onPressed: () => Reviews.instance.retry(r),
               icon: const Icon(Icons.refresh),
-              tooltip: 'Retry',
+              tooltip: 'Try again',
             ),
-            _BallState.done => const Icon(Icons.chevron_right),
-            _ => null,
+            _ => const Icon(Icons.chevron_right),
           },
-          onTap: b.state == _BallState.done ? () => _openResult(b) : null,
+          onTap: r == null ? null : () => _openResult(r),
         ),
       ),
     );

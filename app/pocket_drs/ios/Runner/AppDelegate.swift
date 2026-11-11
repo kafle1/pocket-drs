@@ -15,6 +15,14 @@ import UIKit
         switch call.method {
         case "trim":
           AppDelegate.trim(call.arguments as! [String: Any], result)
+        case "videoInfo":
+          let path = (call.arguments as! [String: Any])["path"] as! String
+          let asset = AVURLAsset(url: URL(fileURLWithPath: path))
+          let seconds = asset.duration.seconds
+          result([
+            "fps": Double(asset.tracks(withMediaType: .video).first?.nominalFrameRate ?? 0),
+            "durationMs": seconds.isFinite ? Int(seconds * 1000) : 0,
+          ])
         case "keepScreenOn":
           UIApplication.shared.isIdleTimerDisabled = call.arguments as? Bool ?? false
           result(nil)
