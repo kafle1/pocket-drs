@@ -15,7 +15,7 @@ The result dict is the client contract:
                       fit{x0, y0, z0, vx, vy, vz, bounce_t_ms, rms_px, rms_m, notes[]}, model{...}}
     events           {bounce{t_ms, x_m, y_m, z_m, sigma_x_m, sigma_y_m}, impact{t_ms, x_m, y_m, z_m}}
     lbw              {decision, reason, checks{...}, prediction{y_at_stumps_m, z_at_stumps_m, stump_x_m,
-                      confidence, sigma_y_m, sigma_z_m, uncertainty_k}}
+                      u_y_m, u_z_m, U95_y_m, U95_z_m, sigma_fit_*, sigma_cal_*, calibrated}}
     overlay          pixel-space polylines and markers, see overlay.py
     metrics          {speed_kmh, speed_mph, swing_sf, spin_deg}
     diagnostics      {warnings[]}
@@ -41,9 +41,10 @@ from ..models import ApiError, CreateJobRequest
 from .calibration import CalibrationError, solve_camera_pose
 from .decision import decide
 from .overlay import build_overlay
-from .reconstruction import BALL_RADIUS_M, bounce_sigma, position_sigma, predict_stump_plane, reconstruct, sample_path
+from .reconstruction import BALL_RADIUS_M, reconstruct, sample_path
 from .tracking import ColourMotionDetector, YoloDetector, build_pitch_roi_mask, drop_impossible
 from .trajectory import find_ball_trajectory
+from .uncertainty import GUARD_K, MAX_FIT_RMS_PX, calibrated, calibration_sigma, camera_end, measurands
 from .video import VideoDecodeError, VideoReader
 
 _log = logging.getLogger("pocket_drs.pipeline")
@@ -51,12 +52,9 @@ _log = logging.getLogger("pocket_drs.pipeline")
 YOLO_WEIGHTS = Path(__file__).resolve().parents[2] / "models" / "cricket_ball.pt"
 # a correct full-pitch tap calibration sits well under 10 px; the bound scales with frame width
 CALIB_REJECT_PX, CALIB_REJECT_FRAC = 25.0, 0.03
-# above this pixel residual the 3-D model does not explain the track and no verdict is given
-MAX_FIT_RMS_PX = 12.0
 # a track point this far off the fitted flight is an outlier by a 3-sigma rule, even at the
 # largest residual the app accepts
 FLIGHT_OUTLIER_PX = 3.0 * MAX_FIT_RMS_PX
-UNCERTAINTY_K = 1.0
 
 ProgressFn = Callable[[int, str], None]
 
@@ -89,15 +87,24 @@ def _points(cal, key: str, width: int, height: int) -> list[tuple[float, float]]
     return [(p.x, p.y) for p in getattr(cal, f"{key}_px")]
 
 
-def _quad_area(pts) -> float:
-    return abs(sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]))) / 2.0
+def _leg_sign(handedness: str) -> float:
+    """+1 when world +y is the batter's leg side. The world frame is fixed to the pitch whichever
+    end the phone is at, so only the batter's hand flips it."""
+    return -1.0 if handedness == "left" else 1.0
 
 
-def _leg_sign(stumps: list[tuple[float, float]], handedness: str) -> float:
-    """+1 when world +y is the batter's leg side. The nearer (larger) stump rectangle marks the
-    camera's end; a left-hander and a bowler's-end view each flip the sign."""
-    end = 1.0 if _quad_area(stumps[0:4]) >= _quad_area(stumps[4:8]) else -1.0
-    return end * (-1.0 if handedness == "left" else 1.0)
+def _resolve(image_size: tuple[int, int], cal, taps: np.ndarray):
+    """The pose from 8 stump marks then 4 pitch corners, with the request's dimensions."""
+    return solve_camera_pose(image_size=image_size, stump_quads_px=[tuple(p) for p in taps[:8]],
+                             pitch_corners_px=[tuple(p) for p in taps[8:]],
+                             pitch_width_m=cal.pitch_dimensions_m.width, fov_deg=cal.h_fov_deg,
+                             pitch_length_m=cal.pitch_dimensions_m.length)
+
+
+def detections(image_points: list[dict]) -> list[tuple]:
+    """(t_s from the first point, u, v, radius_px, weight) for the fit."""
+    return [((p["t_ms"] - image_points[0]["t_ms"]) / 1000.0, p["u"], p["v"], p["radius_px"], max(0.05, p["confidence"]))
+            for p in image_points]
 
 
 def _rotate(frame: np.ndarray, deg: int) -> np.ndarray:
@@ -264,10 +271,8 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
     report(30, "calibration")
     corners = _points(req.calibration, "pitch_corners", width, height)
     stumps = _points(req.calibration, "stump_quads", width, height)
-    pose = solve_camera_pose(image_size=(width, height), stump_quads_px=stumps, pitch_corners_px=corners,
-                             pitch_width_m=req.calibration.pitch_dimensions_m.width,
-                             fov_deg=req.calibration.h_fov_deg,
-                             pitch_length_m=req.calibration.pitch_dimensions_m.length)
+    taps = np.array(list(stumps) + list(corners), dtype=float)
+    pose = _resolve((width, height), req.calibration, taps)
     reject = max(CALIB_REJECT_PX, CALIB_REJECT_FRAC * width)
     if pose.reproj_error_px > reject:
         raise CalibrationError(
@@ -280,9 +285,12 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
             "Re-mark the stumps in order: striker end then bowler end, top-left, top-right, bottom-right, bottom-left.")
     if not (2.0 <= pose.pitch_length_m <= 25.0):
         raise CalibrationError(f"Calibration rejected: derived pitch length {pose.pitch_length_m:.2f} m is implausible.")
+    if not pose.used_corners:
+        warnings.append("the pitch corners disagree with the stumps and were left out; "
+                        "tap them clockwise, the two at the striker end first")
     if pose.reproj_error_px > 8.0:
         warnings.append(f"high calibration reprojection error ({pose.reproj_error_px:.1f} px); re-tap the stump corners")
-    leg_sign = _leg_sign(stumps, req.batsman_handedness)
+    leg_sign = _leg_sign(req.batsman_handedness)
     _log.info("calibration ok: reproj=%.2fpx length=%.2fm cam=(%.2f,%.2f,%.2f) fx=%.0f",
               pose.reproj_error_px, pose.pitch_length_m, *pose.centre_world, pose.fx)
 
@@ -318,7 +326,7 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
                                         diag=diag, pose=pose, fps=meta.fps, warnings=warnings)
     report(55, "tracking")
     if fit is None:
-        warnings.append("no consistent ball trajectory found; check ball colour, lighting and framing")
+        warnings.append("no consistent ball trajectory found")
         result["track"] = {"image_points": [], "candidates_total": sum(len(d) for _, d in dets_per_frame),
                            "inliers": 0, "rms_px": 0.0}
         return finish()
@@ -338,11 +346,10 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
     # ---- reconstruct ----------------------------------------------------------
     report(65, "reconstruction")
     t0_ms = image_points[0]["t_ms"]
-    dets = [((p["t_ms"] - t0_ms) / 1000.0, p["u"], p["v"], p["radius_px"], max(0.05, p["confidence"]))
-            for p in image_points]
-    rec = reconstruct(pose, dets)
+    dets = detections(image_points)
+    meas = measurands(pose, dets)
     n_walk = len(dets) - len(live)
-    if (rec is None or rec.rms_px > MAX_FIT_RMS_PX) and n_walk > 0:
+    if meas is None and n_walk > 0:
         # the walk past the arc takes the most confident nearby detection, which may not be the
         # ball, so keep only the walk points the arc's own flight explains and fit again
         arc = reconstruct(pose, dets[:len(live)])
@@ -355,39 +362,46 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
                                 "that its flight does not explain")
                 image_points[len(live):] = [image_points[i] for i in keep]
                 dets = dets[:len(live)] + [dets[i] for i in keep]
-                rec = reconstruct(pose, dets)
-    if rec is None or rec.rms_px > MAX_FIT_RMS_PX:
+                meas = measurands(pose, dets)
+    if meas is None:
+        rec = reconstruct(pose, dets)
         why = "did not converge" if rec is None else f"{rec.rms_px:.1f} px residual"
         warnings.append(f"3-D reconstruction discarded ({why}); the track or the calibration is unreliable")
         return finish()
-    tr = rec.trajectory
+    rec, pred, tr, impact = meas.rec, meas.pred, meas.rec.trajectory, meas.impact
     if not tr.bounce_observed:
-        warnings.append("no bounce in the tracked window; the flight was fitted as a single parabola")
+        warnings.append("no bounce in the tracked window; the flight was fitted as a single parabola, so the "
+                        "pitching test is skipped, no bias correction is applied and the uncertainty takes "
+                        "its widest factor and largest model term")
 
-    # ---- predict and decide -----------------------------------------------------
+    # ---- uncertainty and decision -------------------------------------------------
+    report(75, "uncertainty")
+    sig_cal, n_failed = calibration_sigma(partial(_resolve, (width, height), req.calibration), taps, dets, meas,
+                                          pose.tap_sigma_px)
+    if n_failed:
+        warnings.append(f"{n_failed} of {taps.size} perturbed calibration solves failed; what they lost "
+                        "counts as unknown, so the verdict is at most umpire's call")
+    cal = calibrated(camera_end(pose), leg_sign, meas.values, meas.sigma_fit, sig_cal, meas.x_b, tr.bounce_observed)
+
+    def get(q, key):
+        return cal[q][key] if q in cal else None
+
     report(85, "lbw")
-    t_last = dets[-1][0]
-    pred = predict_stump_plane(rec)
-    impact = tr.position(np.array([t_last]))[0]
-    sig_bx, sig_by = bounce_sigma(rec)
-    verdict = decide(leg_sign=leg_sign,
-                     pitch_y=float(tr.y_b) if tr.bounce_observed else None, pitch_sigma=sig_by,
-                     impact_y=float(impact[1]), impact_sigma=position_sigma(rec, t_last)[1],
-                     stump_y=pred.y if pred else None, stump_z=pred.z if pred else None,
-                     sigma_y=pred.sigma_y if pred else 0.0, sigma_z=pred.sigma_z if pred else 0.0,
-                     k=UNCERTAINTY_K)
-    predicted = sample_path(tr, t_last, pred.t, 24) if pred and pred.t > t_last else np.empty((0, 4))
-    confidence = max(0.20, min(0.95, 1.0 - ((pred.sigma_y + pred.sigma_z) if pred else 1.0) / 0.30))
+    verdict = decide(leg_sign=leg_sign, pitch_y=get("pitch_y", "value"), pitch_sigma=get("pitch_y", "sigma"),
+                     impact_y=get("impact_y", "value"), impact_sigma=get("impact_y", "sigma"),
+                     stump_y=get("y", "value"), stump_z=get("z", "value"),
+                     sigma_y=get("y", "sigma"), sigma_z=get("z", "sigma"), k=GUARD_K)
+    predicted = sample_path(tr, meas.t_impact, pred.t, 24) if pred and pred.t > meas.t_impact else np.empty((0, 4))
     bounce_ms = round(t0_ms + tr.t_b * 1000.0) if tr.bounce_observed else None
-    impact_ms = round(t0_ms + t_last * 1000.0)
+    impact_ms = round(t0_ms + meas.t_impact * 1000.0)
     world_points = tr.position(np.array([d[0] for d in dets]))
     v0 = tr.velocity(0.0)
 
     result["world_trajectory"] = {
         "points_m": [{"t_ms": float(p["t_ms"]), "x": float(w[0]), "y": float(w[1]), "z": float(max(w[2], 0.0)),
                       "confidence": float(p["confidence"])} for p, w in zip(image_points, world_points)],
-        "predicted_to_stumps_m": [{"t_ms": round(t0_ms + t * 1000.0), "x": float(x), "y": float(y), "z": float(z),
-                                   "confidence": confidence} for t, x, y, z in predicted],
+        "predicted_to_stumps_m": [{"t_ms": round(t0_ms + t * 1000.0), "x": float(x), "y": float(y), "z": float(z)}
+                                  for t, x, y, z in predicted],
         "fit": {"x0": float(world_points[0][0]), "y0": float(world_points[0][1]), "z0": float(world_points[0][2]),
                 "vx": float(v0[0]), "vy": float(v0[1]), "vz": float(v0[2]),
                 "bounce_t_ms": tr.t_b * 1000.0 if tr.bounce_observed else None,
@@ -400,17 +414,20 @@ def run_pipeline(*, video_path: Path, request_json: dict, artifacts_dir: Path,
                    "x_m": float(tr.x_b) if tr.bounce_observed else None,
                    "y_m": float(tr.y_b) if tr.bounce_observed else None,
                    "z_m": BALL_RADIUS_M if tr.bounce_observed else None,
-                   "sigma_x_m": sig_bx, "sigma_y_m": sig_by},
+                   "sigma_x_m": math.sqrt(max(float(rec.covariance[1, 1]), 0.0)) if tr.bounce_observed else None,
+                   "sigma_y_m": meas.sigma_fit["pitch_y"] if tr.bounce_observed else None},
         "impact": {"t_ms": impact_ms, "x_m": float(impact[0]), "y_m": float(impact[1]), "z_m": float(max(impact[2], 0.0))},
     }
     result["lbw"] = {
         "decision": verdict.decision, "reason": verdict.reason,
         "checks": {"pitching_in_line": verdict.pitching_in_line, "impact_in_line": verdict.impact_in_line,
                    "wickets_hitting": verdict.wickets_hitting},
-        "prediction": {"y_at_stumps_m": pred.y if pred else None, "z_at_stumps_m": pred.z if pred else None,
-                       "stump_x_m": 0.0, "confidence": confidence,
-                       "sigma_y_m": pred.sigma_y if pred else None, "sigma_z_m": pred.sigma_z if pred else None,
-                       "uncertainty_k": UNCERTAINTY_K},
+        # y and z have the rule's bias removed where it has one; u and U95 are half-widths of the calibrated 68 and 95 % intervals
+        "prediction": {"y_at_stumps_m": get("y", "value"), "z_at_stumps_m": get("z", "value"), "stump_x_m": 0.0,
+                       "u_y_m": get("y", "u"), "u_z_m": get("z", "u"), "U95_y_m": get("y", "U95"), "U95_z_m": get("z", "U95"),
+                       "sigma_fit_y_m": meas.sigma_fit["y"], "sigma_fit_z_m": meas.sigma_fit["z"],
+                       "sigma_cal_y_m": sig_cal["y"] if pred else None, "sigma_cal_z_m": sig_cal["z"] if pred else None,
+                       "calibrated": bool(tr.bounce_observed)},
     }
     result["overlay"] = build_overlay(pose=pose, trajectory=tr, t0_ms=int(t0_ms), image_points=image_points,
                                       predicted=predicted, bounce_ms=bounce_ms, impact_ms=impact_ms)

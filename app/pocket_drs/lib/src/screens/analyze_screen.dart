@@ -57,7 +57,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   String? _framePath;
   Uint8List? _frameBytes;
   ui.Size? _frameSize;
-  // Normalized [0..1], ordered striker-left, striker-right, bowler-right, bowler-left.
+  // Normalized [0..1], clockwise on screen: the two striker-end corners, then the two bowler-end ones.
   List<Offset>? _corners;
   // Normalized stump cluster quads: top-left, top-right, bottom-right, bottom-left.
   List<Offset>? _strikerStumps;
@@ -176,6 +176,16 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
 
   // ---------------------------------------------------------------- step 3: pitch
   void _onPitchComplete(List<Offset> markers) {
+    // the server places the corners in this order, so a counter-clockwise set is a mirror image
+    var area2 = 0.0;
+    for (var i = 0; i < markers.length; i++) {
+      final a = markers[i], b = markers[(i + 1) % markers.length];
+      area2 += a.dx * b.dy - b.dx * a.dy;
+    }
+    if (markers.length != 4 || area2 <= 0) {
+      _showError('Tap the 4 pitch corners clockwise, the two at the striker end first');
+      return;
+    }
     setState(() {
       _corners = markers;
       _step = _Step.stumpsStriker;
@@ -497,7 +507,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   ];
 
   String? get _hint => switch (_step) {
-    _Step.pitch => 'Tap the 4 pitch corners, clockwise from the striker end.',
+    _Step.pitch => 'Tap the 4 pitch corners clockwise, the two at the striker end first.',
     _Step.stumpsStriker || _Step.stumpsBowler =>
       'Tap the stump base first, then the top. Pinch to zoom.',
     _ => null,
@@ -671,7 +681,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
           imageBytes: _frameBytes,
           maxMarkers: 4,
           title: 'Mark Pitch Corners',
-          subtitle: 'Tap clockwise from the striker end',
+          subtitle: 'Tap clockwise, the two striker-end corners first',
           markerLabels: const [
             'Striker Left',
             'Striker Right',
@@ -1020,6 +1030,15 @@ class _ResultsView extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.md),
+                ],
+                // the server's caveats, e.g. no bounce seen, so an uncalibrated verdict is marked as such
+                for (final w in result.warnings) ...[
+                  Text(
+                    w,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(color: AppColors.bone),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
                 ],
                 if (jobId != null)
                   Padding(

@@ -64,10 +64,10 @@ class Calibration(BaseModel):
     model_config = Strict
     mode: Literal["taps"] = "taps"
     pitch_dimensions_m: PitchDimensions
-    # four pitch corners: striker-left, striker-right, bowler-right, bowler-left
+    # four pitch corners, clockwise on the screen from the striker end
     pitch_corners_norm: list[Point2D] | None = None
     pitch_corners_px: list[Point2D] | None = None
-    # eight stump corners: striker TL, TR, BR, BL, then bowler TL, TR, BR, BL
+    # eight stump corners as seen on the screen: striker TL, TR, BR, BL, then bowler TL, TR, BR, BL
     stump_quads_norm: list[Point2D] | None = None
     stump_quads_px: list[Point2D] | None = None
     h_fov_deg: float | None = Field(default=None, gt=1, lt=179)

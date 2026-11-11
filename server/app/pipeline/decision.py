@@ -4,8 +4,8 @@ uncertainty folded in.
 
 Three questions decide the appeal: did the ball pitch in line (or outside off), did it
 strike the batter in line, and would it have hit the stumps. A monocular estimate of any
-of these carries a stated 1-sigma bound; where the margin to a boundary is inside that
-bound the verdict is umpire's call rather than a guess.
+of these carries a calibrated interval; where the margin to a boundary is inside its guarded
+half-width the verdict is umpire's call rather than a guess.
 """
 
 from __future__ import annotations
@@ -26,15 +26,15 @@ class Verdict:
     reason: str
     pitching_in_line: bool
     impact_in_line: bool
-    wickets_hitting: bool
+    wickets_hitting: bool | None     # None: no stump-plane prediction
 
 
 def _band(value: float, outer: float, sigma: float, k: float) -> str:
     """Classify the ball centre's signed distance inside a boundary. Positive = inside.
 
     ICC umpire's call sits only outside the edge: centre outside but part of the ball still
-    in, so ``outer`` is a ball radius for impact and wickets and 0 for pitching. k*sigma
-    widens that band on both sides so the estimate's own uncertainty never asserts a call."""
+    in, so ``outer`` is a ball radius for impact and wickets and 0 for pitching. ``sigma`` is the
+    calibrated 95 % half-width over 1.96, and k*sigma widens that band on both sides."""
     g = k * sigma
     if value >= g:
         return "in"
@@ -47,17 +47,18 @@ def decide(
     *,
     leg_sign: float,
     pitch_y: float | None,
-    pitch_sigma: float,
+    pitch_sigma: float | None,
     impact_y: float | None,
     impact_sigma: float,
     stump_y: float | None,
     stump_z: float | None,
-    sigma_y: float,
-    sigma_z: float,
+    sigma_y: float | None,
+    sigma_z: float | None,
     k: float = 1.0,
 ) -> Verdict:
     """``leg_sign`` maps world +y onto the batter's leg side (+1 or -1). Lateral quantities
-    are metres from the middle-stump line; ``stump_z`` is the ball-centre height at the
+    are metres from the middle-stump line, distances in the reasons are from the outer edge of
+    the stumps; ``stump_z`` is the ball-centre height at the
     stump plane. Any None means the quantity was not measured."""
     R = BALL_RADIUS_M
     w = STUMP_OUTER_HALF_M
@@ -72,7 +73,7 @@ def decide(
         state = _band(leg_dist, 0.0, pitch_sigma, k)
         if state == "out":
             pitching = False
-            reasons.append(f"pitched outside leg ({abs(pitch_y) * 100:.0f} cm)")
+            reasons.append(f"pitched outside leg ({-leg_dist * 100:.0f} cm outside the stump line)")
         elif state == "marginal":
             marginal = True
 
@@ -86,15 +87,16 @@ def decide(
         if state == "out":
             impact = False
             side = "leg" if impact_y * leg_sign > 0 else "off"
-            reasons.append(f"impact outside {side} ({abs(impact_y) * 100:.0f} cm)")
+            reasons.append(f"impact outside {side} ({-dist * 100:.0f} cm outside the stump line)")
         elif state == "marginal":
             marginal = True
 
-    hitting = False
+    hitting = None                 # unknown without a stump-plane prediction
     if stump_y is not None and stump_z is not None:
         lat = _band(w - abs(stump_y), R, sigma_y, k)
         top = _band(WICKET_TOP_M - stump_z, R, sigma_z, k)   # ponytail: per-axis, ignores the rounded corner
         if lat == "out" or top == "out" or stump_z < 0.0:
+            hitting = False
             reasons.append("missing the stumps")
         else:
             hitting = True
@@ -103,10 +105,10 @@ def decide(
     else:
         reasons.append("no stump-plane prediction")
 
-    # a clear fail on any of the three is not out, even when another one is marginal
-    if pitching and impact and hitting:
-        if marginal:
-            return Verdict(UMPIRES_CALL, "umpire's call: marginal on pitching, impact or wickets",
-                           pitching, impact, hitting)
+    # a clear fail on any of the three is not out, even when another one is marginal or unmeasured
+    if pitching and impact and hitting is not False:
+        if marginal or hitting is None:
+            why = "no stump-plane prediction" if hitting is None else "marginal on pitching, impact or wickets"
+            return Verdict(UMPIRES_CALL, f"umpire's call: {why}", pitching, impact, hitting)
         return Verdict(OUT, "hitting the stumps", pitching, impact, hitting)
     return Verdict(NOT_OUT, "; ".join(reasons) or "not out", pitching, impact, hitting)

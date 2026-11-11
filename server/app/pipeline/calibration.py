@@ -44,6 +44,7 @@ class CameraPose:
     pitch_width_m: float
     used_corners: bool
     refined: bool = False         # the reprojection refine ran and was kept
+    tap_sigma_px: float = 0.0     # per-coordinate tap noise implied by the residual, 0 when exactly determined
 
     @property
     def fx(self) -> float:
@@ -117,15 +118,27 @@ def intrinsics(width: int, height: int, fov_deg: float) -> np.ndarray:
     return np.array([[f, 0.0, width / 2.0], [0.0, f, height / 2.0], [0.0, 0.0, 1.0]])
 
 
-def _stump_object_points(length: float) -> np.ndarray:
-    w, h = STUMP_OUTER_HALF_M, STUMP_HEIGHT_M
-    side = [(-w, h), (w, h), (w, 0.0), (-w, 0.0)]          # TL, TR, BR, BL as tapped
-    return np.array([(0.0, dy, dz) for dy, dz in side] + [(length, dy, dz) for dy, dz in side])
+def _quad_area(pts) -> float:
+    pts = [tuple(p) for p in pts]
+    return abs(sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]))) / 2.0
 
 
-def _corner_object_points(length: float, width: float) -> np.ndarray:
+def camera_at_striker(stump_quads_px) -> bool:
+    """The nearer stump cluster looks larger, so it marks the end the phone stands behind."""
+    return _quad_area(stump_quads_px[0:4]) >= _quad_area(stump_quads_px[4:8])
+
+
+def mark_points(length: float, width: float, at_striker: bool, *, half_wicket: float = STUMP_OUTER_HALF_M,
+                height: float = STUMP_HEIGHT_M) -> np.ndarray:
+    """(12,3) world points of the marks in the order the app asks for them: striker stumps then
+    bowler stumps, each top-left, top-right, bottom-right, bottom-left as seen on the screen,
+    then the pitch corners clockwise on the screen from the striker end. Facing +x from the
+    striker's end, screen left is +y; facing -x from the bowler's end it is -y."""
+    yl = half_wicket if at_striker else -half_wicket
+    side = [(yl, height), (-yl, height), (-yl, 0.0), (yl, 0.0)]
     hw = width / 2.0
-    return np.array([(0.0, -hw, 0.0), (0.0, hw, 0.0), (length, hw, 0.0), (length, -hw, 0.0)])
+    return np.array([(0.0, dy, dz) for dy, dz in side] + [(length, dy, dz) for dy, dz in side]
+                    + [(0.0, -hw, 0.0), (0.0, hw, 0.0), (length, hw, 0.0), (length, -hw, 0.0)])
 
 
 def _pnp(obj: np.ndarray, img: np.ndarray, K: np.ndarray):
@@ -193,9 +206,9 @@ def solve_camera_pose(
     pitch_length_m: float | None = None,
     refine: bool = True,
 ) -> CameraPose:
-    """Pose from eight stump corners (striker TL,TR,BR,BL then bowler TL,TR,BR,BL) and,
-    optionally, the four pitch corners (striker-left, striker-right, bowler-right,
-    bowler-left). FOV and pitch length are swept when not supplied.
+    """Pose from eight stump corners (striker TL,TR,BR,BL then bowler TL,TR,BR,BL, as seen on
+    the screen) and, optionally, the four pitch corners clockwise on the screen from the striker
+    end (mark_points). FOV and pitch length are swept when not supplied.
 
     The corners sit off the stump plane and break the focal-length/pitch-length ambiguity the
     stumps alone leave open. They are dropped when they disagree with the stumps, because the
@@ -212,6 +225,7 @@ def solve_camera_pose(
     width, height = image_size
     stump_img = np.asarray(stump_quads_px, dtype=float)
     corner_img = None if pitch_corners_px is None else np.asarray(pitch_corners_px, dtype=float)
+    at_striker = camera_at_striker(stump_img)
 
     fov_grid = [fov_deg] if fov_deg is not None else np.arange(FOV_RANGE_DEG[0], FOV_RANGE_DEG[1] + 1e-9, 5.0)
     len_grid = [pitch_length_m] if pitch_length_m is not None else np.arange(LENGTH_RANGE_M[0], LENGTH_RANGE_M[1] + 1e-9, 0.5)
@@ -219,11 +233,13 @@ def solve_camera_pose(
     lo = np.array([FOV_RANGE_DEG[0], LENGTH_RANGE_M[0]])
     hi = np.array([FOV_RANGE_DEG[1], LENGTH_RANGE_M[1]])
 
+    def _marks(L, use_corners):
+        obj = mark_points(L, pitch_width_m, at_striker)
+        return (obj, np.vstack([stump_img, corner_img])) if use_corners else (obj[:8], stump_img)
+
     def solve(fov, L, use_corners):
         K = intrinsics(width, height, float(fov))
-        obj, img = _stump_object_points(L), stump_img
-        if use_corners:
-            obj, img = np.vstack([obj, _corner_object_points(L, pitch_width_m)]), np.vstack([img, corner_img])
+        obj, img = _marks(L, use_corners)
         sol = _pnp(obj, img, K)
         return None if sol is None else (sol[0], sol[1], sol[2], K, float(fov), float(L))
 
@@ -261,15 +277,17 @@ def solve_camera_pose(
     err, R, t, K, fov, L = best
     refined = False
     if refine:
-        obj, img = _stump_object_points(L), stump_img
-        if used_corners:
-            obj, img = np.vstack([obj, _corner_object_points(L, pitch_width_m)]), np.vstack([img, corner_img])
-        out = _refine(obj, img, K, R, t, err, fov_deg is None, (width, height))
+        out = _refine(*_marks(L, used_corners), K, R, t, err, fov_deg is None, (width, height))
         if isinstance(out, str):
             _log.warning("calibration refine rejected, keeping the unrefined pose: %s", out)
         else:
             err, R, t, K = out
             fov = math.degrees(2.0 * math.atan((max(width, height) / 2.0) / float(K[0, 0])))
             refined = True
+    # err is the rms 2-D distance over the marks; spread it over the coordinates the fit left free
+    n_obs = 2 * (12 if used_corners else 8)
+    n_par = 6 + (fov_deg is None) + (pitch_length_m is None)
+    tap_sigma = err * math.sqrt(n_obs / 2 / (n_obs - n_par))
     return CameraPose(K=K, R=R, t=t, reproj_error_px=err, fov_deg=fov, pitch_length_m=L,
-                      pitch_width_m=pitch_width_m, used_corners=used_corners, refined=refined)
+                      pitch_width_m=pitch_width_m, used_corners=used_corners, refined=refined,
+                      tap_sigma_px=tap_sigma)

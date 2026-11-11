@@ -3,9 +3,8 @@
 
 Usage:  server/.venv/bin/python server/scripts/real_clip.py test3 [--no-render]
 
-The taps below were read off the first frame of each clip. test3 is a full-length outdoor net,
-so its pitch length is pinned; test4 and test5 are short indoor nets and the length is fitted
-from the marks.
+The taps below were read off the first frame of each clip. All three are the same outdoor net
+from one viewpoint; test3's pitch length is pinned, and for test4 and test5 it is fitted from the marks.
 """
 from __future__ import annotations
 

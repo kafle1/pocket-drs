@@ -212,37 +212,36 @@ def _fit_bounce(pose: CameraPose, dets: list[Detection], theta0: np.ndarray, *, 
     v = np.array([d[2] for d in dets]); w = np.sqrt(np.array([max(d[4], 0.05) for d in dets]))
     t_lo, t_hi = float(t.min()), float(t.max())
 
-    def residuals(theta):
+    def pixels(theta):
         tr = _unpack(theta, True)
         uu, vv, depth = pose.project(tr.position(t))
         bad = depth <= 0.05
         ru = np.where(bad, 1e3, (u - uu) * w)
         rv = np.where(bad, 1e3, (v - vv) * w)
-        # soft priors, in pixel-comparable units: restitution near its typical value, and the
-        # horizontal velocity change at contact small unless the pixels say otherwise
-        pri = np.array([
+        return np.concatenate([ru, rv])
+
+    def priors(theta):
+        # in units of their own sd: restitution near its typical value, and the horizontal
+        # velocity change at contact small unless the pixels say otherwise
+        return np.array([
             (theta[8] - RESTITUTION_PRIOR) / 0.15,
             (theta[6] - theta[3]) / 4.0,
             (theta[7] - theta[4]) / 2.0,
         ])
-        return np.concatenate([ru, rv, pri])
 
     lower = np.array([t_lo, -10.0, -3.0, -60.0, -15.0, -25.0, -60.0, -15.0, RESTITUTION_BOUNDS[0]])
     upper = np.array([t_hi, 35.0, 3.0, 60.0, 15.0, -0.05, 60.0, 15.0, RESTITUTION_BOUNDS[1]])
     x0 = np.clip(theta0, lower + 1e-6, upper - 1e-6)
     try:
-        sol = least_squares(residuals, x0, bounds=(lower, upper), loss="soft_l1",
-                            f_scale=f_scale, max_nfev=400, xtol=1e-10, ftol=1e-10)
+        sol = least_squares(lambda th: np.concatenate([pixels(th), priors(th)]), x0, bounds=(lower, upper),
+                            loss="soft_l1", f_scale=f_scale, max_nfev=400, xtol=1e-10, ftol=1e-10)
     except Exception:
         return None
-    if not sol.success and sol.status <= 0:
+    if sol.status <= 0 or _on_bound(sol.x, lower, upper):      # stopped on a bound: no minimum, no covariance
         return None
-    m = 2 * len(dets)
-    pix = sol.fun[:m]
+    pix = pixels(sol.x)
     rms = float(np.sqrt(np.mean(pix ** 2)))
-    dof = max(1, m - len(x0))
-    cov = _covariance(sol.jac, float(np.sum(sol.fun ** 2)) / dof)
-    return sol.x, cov, rms
+    return sol.x, _covariance(pixels, priors, sol.x), rms
 
 
 def _fit_flight(pose: CameraPose, dets: list[Detection], theta0: np.ndarray, *, f_scale: float, radius_weight: float) -> tuple[np.ndarray, np.ndarray, float] | None:
@@ -257,36 +256,49 @@ def _fit_flight(pose: CameraPose, dets: list[Detection], theta0: np.ndarray, *, 
         p[:, 2] -= 0.5 * GRAVITY * t * t
         return p
 
-    def residuals(theta):
+    def measured(theta):
         uu, vv, depth = pose.project(positions(theta))
         bad = depth <= 0.05
         ru = np.where(bad, 1e3, (u - uu) * w)
         rv = np.where(bad, 1e3, (v - vv) * w)
         r_hat = pose.fx * BALL_RADIUS_M / np.where(bad, 1.0, depth)
-        rr = np.where(use_r & ~bad, radius_weight * w * (r - r_hat), 0.0)
-        return np.concatenate([ru, rv, rr])
+        rr = np.where(bad, 0.0, radius_weight * w * (r - r_hat))
+        return np.concatenate([ru, rv, rr[use_r]])
 
     lower = np.array([-10.0, -3.0, 0.0, -60.0, -15.0, -25.0])
     upper = np.array([35.0, 3.0, 4.0, 60.0, 15.0, 15.0])
     x0 = np.clip(theta0, lower + 1e-6, upper - 1e-6)
     try:
-        sol = least_squares(residuals, x0, bounds=(lower, upper), loss="soft_l1",
+        sol = least_squares(measured, x0, bounds=(lower, upper), loss="soft_l1",
                             f_scale=f_scale, max_nfev=400, xtol=1e-10, ftol=1e-10)
     except Exception:
         return None
+    if sol.status <= 0 or _on_bound(sol.x, lower, upper):
+        return None
     m = 2 * len(dets)
     rms = float(np.sqrt(np.mean(sol.fun[:m] ** 2)))
-    dof = max(1, len(sol.fun) - len(x0))
-    cov = _covariance(sol.jac, float(np.sum(sol.fun ** 2)) / dof)
-    return sol.x, cov, rms
+    return sol.x, _covariance(measured, None, sol.x), rms
 
 
-def _covariance(jac: np.ndarray, sigma2: float) -> np.ndarray:
-    jtj = jac.T @ jac
-    try:
-        return sigma2 * np.linalg.pinv(jtj)
-    except np.linalg.LinAlgError:
-        return np.full((jtj.shape[0], jtj.shape[0]), np.inf)
+def _on_bound(x: np.ndarray, lower: np.ndarray, upper: np.ndarray) -> bool:
+    """trf keeps x a hair inside the box even when the optimum lies outside, so test the distance."""
+    return bool(np.any(np.minimum(x - lower, upper - x) <= 1e-6 * (upper - lower)))
+
+
+def _covariance(measured, priors, theta: np.ndarray) -> np.ndarray:
+    """Gauss-Newton covariance at the robust solution, one way for every fit: the measured rows
+    (raw residuals, raw Jacobian) are scaled by their fitted variance, prior rows are already in
+    units of their own sd and add their information unscaled."""
+    r = measured(theta)
+    if r.size <= theta.size:
+        return np.full((theta.size, theta.size), np.inf)     # no residual degrees of freedom: undetermined
+    jm = _numeric_jacobian(measured, theta)
+    s2 = max(float(r @ r) / (r.size - theta.size), 1e-12)
+    info = jm.T @ jm / s2
+    if priors is not None:
+        jp = _numeric_jacobian(priors, theta)
+        info = info + jp.T @ jp
+    return np.linalg.pinv(info)
 
 
 # --------------------------------------------------------------------------- #
@@ -296,8 +308,8 @@ def _covariance(jac: np.ndarray, sigma2: float) -> np.ndarray:
 def reconstruct(pose: CameraPose, dets: list[Detection], *, f_scale_px: float = 2.0) -> Reconstruction | None:
     """Recover the delivery from per-frame detections (t_s, u, v, radius_px, weight).
 
-    Tries the bounce model first. When no contact is visible in the track, or the anchored
-    fit does not explain the pixels, the single-parabola model is used and flagged.
+    Tries the bounce model first, and fails when a contact is seen but no anchored fit holds.
+    Only when no contact is visible in the track is the single-parabola model used, and flagged.
     """
     dets = sorted(dets, key=lambda d: d[0])
     if len(dets) < 4:
@@ -327,7 +339,7 @@ def reconstruct(pose: CameraPose, dets: list[Detection], *, f_scale_px: float = 
             tr = _unpack(theta, True)
             notes.append(f"bounce anchored at frame {k}, t_b={tr.t_b:.3f}s, e={tr.restitution:.2f}")
             return Reconstruction(tr, cov, rms, notes)
-        notes.append("bounce seen in the image but no anchored fit converged")
+        return None         # a bounce was seen, so the single parabola below would model the wrong flight
 
     # no contact in the window: one parabola, scale from gravity and apparent size
     th0 = _linear_parabola(pose, dets)
@@ -384,6 +396,8 @@ def _flight_covariance(theta: np.ndarray, cov6: np.ndarray) -> np.ndarray:
     def f(th):
         tr = _flight_as_trajectory(th)
         return np.array([tr.t_b, tr.x_b, tr.y_b, *tr.v_pre, tr.v_post[0], tr.v_post[1], RESTITUTION_PRIOR])
+    if not np.all(np.isfinite(cov6)):
+        return np.full((9, 9), np.inf)
     J = _numeric_jacobian(f, theta)
     cov = J @ cov6 @ J.T
     cov[6, 6] += 4.0 ** 2
@@ -416,13 +430,15 @@ def _stump_plane_point(theta: np.ndarray, x_target: float, bounce_observed: bool
     tr = _unpack(theta, bounce_observed)
     x_b, y_b, v = tr.x_b, tr.y_b, tr.v_post.copy()
     t_b = tr.t_b
+    tau = (x_target - x_b) / tr.v_pre[0]
+    if tau < 0:                         # the plane comes before the contact: read the incoming arc
+        return np.array([t_b + tau, y_b + tr.v_pre[1] * tau,
+                         BALL_RADIUS_M + tr.v_pre[2] * tau - 0.5 * GRAVITY * tau * tau, 0])
     extra = 0
     for _ in range(4):
         if abs(v[0]) < 1e-6:
             return np.array([np.nan, np.nan, np.nan, extra])
         tau = (x_target - x_b) / v[0]
-        if tau < 0:
-            tau = 0.0
         z = BALL_RADIUS_M + v[2] * tau - 0.5 * GRAVITY * tau * tau
         if z >= BALL_RADIUS_M - 1e-9:
             return np.array([t_b + tau, y_b + v[1] * tau, z, extra])
@@ -442,18 +458,22 @@ def predict_stump_plane(rec: Reconstruction, x_target: float = 0.0) -> StumpPlan
     if not np.all(np.isfinite(p[:3])):
         return None
     J = _numeric_jacobian(lambda th: _stump_plane_point(th, x_target, rec.trajectory.bounce_observed)[1:3], theta)
-    S = J @ rec.covariance @ J.T
-    sy = float(math.sqrt(max(S[0, 0], 0.0)))
-    sz = float(math.sqrt(max(S[1, 1], 0.0)))
+    sy, sz = _spread(J, rec.covariance)
     return StumpPlanePrediction(float(p[0]), float(p[1]), float(p[2]), sy, sz, int(p[3]))
+
+
+def _spread(J: np.ndarray, cov: np.ndarray) -> list[float]:
+    """1-sigma of each row of J under cov; infinite when the fit left cov undetermined."""
+    if not (np.all(np.isfinite(cov)) and np.all(np.isfinite(J))):     # a perturbed path lost the plane
+        return [math.inf] * J.shape[0]
+    return [float(math.sqrt(max(v, 0.0))) for v in np.einsum("ij,jk,ik->i", J, cov, J)]
 
 
 def position_sigma(rec: Reconstruction, t: float) -> tuple[float, float, float]:
     """1-sigma of the modelled position at time ``t``, per axis."""
     theta = _theta_of(rec.trajectory)
     J = _numeric_jacobian(lambda th: _unpack(th, rec.trajectory.bounce_observed).position(t)[0], theta)
-    S = J @ rec.covariance @ J.T
-    return tuple(float(math.sqrt(max(S[i, i], 0.0))) for i in range(3))
+    return tuple(_spread(J, rec.covariance))
 
 
 def bounce_sigma(rec: Reconstruction) -> tuple[float, float]:
