@@ -988,7 +988,7 @@ Run from the worktree root. `PY` is the server venv. Nothing was installed into 
 numpy, scipy and the app package.
 
 ```sh
-PY=/Users/nirajkafle/Desktop/niraj/dev-projects/pocket-drs/server/.venv/bin/python
+PY=server/.venv/bin/python
 $PY paper/theory/crlb.py                       # bounds, identifiability tables -> out/crlb_*.{json,csv,txt}
 $PY paper/theory/checks.py                     # conditioning, in-plane, gravity, depth, null direction -> out/checks_log.txt (seconds)
 $PY paper/theory/calib_check.py                # calibration efficiency -> out/calib_check.txt (seed 20260926)

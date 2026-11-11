@@ -43,10 +43,9 @@ resolve. The correct one is `10.1109/TIM.2011.2113070`, confirmed against Crossr
 
 ## Dropped from the original submission
 
-Ten references were removed to make room, all of them sport-tracking or generic computer vision that the
-repositioning no longer leans on: calandre2021tabletennis, chao2023basketball, chen2023tracknetv3,
-collins2008hawkeye, hartley2004mvg, huang2019tracknet, lepetit2009epnp, liu2022monotrack,
-ponglertnapakorn2025ball, redmon2016yolo.
+Seven references were removed to make room: calandre2021tabletennis, chao2023basketball,
+chen2023tracknetv3, hartley2004mvg, huang2019tracknet, lepetit2009epnp, redmon2016yolo. Three that were
+dropped here are cited again in revision 1; see the section below.
 
 `mi2021vbm` was researched, added, then removed: it is a survey of vision-based measurement in automated
 container terminals and does not support the general claim the draft made with it.
@@ -54,6 +53,19 @@ container terminals and does not support the general claim the draft made with i
 ## Entries in refs.bib that nothing cites
 
 Eighteen verified entries stay in `refs.bib` uncited. BibTeX ignores them, so they cost nothing, and they
-are the bench to draw from if a reviewer asks for more: the ten dropped above, plus mi2021vbm,
+are the bench to draw from if a reviewer asks for more: the seven dropped above, plus mi2021vbm,
 deng2020spinning, feng2025errorprop, he2024orthopedic, hong2025outline, jiang2021uncertainty,
 xia2020vmp, yang2024monopstr.
+
+## Revision 1 (checked 2026-11-11 against Crossref)
+
+| Key | Checked | Used for |
+|---|---|---|
+| collins2008hawkeye | Collins, Evans, *Public Understanding of Science* 17(3) 283-308, 2008, DOI 10.1177/0963662508093370; abstract read | Hawk-Eye's error is not shown with the call |
+| liu2022monotrack | Liu, Wang, CVPRW 2022, 3512-3521, DOI 10.1109/CVPRW56347.2022.00395 | monocular 3-D badminton trajectory |
+| ponglertnapakorn2025ball | Ponglertnapakorn, Suwajanakorn, CVPRW 2025, 6112-6121, DOI 10.1109/CVPRW67362.2025.00609 | lifting a 2-D track to 3-D |
+| vovk2005alrw | Vovk, Gammerman, Shafer, Springer 2005, DOI 10.1007/b106715 (Crossref lists no authors for this edition; authors from the 2022 edition, DOI 10.1007/978-3-031-06649-8) | conformal prediction |
+| angelopoulos2023gentle | Angelopoulos, Bates, *Foundations and Trends in Machine Learning* 16(4) 494-591, 2023, DOI 10.1561/2200000101 | split-conformal coverage factors |
+| ghimire2026cricket | Ghimire, Mishra, Raj, *J. Adv. AI, Eng. Technol.* 2(2), 2026, DOI 10.56147/aaiet.2.2.110. Crossref gives page "01" only, so the pages field was removed. The abstract confirms a single calibrated camera, a Kalman filter with a ballistic model, and bounce detection on the filtered track | the closest prior cricket work |
+| owens2003hawkeye | VIE 2003, 182-185, DOI 10.1049/cp:20030517. Crossref lists only N. Owens; Harris and Stennett come from the paper's own byline. The text now says only that it describes Hawk-Eye's tennis system | Hawk-Eye |
+| sun2024rebound | Sun et al., IEEE TIM 73 1-11, 2024, DOI 10.1109/TIM.2024.3381294. It is a ball-racket rebound model for a table-tennis robot, and the text now says that | rebound modelling |

@@ -29,8 +29,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "experiments"))
 from synth import Camera, Delivery, CREASE_X, _launch, grid                                   # noqa: E402
 from app.pipeline.reconstruction import (_unpack, _stump_plane_point, _numeric_jacobian,     # noqa: E402
                                          GRAVITY, BALL_RADIUS_M)
-from app.pipeline.calibration import (CameraPose, STUMP_HEIGHT_M, STUMP_OUTER_HALF_M,         # noqa: E402
-                                      PITCH_LENGTH_M, PITCH_WIDTH_M)
+from app.pipeline.calibration import CameraPose, PITCH_LENGTH_M, PITCH_WIDTH_M, mark_points   # noqa: E402
 
 OUT = os.path.join(HERE, "out")
 G, RB = GRAVITY, BALL_RADIUS_M
@@ -160,12 +159,8 @@ def pose_jac(pose: CameraPose, P: np.ndarray, with_f: bool = False) -> np.ndarra
 
 
 def tap_points() -> np.ndarray:
-    """The twelve marks of synth.calibration_taps: striker TL,TR,BR,BL, bowler TL,TR,BR,BL, corners."""
-    w, h = STUMP_OUTER_HALF_M, STUMP_HEIGHT_M
-    side = [(-w, h), (w, h), (w, 0.0), (-w, 0.0)]
-    hw = PITCH_WIDTH_M / 2
-    return np.array([(0.0, dy, dz) for dy, dz in side] + [(PITCH_LENGTH_M, dy, dz) for dy, dz in side]
-                    + [(0.0, -hw, 0.0), (0.0, hw, 0.0), (PITCH_LENGTH_M, hw, 0.0), (PITCH_LENGTH_M, -hw, 0.0)])
+    """The twelve marks of synth.calibration_taps for the striker-end reference camera, in the same order."""
+    return mark_points(PITCH_LENGTH_M, PITCH_WIDTH_M, True)
 
 
 def measurand_grad(theta: np.ndarray) -> np.ndarray:
