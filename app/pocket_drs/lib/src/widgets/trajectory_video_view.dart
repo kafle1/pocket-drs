@@ -125,6 +125,7 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
 
     final overlay = widget.result.overlay;
     final metrics = widget.result.metrics;
+    final hasPredicted = overlay?.path.any((p) => p.predicted) ?? false;
     final imgW = widget.result.imageWidth.toDouble();
     final imgH = widget.result.imageHeight.toDouble();
     final aspect = (imgW > 0 && imgH > 0) ? imgW / imgH : c.value.aspectRatio;
@@ -149,12 +150,9 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
             ColoredBox(color: AppColors.video.withValues(alpha: 0x14 / 0xFF)),
             if (overlay != null && imgW > 0 && imgH > 0)
               CustomPaint(
-                painter: _OverlayPainter(
+                painter: TrajectoryPainter(
+                  result: widget.result,
                   overlay: overlay,
-                  track: widget.result.track.points,
-                  lbw: widget.result.lbw,
-                  imageWidth: imgW,
-                  imageHeight: imgH,
                   nowMs: nowMs,
                 ),
               ),
@@ -169,6 +167,12 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
                   alignment: Alignment.topLeft,
                   child: _MetricStack(metrics: metrics, speedUnit: _speedUnit),
                 ),
+              ),
+            if (overlay != null)
+              Positioned(
+                left: 12,
+                bottom: 14,
+                child: PathKey(predicted: hasPredicted),
               ),
             Positioned(
               right: 8,
@@ -194,20 +198,20 @@ class _TrajectoryVideoViewState extends State<TrajectoryVideoView> {
   }
 }
 
-class _OverlayPainter extends CustomPainter {
-  _OverlayPainter({
+/// The tracked ball path and the predicted one drawn as far as [nowMs]; a huge [nowMs] draws all of it.
+class TrajectoryPainter extends CustomPainter {
+  TrajectoryPainter({
+    required AnalysisResult result,
     required this.overlay,
-    required this.track,
-    required this.lbw,
-    required this.imageWidth,
-    required this.imageHeight,
     required this.nowMs,
-  });
+  }) : track = result.track.points,
+       lbw = result.lbw,
+       imageWidth = result.imageWidth.toDouble(),
+       imageHeight = result.imageHeight.toDouble();
 
   final TrajectoryOverlay overlay;
 
-  /// Raw on-ball detections in pixel space. They sit on the ball, where the
-  /// fitted projection can drift near impact, so they make the trail.
+  /// Raw on-ball detections in pixel space, the ball as it was seen.
   final List<BallTrackPoint> track;
   final LbwResult? lbw;
   final double imageWidth;
@@ -272,38 +276,13 @@ class _OverlayPainter extends CustomPainter {
       );
     }
 
+    // both paths exactly as the server gave them: where the two don't meet, the gap is the honest picture
     final flight = [
       for (final p in track) OverlayPoint(tMs: p.t, px: p.p, predicted: false),
     ]..sort((a, b) => a.tMs.compareTo(b.tMs));
-    if (flight.length < 2) {
-      flight
-        ..clear()
-        ..addAll(overlay.path.where((p) => !p.predicted));
-    }
-    // the ball often hides as it pitches, so route the trail through the bounce
-    final bounce = overlay.bounce;
-    if (bounce != null &&
-        flight.length >= 2 &&
-        bounce.tMs > flight.first.tMs &&
-        bounce.tMs < flight.last.tMs) {
-      flight.insert(flight.indexWhere((p) => p.tMs > bounce.tMs), bounce);
-    }
-    // the prediction comes from the fit; shift it onto the trail's end so the two join without a jump
-    final predicted = overlay.path.where((p) => p.predicted).toList();
-    final ahead = <OverlayPoint>[
-      if (flight.isNotEmpty && predicted.isNotEmpty) ...[
-        flight.last,
-        for (final p in predicted)
-          OverlayPoint(
-            tMs: p.tMs,
-            px: p.px + (flight.last.px - predicted.first.px),
-            predicted: true,
-          ),
-      ],
-    ];
+    final ahead = overlay.path.where((p) => p.predicted).toList();
     if (flight.isEmpty) return;
-    final flightEnd = flight.last.tMs;
-    final aheadEnd = ahead.isEmpty ? flightEnd : ahead.last.tMs;
+    final aheadEnd = ahead.isEmpty ? flight.last.tMs : ahead.last.tMs;
     double pop(int at) => (nowMs - at) / _popMs;
 
     final trail = [for (final p in _upTo(flight, nowMs)) map(p)];
@@ -313,27 +292,24 @@ class _OverlayPainter extends CustomPainter {
       _stroke(AppColors.track.withValues(alpha: 0.22), w * 3.2),
     );
     _polyline(canvas, trail, _stroke(AppColors.track, w));
+
+    final pred = [for (final p in _upTo(ahead, nowMs)) map(p)];
     _polyline(
       canvas,
-      trail,
-      _stroke(AppColors.onVideo.withValues(alpha: 0.55), w * 0.3),
+      pred,
+      _stroke(AppColors.video.withValues(alpha: 0.35), w * 1.8),
+      dash: w * 1.8,
+      gap: w * 1.2,
+    );
+    _polyline(
+      canvas,
+      pred,
+      _stroke(AppColors.predicted, w * 0.8),
+      dash: w * 1.8,
+      gap: w * 1.2,
     );
 
-    final pred = nowMs >= flightEnd
-        ? [for (final p in _upTo(ahead, nowMs)) map(p)]
-        : const <Offset>[];
-    _polyline(
-      canvas,
-      pred,
-      _stroke(AppColors.track.withValues(alpha: 0.14), w * 2.4),
-    );
-    _polyline(
-      canvas,
-      pred,
-      _stroke(AppColors.track.withValues(alpha: 0.75), w * 0.9),
-      dash: w * 1.6,
-      gap: w * 1.4,
-    );
+    final bounce = overlay.bounce;
 
     if (bounce != null && nowMs >= bounce.tMs) {
       final k = _easeOut(pop(bounce.tMs));
@@ -447,7 +423,7 @@ class _OverlayPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_OverlayPainter old) =>
+  bool shouldRepaint(TrajectoryPainter old) =>
       old.nowMs != nowMs ||
       old.overlay != overlay ||
       old.lbw != lbw ||
@@ -472,13 +448,6 @@ class _MetricStack extends StatelessWidget {
           label: 'Speed',
           value: speedValue?.toStringAsFixed(0) ?? '–',
           unit: speedUnit.label,
-        ),
-        const SizedBox(width: 6),
-        _MetricCard(
-          icon: Icons.timeline_rounded,
-          label: 'Swing',
-          value: metrics.swingCm?.toStringAsFixed(1) ?? '–',
-          unit: 'cm',
         ),
         const SizedBox(width: 6),
         _MetricCard(
@@ -545,4 +514,66 @@ class _MetricCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Says which line is the ball as seen and which is the prediction, so neither passes for the other.
+class PathKey extends StatelessWidget {
+  const PathKey({super.key, required this.predicted});
+  final bool predicted;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(
+      context,
+    ).textTheme.labelSmall?.copyWith(color: AppColors.onVideo);
+    Widget entry(Color c, String label, {bool dashed = false}) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        CustomPaint(size: const Size(18, 8), painter: _KeyLine(c, dashed)),
+        const SizedBox(width: 6),
+        Text(label, style: style),
+      ],
+    );
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.videoPanel,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          entry(AppColors.track, 'Ball seen'),
+          if (predicted) ...[
+            const SizedBox(height: 4),
+            entry(AppColors.predicted, 'Predicted', dashed: true),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _KeyLine extends CustomPainter {
+  _KeyLine(this.color, this.dashed);
+  final Color color;
+  final bool dashed;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = color
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+    final y = size.height / 2;
+    if (!dashed) return canvas.drawLine(Offset(0, y), Offset(size.width, y), p);
+    for (var x = 0.0; x < size.width; x += 8) {
+      canvas.drawLine(Offset(x, y), Offset(x + 4, y), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_KeyLine old) =>
+      old.color != color || old.dashed != dashed;
 }

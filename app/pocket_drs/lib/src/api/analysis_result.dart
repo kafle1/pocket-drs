@@ -8,6 +8,33 @@ import 'dart:ui';
 
 import '../analysis/ball_track_models.dart';
 
+// Fields the app reads or sends that the server does not have at 96c7a3c. Every name the
+// app assumed is here and only here, so matching the server later is a change in one place.
+abstract final class Assumed {
+  // lbw.confidence: number 0..1, how sure the server is of its call
+  static const confidence = 'confidence';
+  // diagnostics.no_call_code: string, which of [noCallCodes] stopped a call
+  static const noCallCode = 'no_call_code';
+  // the seven no-call exits of process_job.py, in its order
+  static const noCallCodes = [
+    'phone_too_far',
+    'no_ball',
+    'still_in_flight',
+    'path_mismatch',
+    'no_stump_path',
+    'too_unsure',
+    'lost_before_batter',
+  ];
+  // job error.details.worst_mark: int 0..7, the stump mark furthest from where the others put it
+  static const worstMark = 'worst_mark';
+  // request calibration.stump_dimensions_m: {height: number, width: number}, sent only for non-regulation stumps
+  static const stumpDimensions = 'stump_dimensions_m';
+  // GET /v1/me resets_at: ISO 8601 UTC string, when the daily free reviews come back
+  static const resetsAt = 'resets_at';
+  // DELETE /v1/me with the user's sign-in, 2xx once the account and its reviews are gone
+  static const deleteAccountPath = '/v1/me';
+}
+
 class AnalysisResult {
   const AnalysisResult({
     required this.track,
@@ -19,6 +46,8 @@ class AnalysisResult {
     required this.imageWidth,
     required this.imageHeight,
     required this.warnings,
+    required this.noCallCode,
+    required this.json,
   });
 
   final BallTrackResult track;
@@ -37,6 +66,13 @@ class AnalysisResult {
   final int imageWidth;
   final int imageHeight;
   final List<String> warnings;
+  final String? noCallCode;
+
+  /// The server's result as sent, kept so a review can be saved and opened again.
+  final Map<String, Object?> json;
+
+  /// Whether the server gave a call, or refused and said why in [warnings].
+  bool get hasCall => lbw != null;
 
   static AnalysisResult fromServerJson(Map<String, Object?> json) {
     final imageSize = _requireMap(json, 'image_size');
@@ -72,6 +108,7 @@ class AnalysisResult {
 
     final warnings = <String>[];
     final diag = json['diagnostics'];
+    final noCall = diag is Map ? diag[Assumed.noCallCode] : null;
     if (diag is Map) {
       final w = diag['warnings'];
       if (w is List) {
@@ -93,23 +130,23 @@ class AnalysisResult {
       imageWidth: width,
       imageHeight: height,
       warnings: List.unmodifiable(warnings),
+      noCallCode: noCall is String ? noCall : null,
+      json: json,
     );
   }
 }
 
-/// Speed, swing and spin shown as cards over the video.
+/// Speed and spin shown as cards over the video.
 class DeliveryMetrics {
   const DeliveryMetrics({
     required this.speedKmh,
     required this.speedMph,
-    required this.swingCm,
     required this.spinDeg,
   });
 
-  // null when not measured: speed too uncertain to show, swing and spin with no bounce seen
+  // null when not measured: speed too uncertain to show, spin with no bounce seen
   final double? speedKmh;
   final double? speedMph;
-  final double? swingCm;
   final double? spinDeg;
 
   static DeliveryMetrics? fromJson(Object? json) {
@@ -118,7 +155,6 @@ class DeliveryMetrics {
     return DeliveryMetrics(
       speedKmh: _readDouble(m, 'speed_kmh'),
       speedMph: _readDouble(m, 'speed_mph'),
-      swingCm: _readDouble(m, 'swing_cm'),
       spinDeg: _readDouble(m, 'spin_deg'),
     );
   }
@@ -456,21 +492,23 @@ class LbwResult {
     required this.impactInLine,
     required this.wicketsHitting,
     required this.tones,
-    required this.yAtStumpsM,
-    required this.zAtStumpsM,
-    required this.stumpXM,
+    required this.u95YM,
+    required this.u95ZM,
+    required this.confidence,
   });
 
   final LbwDecisionKey? decision;
   final String reason;
   final bool pitchedInLine;
   final bool impactInLine;
-  final bool wicketsHitting;
-  // each DRS row's colour from the server: out, not_out or umpires_call
+  // null when the path never reached the stumps
+  final bool? wicketsHitting;
+  // each row's colour from the server: out, not_out or umpires_call
   final Map<String, Object?> tones;
-  final double? yAtStumpsM;
-  final double? zAtStumpsM;
-  final double stumpXM;
+  // how far the stump-plane crossing could be off, sideways and in height, 95 % of the time
+  final double? u95YM;
+  final double? u95ZM;
+  final double? confidence;
 
   static LbwResult fromJson(Map<String, Object?> json) {
     final decision = LbwDecisionKey.parse(json['decision']);
@@ -486,11 +524,11 @@ class LbwResult {
       reason: (json['reason'] as String?)?.trim() ?? '',
       pitchedInLine: (checks['pitching_in_line'] as bool?) ?? false,
       impactInLine: (checks['impact_in_line'] as bool?) ?? false,
-      wicketsHitting: (checks['wickets_hitting'] as bool?) ?? false,
+      wicketsHitting: checks['wickets_hitting'] as bool?,
       tones: (json['tones'] as Map?)?.cast<String, Object?>() ?? const {},
-      yAtStumpsM: pred != null ? _readDouble(pred, 'y_at_stumps_m') : null,
-      zAtStumpsM: pred != null ? _readDouble(pred, 'z_at_stumps_m') : null,
-      stumpXM: pred != null ? (_readDouble(pred, 'stump_x_m') ?? 0) : 0,
+      u95YM: pred != null ? _readDouble(pred, 'U95_y_m') : null,
+      u95ZM: pred != null ? _readDouble(pred, 'U95_z_m') : null,
+      confidence: _readDouble(json, Assumed.confidence)?.clamp(0.0, 1.0),
     );
   }
 }
