@@ -59,7 +59,10 @@ export function drawReplay(canvas, video, result) {
   const flightEnd = flight.length ? flight[flight.length - 1].t : -Infinity;
   const aheadEnd = ahead.length ? ahead[ahead.length - 1].t : flightEnd;
   const lbw = result && result.lbw;
-  const tone = (lbw && lbw.tones) || NEUTRAL;
+  // the result names the call in upper case, OUT, NOT_OUT, UMPIRES_CALL or CANT_TELL
+  const call = lbw && typeof lbw.verdict === "string" ? lbw.verdict.toLowerCase() : null;
+  // a no call made after the checks ran still carries their tones, which would colour a call never made
+  const tone = (CALL_TEXT[call] && lbw.tones) || NEUTRAL;
   const striker = ov.stumps_px && ov.stumps_px.striker;
 
   let W = 0, H = 0, dpr = 1, raf = 0, dead = false;
@@ -122,8 +125,8 @@ export function drawReplay(canvas, video, result) {
     ctx.stroke(); ctx.globalAlpha = 1;
   }
   function badge(k) {
-    const text = lbw && CALL_TEXT[lbw.decision] ? CALL_TEXT[lbw.decision] : "NO CALL";
-    const fill = lbw && CALL_TEXT[lbw.decision] ? COLOR[lbw.decision] : COLOR.shade;
+    const text = CALL_TEXT[call] || "NO CALL";
+    const fill = CALL_TEXT[call] ? COLOR[call] : COLOR.shade;
     const fs = Math.round(Math.min(22, Math.max(14, W / 22)));
     ctx.font = `800 ${fs}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
     const w = ctx.measureText(text).width + fs * 1.4, h = fs * 2;

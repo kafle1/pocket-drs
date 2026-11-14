@@ -2,14 +2,15 @@
 import { drawReplay } from "./replay.js";
 
 const FB = "https://www.gstatic.com/firebasejs/11.0.2/";
-// the page is also served from firebase hosting, so every server call names the server
-const API = "https://pocketdrs-saarathi.centralindia.cloudapp.azure.com";
+// the page is also served from firebase hosting, so calls from there name the server; served by a server, it talks to that one
+const API = /\.(web\.app|firebaseapp\.com)$/.test(location.hostname)
+  ? "https://pocketdrs-saarathi.centralindia.cloudapp.azure.com" : location.origin;
 const $ = (id) => document.getElementById(id);
 const PAGE = location.pathname.replace(/\/+$/, "");
 const show = (id, on) => { $(id).hidden = !on; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const MAX_BYTES = 200 * 1024 * 1024;
-// the server reads 240 frames, 4 s at 60 a second, so a longer part would be cut short
+// same 4 s cap as the android app; the server stops reading after 5 s
 const MAX_PART_MS = 4000;
 const LABELS = [
   "Batter's stumps, top left", "Batter's stumps, top right", "Batter's stumps, bottom right", "Batter's stumps, bottom left",
@@ -21,6 +22,14 @@ const STAGES = {
   reconstruction: "Working out the ball's path", lbw: "Making the LBW call", finalize: "Finishing up",
 };
 const DECISIONS = { out: "Out", not_out: "Not out", umpires_call: "Umpire's call" };
+// the result says OUT, NOT_OUT, UMPIRES_CALL or CANT_TELL; the admin list keeps the lower case names
+const callOf = (lbw) => (lbw && typeof lbw.verdict === "string" && DECISIONS[lbw.verdict.toLowerCase()] ? lbw.verdict.toLowerCase() : null);
+// same words as the android app; a decode failure's own message is a raw decoder error
+const JOB_ERRORS = {
+  VIDEO_DECODE_FAILED: "The server couldn't read this video. Try another clip.",
+  TIMED_OUT: "This clip took too long to check. Trim it to just the delivery and send it again.",
+  INTERNAL_ERROR: "Something went wrong checking this ball. Try again, or try another clip.",
+};
 // same sentences as the android app (pocket_drs_api.dart)
 const OFFLINE = "Can't reach the server. Check your internet, or try again later.";
 const SIGN_IN_AGAIN = "Please sign in again to keep going.";
@@ -31,6 +40,7 @@ const ERRORS = {
   bad_email: "That does not look like an email.",
   admin_plan_locked: "The admin's plan can't be changed.",
   job_in_progress: "Another ball of yours is still being checked. Send this one once it's done.",
+  app_outdated: "This page is out of date. Reload it and try again.",
 };
 const STATUS = {
   400: "The clip couldn't be sent. Pick it again and retry.",
@@ -222,15 +232,25 @@ $("delete-btn").addEventListener("click", async () => {
 
 // review flow
 
-let hand = "right", file = null, videoUrl = null, replay = null, startMs = null, endMs = null, marks = [], busy = false;
+let file = null, videoUrl = null, replay = null, startMs = null, endMs = null, marks = [], markMs = null, busy = false;
 // one retry key per clip and request, so sending the same ball again never costs a second free review
 let sent = { body: null, file: null, key: null };
 const video = $("video");
 
-document.querySelectorAll("[data-hand]").forEach((b) => b.addEventListener("click", () => {
-  hand = b.dataset.hand;
-  document.querySelectorAll("[data-hand]").forEach((x) => x.classList.toggle("on", x === b));
-}));
+// the batter, ball, on-field call and shot buttons; the ball is kept for next time like the pitch length
+const opts = { hand: "right", ball: "tennis", call: "none", shot: "yes" };
+const savedBall = store.get("pdrs_ball");
+if (["tennis", "leather", "tape"].includes(savedBall)) opts.ball = savedBall;
+document.querySelectorAll("[data-opt]").forEach((group) => {
+  const name = group.dataset.opt, buttons = group.querySelectorAll("button");
+  const mark = () => buttons.forEach((x) => { x.classList.toggle("on", x.dataset.v === opts[name]); x.setAttribute("aria-pressed", String(x.dataset.v === opts[name])); });
+  buttons.forEach((b) => b.addEventListener("click", () => {
+    opts[name] = b.dataset.v;
+    if (name === "ball") store.set("pdrs_ball", b.dataset.v);
+    mark();
+  }));
+  mark();
+});
 const savedPitch = parseFloat(store.get("pdrs_pitch"));
 if (savedPitch >= 10 && savedPitch <= 25) $("pitch").value = savedPitch;
 $("pitch").addEventListener("change", () => store.set("pdrs_pitch", $("pitch").value));
@@ -255,7 +275,7 @@ for (const id of ["rec", "pick"]) {
     file = f;
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     videoUrl = URL.createObjectURL(f);
-    startMs = endMs = null;
+    startMs = endMs = markMs = null;
     marks = [];
     video.src = videoUrl;
     video.load();
@@ -317,11 +337,13 @@ $("marks").addEventListener("click", (ev) => {
   const r = $("marks").getBoundingClientRect();
   const x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
   if (x < 0 || x > 1 || y < 0 || y > 1) return;
+  // the server lines every frame up with the one the stumps were marked on
+  if (!marks.length) markMs = Math.round(video.currentTime * 1000);
   marks.push({ x: Math.round(x * 10000) / 10000, y: Math.round(y * 10000) / 10000 });
   renderMarks();
 });
-$("undo").addEventListener("click", () => { marks.pop(); renderMarks(); });
-$("clear").addEventListener("click", () => { marks = []; renderMarks(); });
+$("undo").addEventListener("click", () => { marks.pop(); if (!marks.length) markMs = null; renderMarks(); });
+$("clear").addEventListener("click", () => { marks = []; markMs = null; renderMarks(); });
 $("change").addEventListener("click", toPick);
 $("again").addEventListener("click", toPick);
 $("go").addEventListener("click", run);
@@ -368,11 +390,15 @@ async function run() {
   const pitch = parseFloat($("pitch").value);
   if (!(pitch >= 10 && pitch <= 25)) { showError("Pitch length must be between 10 and 25 metres."); return; }
   showError("");
+  // the same fields the android app sends (jobRequest in pocket_drs_api.dart); the server refuses any other
   const req = {
-    segment: { start_ms: startMs ?? 0, end_ms: endMs ?? 600000 },
-    calibration: { stump_quads_norm: marks, pitch_dimensions_m: { width: 3.05, length: pitch } },
-    tracking: { sample_fps: 60, max_frames: 240 },
-    batsman_handedness: hand,
+    segment: { start_ms: startMs ?? 0, end_ms: endMs ?? Math.max(600000, (startMs ?? 0) + 1) },
+    calibration: { stump_quads_norm: marks, ...(markMs != null ? { frame_ms: markMs } : {}) },
+    tracking: { ball_type: opts.ball },
+    batsman_handedness: opts.hand,
+    pitch_length_m: pitch,
+    on_field_call: opts.call,
+    shot_played: opts.shot === "yes",
   };
   busy = true;
   step("run");
@@ -481,8 +507,8 @@ async function poll(jobId) {
     runText("Checking the ball", `${STAGES[stage] || "Working on your delivery"}${where} (${pct}%)`, pct);
     if (st.status === "succeeded") return (await patient(`/v1/jobs/${jobId}/result`)).result;
     if (st.status === "failed") {
-      // the server words every failure for the user, down to which mark or setting to fix
-      throw Object.assign(new Error(`${st.error.message} ${NOT_COUNTED}`), { jobFailed: true });
+      const err = st.error || {};
+      throw Object.assign(new Error(`${JOB_ERRORS[err.code] || err.message || JOB_ERRORS.INTERNAL_ERROR} ${NOT_COUNTED}`), { jobFailed: true });
     }
     await sleep(2000);
   }
@@ -490,17 +516,25 @@ async function poll(jobId) {
 
 function showResult(jobId, result) {
   const lbw = (result && result.lbw) || null;
-  const d = lbw && DECISIONS[lbw.decision] ? lbw.decision : null;
+  const d = callOf(lbw);
   track("analysis_completed", { decision: d || "none" });
   $("verdict").className = "verdict " + (d || "");
   $("verdict").textContent = DECISIONS[d] || "No call";
-  $("verdict-note").textContent = d === "umpires_call" ? "Too close to call, so the on-field umpire's decision stands."
+  const stands = lbw && { OUT: "out", NOT_OUT: "not out" }[lbw.call_stands];
+  $("verdict-note").textContent = d === "umpires_call"
+    ? `Too close to call, so the on-field decision stands${stands ? ": " + stands : ""}.`
     : d ? "" : `The app couldn't make a call on this ball. This is not a not out. ${NOT_COUNTED}`;
-  // like the app: with no call the server puts the reason first, with a call the warnings follow it
-  const warn = (result && result.diagnostics && result.diagnostics.warnings) || [];
-  const lines = d ? [lbw.reason, ...warn] : warn.length ? warn : ["The ball's path couldn't be worked out well enough to make a call."];
-  $("reason").textContent = lines.filter(Boolean).map((l) => l[0].toUpperCase() + l.slice(1)).join(". ");
-  const c = lbw && lbw.checks;
+  // with no call the server says why and what to change; with a call its warnings follow the reason
+  const nc = (result && result.no_call) || {};
+  const warn = ((result && result.diagnostics && result.diagnostics.warnings) || []).filter((w) => typeof w === "string");
+  const lines = d ? [lbw.reason, ...warn]
+    : [nc.message || "The ball's path couldn't be worked out well enough to make a call.", nc.fix, ...warn];
+  $("reason").textContent = lines.filter((l) => typeof l === "string" && l.trim())
+    .map((l) => l[0].toUpperCase() + l.slice(1).replace(/\.\s*$/, "") + ".").join(" ");
+  const speed = result && result.metrics && result.metrics.speed_kmh;
+  $("speed").textContent = speed ? `Ball speed about ${Math.round(speed)} km/h.` : "";
+  show("speed", !!speed);
+  const c = d && lbw.checks;
   $("checks").replaceChildren(...(c ? [
     // pitching_in_line means "not outside leg": outside off still counts, as on the 3D page
     ["Pitched outside leg", !c.pitching_in_line], ["Hit the pad in line", c.impact_in_line], ["Going on to hit the stumps", c.wickets_hitting],

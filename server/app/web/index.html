@@ -88,9 +88,31 @@
         <h2>Pick a delivery</h2>
         <p class="muted">Record or choose one clip of the delivery. Film from behind the bowler's stumps with the phone held still.</p>
         <p class="tip">Set the camera to 60 frames a second first, or the app usually can't make a call. On iPhone: Settings, Camera, Record Video, 1080p at 60 fps.</p>
-        <div class="seg" role="group" aria-label="Batter">
-          <button data-hand="right" class="on">Right-handed</button>
-          <button data-hand="left">Left-handed</button>
+        <div class="field"><span id="hand-label">Batter</span>
+          <div class="seg" role="group" aria-labelledby="hand-label" data-opt="hand">
+            <button data-v="right">Right-handed</button>
+            <button data-v="left">Left-handed</button>
+          </div>
+        </div>
+        <div class="field"><span id="ball-label">Ball</span>
+          <div class="seg" role="group" aria-labelledby="ball-label" data-opt="ball">
+            <button data-v="tennis">Tennis</button>
+            <button data-v="leather">Leather</button>
+            <button data-v="tape">Taped tennis</button>
+          </div>
+        </div>
+        <div class="field"><span id="call-label">What the umpire gave</span>
+          <div class="seg" role="group" aria-labelledby="call-label" data-opt="call">
+            <button data-v="none">No umpire</button>
+            <button data-v="out">Out</button>
+            <button data-v="not_out">Not out</button>
+          </div>
+        </div>
+        <div class="field"><span id="shot-label">Did the batter play a shot?</span>
+          <div class="seg" role="group" aria-labelledby="shot-label" data-opt="shot">
+            <button data-v="yes">Played a shot</button>
+            <button data-v="no">No shot</button>
+          </div>
         </div>
         <label class="field">Pitch length in metres
           <input id="pitch" type="number" inputmode="decimal" min="10" max="25" step="0.01" value="20.12">
@@ -104,6 +126,7 @@
       <div id="step-mark" class="card" hidden>
         <h2>Trim and mark the stumps</h2>
         <p class="muted small">Slide to the delivery and set where it starts and ends. Then tap the 8 stump corners on a clear frame.</p>
+        <p id="next-tap" class="tap-hint" aria-live="polite"></p>
         <div class="zoom-wrap" id="zoom-wrap">
           <div class="stage" id="stage">
             <video id="video" playsinline muted preload="auto"></video>
@@ -127,7 +150,6 @@
             <button data-z="1" class="on">1x</button><button data-z="2">2x</button><button data-z="3">3x</button>
           </div>
         </div>
-        <p id="next-tap" class="tap-hint"></p>
         <div class="row tight">
           <button id="undo">Undo</button>
           <button id="clear">Clear marks</button>
@@ -154,6 +176,7 @@
         <div id="verdict" class="verdict"></div>
         <p id="verdict-note"></p>
         <p id="reason" class="muted"></p>
+        <p id="speed" class="muted small" hidden></p>
         <ul id="checks" class="checks"></ul>
         <div class="row actions">
           <a id="three-d" class="button" target="_blank" rel="noopener">View in 3D</a>

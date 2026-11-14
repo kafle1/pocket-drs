@@ -12,7 +12,11 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# ultralytics pulls in the full opencv-python, which shares the cv2 folder with the headless build and needs
+# libGL, which slim doesn't have; put the pinned headless build back on its own
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip uninstall -y opencv-python \
+    && pip install --no-cache-dir --no-deps --force-reinstall "$(grep -i '^opencv-python-headless' requirements.txt)"
 
 COPY app app
 # the detector weights are not in git; build them as models/DETECTOR.md says before building the image

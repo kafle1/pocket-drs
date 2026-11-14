@@ -31,7 +31,8 @@ out, the app tells you the time you get 5 more.
 
 On an iPhone, or any phone without the app, open
 [the PocketDRS website](https://pocket-drs-app.web.app) in Safari or
-Chrome. Sign in there, pick a clip you've already filmed, mark the stumps and check the ball.
+Chrome. Sign in there, pick the batter, the ball and what the umpire gave, then pick a clip you've
+already filmed, mark the stumps and check the ball.
 Google sign-in doesn't work inside the Instagram, Facebook or Messenger browser, so open the link
 in Safari or Chrome.
 
@@ -260,9 +261,8 @@ website. Both show the same things:
 
 - **Stats**: how many people and premium people there are, and how many reviews ran and failed
   today.
-- **People**: search by email, make someone premium or free, or reset their free reviews. You can
-  also add an email as premium before that person has signed in.
-- **Phones**: reset a phone's free reviews.
+- **People**: search by email and make someone premium or free. You can also add an email as
+  premium before that person has signed in. Free reviews come back by themselves each day.
 - **Recent reviews**: the latest reviews and how each one ended (a verdict, no call, or failed),
   so you can help someone at the ground.
 

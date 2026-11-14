@@ -16,6 +16,7 @@ APP_DIR := $(ROOT_DIR)/app/pocket_drs
 SERVER_DIR := $(ROOT_DIR)/server
 VENV_DIR := $(SERVER_DIR)/.venv
 PYTHON := $(VENV_DIR)/bin/python
+PIP := $(VENV_DIR)/bin/pip
 
 # local overrides, e.g. FLUTTER_DEVICE or SERVER_URL
 ifneq (,$(wildcard $(ROOT_DIR)/.env))
@@ -32,19 +33,22 @@ DRAIN_WAIT_S ?= 600
 
 .PHONY: setup dev server apk aab deploy logs clean
 
-$(PYTHON):
-	python3 -m venv "$(VENV_DIR)"
-	"$(VENV_DIR)/bin/pip" install -U pip
+# keyed on pip, not python, so a venv left half made by an interrupted setup is made again
+$(PIP):
+	python3 -m venv --clear "$(VENV_DIR)"
+	"$(PIP)" install -U pip
 
-setup: $(PYTHON)
-	cd "$(SERVER_DIR)" && "$(VENV_DIR)/bin/pip" install -r requirements.txt
+# the same opencv swap as the Dockerfile, so a local run uses the opencv the server ships with
+setup: $(PIP)
+	cd "$(SERVER_DIR)" && "$(PIP)" install -r requirements.txt && "$(PIP)" uninstall -y opencv-python \
+		&& "$(PIP)" install --no-deps --force-reinstall "$$(grep -i '^opencv-python-headless' requirements.txt)"
 	cd "$(APP_DIR)" && flutter pub get
 
 dev:
 	cd "$(APP_DIR)" && flutter run $(if $(FLUTTER_DEVICE),-d $(FLUTTER_DEVICE)) \
 		$(if $(SERVER_URL),--dart-define=POCKET_DRS_SERVER_URL=$(SERVER_URL))
 
-server: $(PYTHON)
+server: $(PIP)
 	cd "$(SERVER_DIR)" && .venv/bin/uvicorn app.main:app --port 8000
 
 # one apk per chip keeps each download under 20 MB; symbols decode crash stack traces
