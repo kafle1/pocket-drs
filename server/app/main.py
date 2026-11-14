@@ -172,7 +172,7 @@ _accounts = acc.default_accounts()
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="job-worker")
 
 # the ball detector pins every CPU, so one job runs at a time and a burst past the cap gets a 503;
-# a job takes about 10 s, so a full queue is a few minutes' wait
+# with the ball detector a job takes 30 to 60 s, so a full queue can be a 20 minute wait
 _MAX_JOBS = 25
 _job_slots = threading.Semaphore(_MAX_JOBS)
 # accounts with an upload under way; only the event loop touches it
@@ -378,6 +378,9 @@ def admin_jobs(request: Request, email: str = ""):
     return _admin(request) or {"jobs": _accounts.list_jobs(email.strip().lower())}
 
 
+_DECISIONS = {"OUT": "out", "NOT_OUT": "not_out", "UMPIRES_CALL": "umpires_call"}
+
+
 def _record_safe(job_id: str, status: str, decision: str | None = None) -> None:
     # a database hiccup must not stop the job's own status from being written
     try:
@@ -422,7 +425,9 @@ def _process_job(job_id: str, paths: JobPaths, request_json: dict[str, Any]) -> 
                 status = "failed"
             decision = None
             if status == "succeeded":
-                decision = (_store.read_result(paths).get("lbw") or {}).get("decision") or "none"
+                # stored lower case like the rows before the verdict rename; a no call stays free
+                verdict = (_store.read_result(paths).get("lbw") or {}).get("verdict")
+                decision = _DECISIONS.get(verdict, "none")
             _record_safe(job_id, status, decision)
     except Exception:  # noqa: BLE001
         _log.exception("job %s could not run", short_id(job_id))
@@ -536,7 +541,7 @@ async def create_job(request: Request):
     # _cap_upload has checked the sign-in and holds a queue slot for this upload
     (ident, device_id), key = request.state.who, request.state.key
     job_id, paths = _store.create_job()
-    took, submitted = False, False
+    submitted = False
     try:
         req_dict = await _receive_upload(request, paths.video_path)
         if _outdated(req_dict):
@@ -559,7 +564,6 @@ async def create_job(request: Request):
         if got != job_id:
             # a retry of a clip that already went through gets that job back
             return _earlier_job(got)
-        took = True
         _store.write_request(paths, req_dict)
         _queue.append(job_id)
         _executor.submit(_process_job, job_id, paths, req_dict)
@@ -572,9 +576,9 @@ async def create_job(request: Request):
         return _err(500, "save_failed")
     finally:
         if not submitted:
-            if took:
-                # the use was taken but the job never queued, so give it back
-                _record_safe(job_id, "failed")
+            # the use may have been taken but the job never queued, so give it back; a no-op when no row was made,
+            # and it also covers an upload timeout landing right after take_use committed
+            _record_safe(job_id, "failed")
             shutil.rmtree(paths.job_dir, ignore_errors=True)
     return CreateJobResponse(job_id=job_id, status=JobStatus.queued)
 

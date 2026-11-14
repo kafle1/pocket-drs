@@ -106,6 +106,8 @@ class CreateJobResponse(BaseModel):
 class JobStatusResponse(BaseModel):
     job_id: str
     status: JobStatus
+    # 1 means next in line; both clients show it while the job waits
+    queue_position: int | None = None
     progress: ProgressInfo | None = None
     error: ApiError | None = None
 
