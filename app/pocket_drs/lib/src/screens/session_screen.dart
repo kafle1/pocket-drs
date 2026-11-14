@@ -70,6 +70,9 @@ class _SessionScreenState extends State<SessionScreen>
   DeviceOrientation? _orientation;
   int _count = 0;
   SpeedUnit _unit = SpeedUnit.kmh;
+  // clips still being cut; the session folder waits for them before it goes
+  final _cuts = <Future<void>>{};
+  bool _marksEdited = false;
 
   @override
   void initState() {
@@ -100,7 +103,9 @@ class _SessionScreenState extends State<SessionScreen>
       unawaited(init.then((_) {}, onError: (_) {}).whenComplete(c.dispose));
     }
     Reviews.instance.removeListener(_onReviews);
+    final cuts = _cuts.toList();
     _lifecycle.whenComplete(() async {
+      await Future.wait(cuts.map((c) => c.catchError((Object _) {})));
       try {
         await (await _dir).delete(recursive: true);
       } catch (_) {}
@@ -263,6 +268,7 @@ class _SessionScreenState extends State<SessionScreen>
       if (mounted) {
         setState(() {
           _frame = jpg;
+          _marksEdited = false;
           _phase = _Phase.marking;
         });
       }
@@ -294,7 +300,9 @@ class _SessionScreenState extends State<SessionScreen>
         _fail(b, _describe(e));
         rethrow;
       }
-      unawaited(_cut(b, raw.path, endMs));
+      final cut = _cut(b, raw.path, endMs);
+      _cuts.add(cut);
+      unawaited(cut.whenComplete(() => _cuts.remove(cut)));
       if (_camera == c) await _record(c);
     });
   }
@@ -324,7 +332,7 @@ class _SessionScreenState extends State<SessionScreen>
     } finally {
       File(raw).delete().ignore();
     }
-    if (!_live(b)) return File(out).delete().ignore();
+    if (!_kept(b)) return File(out).delete().ignore();
     // no upload when the server would turn it away
     if (await Account.instance.outOfReviews()) {
       File(out).delete().ignore();
@@ -357,10 +365,41 @@ class _SessionScreenState extends State<SessionScreen>
     }
   }
 
-  bool _live(_Ball b) => mounted && _balls.contains(b);
+  // a ball not swiped away still goes to the reviews after the screen closes
+  bool _kept(_Ball b) => _balls.contains(b);
+  bool _live(_Ball b) => mounted && _kept(b);
 
   void _fail(_Ball b, String error) {
     if (_live(b)) setState(() => b.error = error);
+  }
+
+  Future<void> _leaveMarking() async {
+    if (_marksEdited && !await confirmDropMarks(context)) return;
+    if (mounted) setState(() => _phase = _Phase.preview);
+  }
+
+  Future<bool> _confirmEnd() async {
+    final end = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('End this session?'),
+        content: const Text(
+          'Balls already sent carry on and show up in your reviews. '
+          'Next time you start, you mark the stumps again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep going'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('End session'),
+          ),
+        ],
+      ),
+    );
+    return end ?? false;
   }
 
   void _dismiss(_Ball b) {
@@ -402,8 +441,7 @@ class _SessionScreenState extends State<SessionScreen>
     if (_phase == _Phase.marking) {
       return PopScope(
         canPop: false,
-        onPopInvokedWithResult: (_, _) =>
-            setState(() => _phase = _Phase.preview),
+        onPopInvokedWithResult: (_, _) => _leaveMarking(),
         child: Scaffold(
           body: SafeArea(
             child: Column(
@@ -411,7 +449,7 @@ class _SessionScreenState extends State<SessionScreen>
                 Row(
                   children: [
                     IconButton(
-                      onPressed: () => setState(() => _phase = _Phase.preview),
+                      onPressed: _leaveMarking,
                       icon: const Icon(Icons.arrow_back),
                       tooltip: 'Back',
                     ),
@@ -428,6 +466,7 @@ class _SessionScreenState extends State<SessionScreen>
                     frame: _frame!,
                     actionLabel: 'Start the session',
                     onComplete: _start,
+                    onEdited: () => _marksEdited = true,
                   ),
                 ),
               ],
@@ -438,19 +477,29 @@ class _SessionScreenState extends State<SessionScreen>
     }
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
-    // every ball is kept in the reviews, so leaving loses nothing
-    return Scaffold(
-      body: SafeArea(
-        child: Flex(
-          direction: landscape ? Axis.horizontal : Axis.vertical,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              flex: 3,
-              child: ColoredBox(color: AppColors.video, child: _preview(theme)),
-            ),
-            Expanded(flex: 2, child: _panel(theme)),
-          ],
+    // every ball is kept in the reviews, but leaving a running session drops its stump marks
+    return PopScope(
+      canPop: _phase != _Phase.running,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop || !await _confirmEnd()) return;
+        if (mounted) Navigator.pop(this.context);
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Flex(
+            direction: landscape ? Axis.horizontal : Axis.vertical,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                flex: 3,
+                child: ColoredBox(
+                  color: AppColors.video,
+                  child: _preview(theme),
+                ),
+              ),
+              Expanded(flex: 2, child: _panel(theme)),
+            ],
+          ),
         ),
       ),
     );
@@ -588,6 +637,9 @@ class _SessionScreenState extends State<SessionScreen>
     };
     return Dismissible(
       key: ObjectKey(b),
+      // a ball still being cut has nothing saved yet; one with a review asks first
+      confirmDismiss: (_) async =>
+          b.review == null || await confirmDeleteReview(context),
       onDismissed: (_) => _dismiss(b),
       child: Card(
         margin: const EdgeInsets.only(bottom: AppSpacing.sm),

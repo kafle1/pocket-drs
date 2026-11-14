@@ -12,7 +12,7 @@ import '../widgets/pitch_setup.dart';
 import 'admin_screen.dart';
 import 'filming_guide_screen.dart';
 
-const _version = '2.1.2';
+const _version = '2.2.0';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -185,7 +185,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const _Section('Your pitch'),
                 ListTile(
                   leading: const Icon(Icons.straighten),
-                  title: const Text('Pitch length and stumps'),
+                  title: const Text('Pitch, stumps and ball'),
                   subtitle: Text(pitchSetupLine(_pitch)),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: _editPitch,

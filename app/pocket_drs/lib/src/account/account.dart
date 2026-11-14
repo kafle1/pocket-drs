@@ -221,12 +221,18 @@ class Account {
     }
     try {
       // firebase only deletes a user who signed in moments ago
-      final account = await GoogleSignIn.instance.authenticate();
+      final account = await GoogleSignIn.instance.authenticate().timeout(
+        const Duration(seconds: 60),
+      );
       final idToken = account.authentication.idToken;
       if (idToken == null) return "Couldn't confirm it's you. Try again.";
-      await user.reauthenticateWithCredential(
-        GoogleAuthProvider.credential(idToken: idToken),
-      );
+      await user
+          .reauthenticateWithCredential(
+            GoogleAuthProvider.credential(idToken: idToken),
+          )
+          .timeout(const Duration(seconds: 60));
+    } on TimeoutException {
+      return 'Google took too long to answer. Check your internet and try again.';
     } on GoogleSignInException catch (e) {
       _log('[AUTH] delete re-sign-in: ${e.code}');
       return e.code == GoogleSignInExceptionCode.canceled

@@ -78,7 +78,26 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
   }
 
   void _onUpdate() {
+    final c = _controller, r = _range;
+    // the preview plays only the chosen part, so the player can see the delivery is in it
+    if (c != null &&
+        r != null &&
+        c.value.isPlaying &&
+        c.value.position.inMilliseconds >= r.end) {
+      c.pause();
+    }
     if (mounted) setState(() {});
+  }
+
+  Future<void> _togglePlay() async {
+    final c = _controller, r = _range;
+    if (c == null || r == null) return;
+    if (c.value.isPlaying) return c.pause();
+    final at = c.value.position.inMilliseconds;
+    if (at < r.start || at >= r.end - 50) {
+      await c.seekTo(Duration(milliseconds: r.start.toInt()));
+    }
+    await c.play();
   }
 
   @override
@@ -173,11 +192,30 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
         Expanded(
           child: ColoredBox(
             color: AppColors.video,
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: controller.value.aspectRatio,
-                child: VideoPlayer(controller),
-              ),
+            child: Stack(
+              children: [
+                Center(
+                  child: AspectRatio(
+                    aspectRatio: controller.value.aspectRatio,
+                    child: VideoPlayer(controller),
+                  ),
+                ),
+                Positioned(
+                  right: AppSpacing.sm,
+                  bottom: AppSpacing.sm,
+                  child: IconButton.filledTonal(
+                    tooltip: controller.value.isPlaying
+                        ? 'Pause'
+                        : 'Play the chosen part',
+                    icon: Icon(
+                      controller.value.isPlaying
+                          ? Icons.pause
+                          : Icons.play_arrow,
+                    ),
+                    onPressed: _togglePlay,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -257,14 +295,17 @@ class _VideoTrimSelectorState extends State<VideoTrimSelector> {
                       _scheduleSeekMs(target.toInt());
                     },
                   ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    'Drag the handles to the start and end of the delivery, up to 4 s. Only this part is checked.',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
+                  // a phone on its side has no room for it under the video
+                  if (MediaQuery.sizeOf(context).height >= 560) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      "Drag the handles to just before the ball leaves the bowler's hand and just after it reaches the batter, up to 4 s. Press play to check. Only this part is sent.",
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
-                  ),
+                  ],
                   const SizedBox(height: AppSpacing.lg),
                   SizedBox(
                     width: double.infinity,

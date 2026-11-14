@@ -13,6 +13,7 @@ import '../reviews/reviews.dart';
 import '../theme/app_spacing.dart';
 import '../utils/app_settings.dart';
 import '../widgets/account_widgets.dart';
+import '../widgets/pitch_setup.dart';
 import '../widgets/stump_marker.dart';
 import '../widgets/video_frame_selector.dart';
 import '../widgets/video_trim_selector.dart';
@@ -51,6 +52,8 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
   bool _videoFromCamera = false;
   String _hand = 'right';
   bool _sending = false;
+  // stumps marked on the current frame, so stepping back asks first
+  bool _marked = false;
 
   void _log(String m) => debugPrint(m);
 
@@ -179,6 +182,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
       if (!mounted || _video != video || _step != _Step.frame) return true;
       setState(() {
         _frameBytes = bytes;
+        _marked = false;
         _step = _Step.stumps;
       });
       return true;
@@ -277,7 +281,11 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     }
   }
 
-  void _back() {
+  Future<void> _back() async {
+    if (_step == _Step.stumps && _marked && !await confirmDropMarks(context)) {
+      return;
+    }
+    if (!mounted) return;
     setState(() {
       switch (_step) {
         case _Step.trim:
@@ -368,6 +376,7 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
         frame: _frameBytes!,
         actionLabel: 'Check this ball',
         onComplete: _send,
+        onEdited: () => _marked = true,
         hand: _hand,
         onHand: _setHand,
       ),
@@ -430,52 +439,79 @@ class _BallQuestionsState extends State<_BallQuestions> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final hint = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.xl,
-          0,
-          AppSpacing.xl,
-          AppSpacing.lg,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'What did the umpire give?',
-              style: theme.textTheme.titleMedium,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            SegmentedButton<OnFieldCall>(
-              expandedInsets: EdgeInsets.zero,
-              showSelectedIcon: false,
-              segments: [
-                for (final c in OnFieldCall.values)
-                  ButtonSegment(value: c, label: Text(c.label)),
-              ],
-              selected: {_call},
-              onSelectionChanged: (v) => setState(() => _call = v.first),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Text('Played a shot?', style: theme.textTheme.titleMedium),
-            const SizedBox(height: AppSpacing.sm),
-            SegmentedButton<bool>(
-              expandedInsets: EdgeInsets.zero,
-              showSelectedIcon: false,
-              segments: const [
-                ButtonSegment(value: true, label: Text('Yes')),
-                ButtonSegment(value: false, label: Text('No')),
-              ],
-              selected: {_shot},
-              onSelectionChanged: (v) => setState(() => _shot = v.first),
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, (_call, _shot)),
-              child: const Text('Check this ball'),
-            ),
-          ],
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            0,
+            AppSpacing.xl,
+            AppSpacing.lg,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'What did the umpire give?',
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                "When the ball is too close to call, the umpire's decision stands.",
+                style: hint,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              SegmentedButton<OnFieldCall>(
+                expandedInsets: EdgeInsets.zero,
+                showSelectedIcon: false,
+                segments: [
+                  for (final c in OnFieldCall.values)
+                    ButtonSegment(value: c, label: Text(c.label)),
+                ],
+                selected: {_call},
+                onSelectionChanged: (v) => setState(() => _call = v.first),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'Did the batter play a shot?',
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'With no shot, a ball hitting the pad outside off stump can still be out.',
+                style: hint,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              SegmentedButton<bool>(
+                expandedInsets: EdgeInsets.zero,
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(value: true, label: Text('Yes')),
+                  ButtonSegment(value: false, label: Text('No')),
+                ],
+                selected: {_shot},
+                onSelectionChanged: (v) => setState(() => _shot = v.first),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Text('Your pitch', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 2),
+              Text('Tap to change the length, stumps or ball.', style: hint),
+              const SizedBox(height: AppSpacing.xs),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: PitchSetupChip(),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, (_call, _shot)),
+                child: const Text('Check this ball'),
+              ),
+            ],
+          ),
         ),
       ),
     );

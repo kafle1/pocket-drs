@@ -197,12 +197,14 @@ void _throwForStatus(int code, String body) {
 // the server gives back the free review of a failed check or one with no call
 const notCounted = "This one didn't use up a free review.";
 
-// plain words for a failed job by the server's error code; its own message can be a raw decoder error
-String _jobErrorMessage(String? code) => switch (code) {
+// plain words for a failed job by the server's error code; a decode failure's own message is the decoder's raw text
+String _jobErrorMessage(String? code, String? serverMessage) => switch (code) {
   'VIDEO_DECODE_FAILED' =>
     "The server couldn't read this video. Try another clip.",
   'TIMED_OUT' =>
     'This clip took too long to check. Trim it to just the delivery and send it again.',
+  _ when serverMessage != null && serverMessage.trim().isNotEmpty =>
+    serverMessage.trim(),
   _ =>
     'Something went wrong checking this ball. Try again, or try another clip.',
 };
@@ -445,8 +447,7 @@ class PocketDrsApi {
         unawaited(Account.instance.refreshMe());
         throw JobFailedException(
           status.errorCode,
-          // the server words every failure for the user, down to which mark or setting to fix
-          '${status.errorMessage ?? _jobErrorMessage(status.errorCode)} $notCounted',
+          '${_jobErrorMessage(status.errorCode, status.errorMessage)} $notCounted',
         );
       }
       final ms = attempt < 10 ? 500 : (attempt < 30 ? 800 : 1200);

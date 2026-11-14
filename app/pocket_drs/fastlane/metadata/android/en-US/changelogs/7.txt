@@ -1,0 +1,7 @@
+New look, with the call shown as three check tiles and how sure it is.
+Tell the app the umpire's decision, if a shot was played, and your pitch, stumps and ball.
+Mark the stumps with a magnifier, undo and zoom.
+Clips shrink on the phone first, so they send faster.
+Reviews stay on your phone, carry on after a restart and send once you are back online.
+3D ball path that works offline, and share the call as a picture.
+A no call says why and what to change. You can delete your account in Settings.

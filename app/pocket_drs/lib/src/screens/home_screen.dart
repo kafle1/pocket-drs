@@ -283,6 +283,7 @@ class _ReviewRow extends StatelessWidget {
         ),
         child: Icon(Icons.delete_outline, color: scheme.onErrorContainer),
       ),
+      confirmDismiss: (_) => confirmDeleteReview(context),
       onDismissed: (_) => Reviews.instance.delete(r),
       child: Card(
         child: InkWell(

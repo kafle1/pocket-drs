@@ -33,7 +33,7 @@ class AnalysisResult {
   final TrajectoryOverlay? overlay;
   final DeliveryMetrics? metrics;
 
-  /// Pixel size of the analysed frame, the space of [overlay] and [track].
+  /// Pixel size of the analysed frame, the space of [overlay] and [track]; 0 on an early no call.
   final int imageWidth;
   final int imageHeight;
   final List<String> warnings;
@@ -48,9 +48,10 @@ class AnalysisResult {
 
   static AnalysisResult fromServerJson(Map<String, Object?> json) {
     final imageSize = _map(json['image_size']);
-    final width = _readInt(imageSize, 'width');
-    final height = _readInt(imageSize, 'height');
-    if (width == null || height == null) {
+    // a no call raised while decoding (too dark, too few frames) comes back before the frame was sized
+    final width = _readInt(imageSize, 'width') ?? 0;
+    final height = _readInt(imageSize, 'height') ?? 0;
+    if ((width <= 0 || height <= 0) && json['no_call'] is! Map) {
       throw const FormatException('Missing or invalid image_size');
     }
     final diag = _map(json['diagnostics']);

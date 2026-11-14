@@ -35,6 +35,7 @@ class StumpMarker extends StatefulWidget {
     this.suspect,
     this.hand,
     this.onHand,
+    this.onEdited,
   });
 
   final Uint8List frame;
@@ -48,6 +49,9 @@ class StumpMarker extends StatefulWidget {
 
   /// The mark the server says doesn't line up with the others.
   final int? suspect;
+
+  /// Called after each change to the marks, so the screen can ask before throwing them away.
+  final VoidCallback? onEdited;
 
   @override
   State<StumpMarker> createState() => _StumpMarkerState();
@@ -221,6 +225,7 @@ class _StumpMarkerState extends State<StumpMarker> {
     if (!listEquals(_before, _marks)) {
       _undo.add(_before);
       if (_active == _suspect) _suspect = null;
+      widget.onEdited?.call();
     }
     setState(() {
       _mode = _Mode.none;
@@ -240,6 +245,7 @@ class _StumpMarkerState extends State<StumpMarker> {
       _undo.add(List.of(_marks));
       _marks.add(null);
     });
+    widget.onEdited?.call();
   }
 
   // tapped in the wrong order, the server would solve a camera that can't exist
@@ -779,8 +785,32 @@ class _MarksPainter extends CustomPainter {
   bool shouldRepaint(_MarksPainter old) => true;
 }
 
+/// Asks before leaving a frame whose stump marks would be lost; true means leave.
+Future<bool> confirmDropMarks(BuildContext context) async {
+  final leave = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Leave without your marks?'),
+      content: const Text(
+        'The stump marks on this frame will be lost, and you will have to mark them again.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Keep marking'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Leave'),
+        ),
+      ],
+    ),
+  );
+  return leave ?? false;
+}
+
 /// Full-screen marking on a saved frame, for sending a ball again with better marks.
-class MarkStumpsScreen extends StatelessWidget {
+class MarkStumpsScreen extends StatefulWidget {
   const MarkStumpsScreen({
     super.key,
     required this.frame,
@@ -792,15 +822,32 @@ class MarkStumpsScreen extends StatelessWidget {
   final int? suspect;
 
   @override
+  State<MarkStumpsScreen> createState() => _MarkStumpsScreenState();
+}
+
+class _MarkStumpsScreenState extends State<MarkStumpsScreen> {
+  bool _edited = false;
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Mark the stumps')),
-      body: StumpMarker(
-        frame: frame,
-        initialMarks: marks,
-        suspect: suspect,
-        actionLabel: 'Send again',
-        onComplete: (m) => Navigator.pop(context, m),
+    return PopScope<List<Offset?>>(
+      canPop: !_edited,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop || !await confirmDropMarks(context)) return;
+        if (context.mounted) Navigator.pop(context);
+      },
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Mark the stumps')),
+        body: StumpMarker(
+          frame: widget.frame,
+          initialMarks: widget.marks,
+          suspect: widget.suspect,
+          actionLabel: 'Send again',
+          onEdited: () {
+            if (!_edited) setState(() => _edited = true);
+          },
+          onComplete: (m) => Navigator.pop(context, m),
+        ),
       ),
     );
   }

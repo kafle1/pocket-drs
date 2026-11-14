@@ -2,7 +2,7 @@ name: pocket_drs
 description: "Pocket DRS: single-phone LBW review for cricket."
 publish_to: 'none'
 
-version: 2.1.2+6
+version: 2.2.0+7
 
 environment:
   sdk: ^3.8.1

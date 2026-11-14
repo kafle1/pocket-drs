@@ -242,8 +242,9 @@ class _AdminScreenState extends State<AdminScreen>
               s == null
                   ? ' '
                   : '${_count(s['users'], 'person', 'people')}, ${s['premium'] ?? 0} premium. '
-                        'Reviews today ${s['jobs_today'] ?? 0}, failed today ${s['failed_today'] ?? 0}, '
-                        'all time ${s['jobs_total'] ?? 0}.',
+                        'Reviews today ${s['jobs_today'] ?? 0}, failed today ${s['failed_today'] ?? 0}'
+                        // the server stopped sending an all-time count, so it only shows when there is one
+                        '${s['jobs_total'] is num ? ', all time ${s['jobs_total']}' : ''}.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: scheme.onSurfaceVariant,
               ),

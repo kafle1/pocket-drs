@@ -249,6 +249,8 @@ class TrajectoryPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // the projected pitch runs off the frame when the phone stands close to the stumps
     canvas.clipRect(Offset.zero & size);
+    // an early no call has no frame size and nothing to draw
+    if (imageWidth <= 0 || imageHeight <= 0) return;
     final sx = size.width / imageWidth;
     final sy = size.height / imageHeight;
     Offset map(Offset p) => Offset(p.dx * sx, p.dy * sy);

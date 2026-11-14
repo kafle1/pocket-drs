@@ -261,7 +261,13 @@ class Reviews extends ChangeNotifier {
     _gen++;
     _items.clear();
     notifyListeners();
-    if (root != null) await Directory(root).delete(recursive: true);
+    if (root == null) return;
+    try {
+      await Directory(root).delete(recursive: true);
+    } on FileSystemException catch (e) {
+      // the server account is already gone, so a leftover folder must not stop the sign-out
+      debugPrint('[REVIEWS] delete all: $e');
+    }
   }
 
   Future<void> _run(Review r, int gen) async {
@@ -401,8 +407,8 @@ class Reviews extends ChangeNotifier {
         ..state = ReviewState.failed
         ..error = e.message
         ..errorCode = e.code;
-      // the server stopped a slow check and kept the review, so the same clip can go again
-      if (e.code == 'TIMED_OUT') {
+      // a slow or crashed check isn't the clip's fault and costs no review, so the same clip can go again
+      if (e.code == 'TIMED_OUT' || e.code == 'INTERNAL_ERROR') {
         r
           ..jobId = null
           ..idem = newIdempotencyKey()

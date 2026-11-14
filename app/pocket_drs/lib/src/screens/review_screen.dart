@@ -52,6 +52,30 @@ class ReviewScreen extends StatelessWidget {
   }
 }
 
+/// Asks before a review and its clip are deleted from the phone; true means delete.
+Future<bool> confirmDeleteReview(BuildContext context) async {
+  final delete = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Delete this ball?'),
+      content: const Text(
+        "Its clip and its call are removed from this phone. This can't be undone.",
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Keep it'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Delete'),
+        ),
+      ],
+    ),
+  );
+  return delete ?? false;
+}
+
 /// Opens the saved frame so the stumps can be marked again, then sends the ball again.
 Future<void> remarkStumps(BuildContext context, Review r) async {
   final messenger = ScaffoldMessenger.of(context);
@@ -254,6 +278,15 @@ class _Failed extends StatelessWidget {
             r.error ?? 'Something went wrong.',
             style: theme.textTheme.bodyLarge,
           ),
+          if (r.noSignal) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'It sends by itself once the phone is back online. You can leave this screen.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
           const SizedBox(height: AppSpacing.xl),
           if (outdated && Platform.isAndroid)
             FilledButton.icon(
@@ -273,9 +306,10 @@ class _Failed extends StatelessWidget {
           ],
           const SizedBox(height: AppSpacing.md),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
+              if (!await confirmDeleteReview(context)) return;
               Reviews.instance.delete(r);
-              Navigator.pop(context);
+              if (context.mounted) Navigator.pop(context);
             },
             child: const Text('Delete this ball'),
           ),
@@ -284,6 +318,17 @@ class _Failed extends StatelessWidget {
     );
   }
 }
+
+// no calls that new stump marks or a new pitch setting can't fix: the clip itself, the camera, or a too-close ball
+bool _marksMayHelp(String? code) => !const {
+  'frame_rate_too_low',
+  'too_dark',
+  'clip_timing',
+  'clip_cut',
+  'camera_moved',
+  'bounce_not_seen',
+  'too_close',
+}.contains(code);
 
 class _Result extends StatelessWidget {
   const _Result({required this.review, required this.onAnother});
@@ -338,7 +383,7 @@ class _Result extends StatelessWidget {
             ),
           ],
         )
-      else
+      else if (_marksMayHelp(result.noCall?.code))
         OutlinedButton.icon(
           onPressed: () => remarkStumps(context, review),
           icon: const Icon(Icons.center_focus_strong_outlined),

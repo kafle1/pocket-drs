@@ -307,6 +307,17 @@ class _VideoFrameSelectorState extends State<VideoFrameSelector> {
                       ),
                     ],
                   ),
+                  // a phone on its side has no room for it under the video
+                  if (MediaQuery.sizeOf(context).height >= 560) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      'Pick a still frame where all six stumps are clear, with nobody standing in front of them.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: AppSpacing.lg),
                   SizedBox(
                     width: double.infinity,
