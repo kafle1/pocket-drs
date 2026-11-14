@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import logging.config
+import os
 from contextvars import ContextVar
 from typing import Any
 
@@ -50,5 +51,5 @@ def build_uvicorn_log_config(*, log_level: str = "info") -> dict[str, Any]:
     }
 
 
-def configure_logging(*, log_level: str = "info") -> None:
-    logging.config.dictConfig(build_uvicorn_log_config(log_level=log_level))
+def configure_logging() -> None:
+    logging.config.dictConfig(build_uvicorn_log_config(log_level=os.environ.get("POCKET_DRS_LOG_LEVEL", "info")))

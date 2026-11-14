@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Strict = ConfigDict(extra="forbid")
+STUMP_MARKS_MISSING = "Only one stump corner can be left unmarked. Mark the other corners and send it again."
 
 
 class ApiError(BaseModel):
@@ -61,8 +62,10 @@ class Calibration(BaseModel):
 
     @model_validator(mode="after")
     def _marks_present(self):
-        if len(self.stump_quads_norm) != 8 or sum(p is None for p in self.stump_quads_norm) > 1:
-            raise ValueError("calibration.stump_quads_norm needs 8 points, at most one of them null")
+        if len(self.stump_quads_norm) != 8:
+            raise ValueError("calibration.stump_quads_norm needs 8 points")
+        if self.stump_quads_norm.count(None) > 1:
+            raise ValueError(STUMP_MARKS_MISSING)
         if self.crease_marks_norm is not None and len(self.crease_marks_norm) != 4:
             raise ValueError("calibration.crease_marks_norm needs 4 points")
         if any(not (0.0 <= p.x <= 1.0 and 0.0 <= p.y <= 1.0) for p in [*self.stump_quads_norm, *(self.crease_marks_norm or [])] if p):

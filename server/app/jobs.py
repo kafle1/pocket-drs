@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -11,10 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .logging_setup import configure_logging
 from .models import ApiError, JobStatus, ProgressInfo
 
 # jobs are cleaned up by age; job ids are unguessable, so no owner check on reads
-_MAX_JOB_AGE_S = 24 * 60 * 60
+MAX_JOB_AGE_S = 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,16 @@ class JobPaths:
     artifacts_dir: Path
 
 
+def data_dir() -> Path:
+    # /data in the container; the repo's data/ when run straight from a checkout
+    return Path(os.environ.get("POCKET_DRS_DATA_DIR") or Path(__file__).resolve().parents[2] / "data")
+
+
+def short_id(job_id: str) -> str:
+    # enough to match log lines up, too little to fetch someone's result with
+    return job_id[:8]
+
+
 def _now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -37,12 +49,12 @@ class JobStore:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
 
-    def _sweep_old_jobs(self) -> None:
-        # runs on job creation; a job dir's mtime moves whenever its status is rewritten
+    def sweep(self) -> None:
+        # a job dir's mtime moves whenever its status is rewritten
         jobs_root = self._data_dir / "jobs"
         if not jobs_root.exists():
             return
-        cutoff = time.time() - _MAX_JOB_AGE_S
+        cutoff = time.time() - MAX_JOB_AGE_S
         for job_dir in jobs_root.iterdir():
             try:
                 if job_dir.is_dir() and job_dir.stat().st_mtime < cutoff:
@@ -51,7 +63,6 @@ class JobStore:
                 continue
 
     def create_job(self) -> tuple[str, JobPaths]:
-        self._sweep_old_jobs()
         job_id = uuid.uuid4().hex
         paths = self.job_paths(job_id)
         paths.artifacts_dir.mkdir(parents=True)
@@ -77,8 +88,12 @@ class JobStore:
             mtime = (self._data_dir / "jobs" / job_id).stat().st_mtime
         except OSError:
             return False
-        # the sweep only runs when a job is created, so a quiet server must still stop serving old results
-        return time.time() - mtime < _MAX_JOB_AGE_S
+        # the sweep runs hourly, so a result must stop being served the moment it is a day old
+        return time.time() - mtime < MAX_JOB_AGE_S
+
+    def remove(self, job_ids: list[str]) -> None:
+        for job_id in job_ids:
+            shutil.rmtree(self.job_paths(job_id).job_dir, ignore_errors=True)
 
     def _atomic_write_json(self, path: Path, payload: dict[str, Any]) -> None:
         # a poll must never read a half-written file
@@ -145,5 +160,35 @@ class JobStore:
         return dropped
 
 
+def run_job(paths: JobPaths, request_json: dict[str, Any]) -> None:
+    """The body of a job's own process, which can be killed when it hangs; it leaves its outcome in status.json."""
+    from .pipeline.process_job import map_exception_to_api_error, run_pipeline
+
+    configure_logging()
+    log = logging.getLogger("pocket_drs")
+    store = JobStore(paths.job_dir.parent.parent)
+    last = None
+
+    # the pipeline reports every decoded frame, so only a new percent or stage is written to disk
+    def progress(pct: int, stage: str) -> None:
+        nonlocal last
+        if (pct, stage) != last:
+            store.write_status(paths, status=JobStatus.running, progress=ProgressInfo(pct=pct, stage=stage), error=None)
+            last = (pct, stage)
+
+    try:
+        progress(1, "starting")
+        out = run_pipeline(video_path=paths.video_path, request_json=request_json, artifacts_dir=paths.artifacts_dir,
+                           progress=progress)
+        store.write_result(paths, out.result)
+        store.write_status(paths, status=JobStatus.succeeded, progress=ProgressInfo(pct=100, stage="succeeded"),
+                           error=None)
+        log.info("job %s done with %d warnings", short_id(paths.job_dir.name), len(out.warnings))
+    except Exception as e:  # noqa: BLE001
+        log.exception("job %s failed", short_id(paths.job_dir.name))
+        store.write_status(paths, status=JobStatus.failed, progress=ProgressInfo(pct=100, stage="failed"),
+                           error=map_exception_to_api_error(e))
+
+
 def default_job_store() -> JobStore:
-    return JobStore(Path(os.environ.get("POCKET_DRS_DATA_DIR") or Path(__file__).resolve().parents[2] / "data"))
+    return JobStore(data_dir())
