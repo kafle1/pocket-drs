@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../account/account.dart';
+import '../reviews/reviews.dart';
 import '../theme/app_spacing.dart';
+import '../theme/app_theme.dart';
 import '../theme/theme_controller.dart';
 import '../utils/app_settings.dart';
+import '../widgets/account_widgets.dart';
+import '../widgets/pitch_setup.dart';
+import 'admin_screen.dart';
+import 'filming_guide_screen.dart';
 
-const _version = '2.1.1';
+const _version = '2.1.2';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -16,182 +23,282 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _loading = true;
-  ThemeMode _themeMode = ThemeMode.system;
   SpeedUnit _speedUnit = SpeedUnit.kmh;
   bool _autoDeleteSource = false;
-  double _pitchLength = AppSettings.fullPitchM;
+  late PitchSetup _pitch;
+  bool _deleting = false;
 
   @override
   void initState() {
     super.initState();
+    Account.instance.refreshMe();
     _load();
   }
 
   Future<void> _load() async {
-    final themeMode = ThemeController.instance.themeMode.value;
     final unit = await AppSettings.getSpeedUnit();
     final autoDel = await AppSettings.getAutoDeleteSource();
-    final pitch = await AppSettings.getPitchLength();
+    final pitch = await AppSettings.getPitchSetup();
     if (!mounted) return;
     setState(() {
-      _themeMode = themeMode;
       _speedUnit = unit;
       _autoDeleteSource = autoDel;
-      _pitchLength = pitch;
+      _pitch = pitch;
       _loading = false;
     });
   }
 
-  void _setThemeMode(ThemeMode mode) {
-    setState(() => _themeMode = mode);
-    ThemeController.instance.setThemeMode(mode);
-  }
-
-  Future<void> _setSpeedUnit(SpeedUnit unit) async {
-    setState(() => _speedUnit = unit);
-    await AppSettings.setSpeedUnit(unit);
-  }
-
-  Future<void> _setAutoDelete(bool v) async {
-    setState(() => _autoDeleteSource = v);
-    await AppSettings.setAutoDeleteSource(v);
-  }
-
-  Future<void> _editPitchLength() async {
-    final v = await showDialog<double>(
-      context: context,
-      builder: (_) => _PitchLengthDialog(initial: _pitchLength),
-    );
-    if (v == null || !mounted) return;
-    setState(() => _pitchLength = v);
-    await AppSettings.setPitchLength(v);
+  Future<void> _editPitch() async {
+    final p = await showPitchSetup(context);
+    if (p != null && mounted) setState(() => _pitch = p);
   }
 
   Future<void> _open(String url) async {
-    var ok = false;
-    try {
-      ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    } catch (_) {}
+    final ok = await launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.externalApplication,
+    ).catchError((_) => false);
     if (ok || !mounted) return;
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text("Couldn't open $url")));
   }
 
+  Future<void> _deleteAccount() async {
+    final scheme = Theme.of(context).colorScheme;
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete your account?'),
+        content: const Text(
+          'Your account, your free review count and every review saved on '
+          "this phone are deleted. This can't be undone. Google will ask you "
+          "to confirm it's you first.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep it'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.error,
+              foregroundColor: scheme.onError,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    setState(() => _deleting = true);
+    final messenger = ScaffoldMessenger.of(context);
+    // success signs out, which drops every screen back to the sign-in gate
+    final err = await Account.instance.deleteAccount(
+      Reviews.instance.deleteAll,
+    );
+    if (err == null) return;
+    messenger.showSnackBar(
+      SnackBar(content: Text("Your account wasn't deleted. $err")),
+    );
+    if (mounted) setState(() => _deleting = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          const SliverAppBar.large(title: Text('Settings')),
-          if (_loading)
-            const SliverFillRemaining(
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else
-            SliverPadding(
+      appBar: AppBar(title: const Text('Settings')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
               padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  const _SectionHeader('Appearance'),
-                  const ListTile(title: Text('Theme')),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.lg,
-                    ),
-                    child: SegmentedButton<ThemeMode>(
-                      expandedInsets: EdgeInsets.zero,
-                      segments: const [
-                        ButtonSegment(
-                          value: ThemeMode.system,
-                          label: Text('System'),
-                          icon: Icon(Icons.brightness_auto_outlined),
+              children: [
+                const _Section('Account'),
+                ValueListenableBuilder<Me?>(
+                  valueListenable: Account.instance.me,
+                  builder: (context, me, _) => Column(
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.account_circle_outlined),
+                        title: Text(
+                          me == null || me.name.isEmpty ? 'Signed in' : me.name,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        ButtonSegment(
-                          value: ThemeMode.light,
-                          label: Text('Light'),
-                          icon: Icon(Icons.light_mode_outlined),
+                        subtitle: me == null || me.email.isEmpty
+                            ? null
+                            : Text(me.email, overflow: TextOverflow.ellipsis),
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.confirmation_number_outlined),
+                        title: Text(
+                          me == null ? 'Loading your reviews' : planLine(me),
                         ),
-                        ButtonSegment(
-                          value: ThemeMode.dark,
-                          label: Text('Dark'),
-                          icon: Icon(Icons.dark_mode_outlined),
+                        subtitle: switch (me) {
+                          final me? => switch (resetLine(me)) {
+                            final r? => Text(r),
+                            null => null,
+                          },
+                          null => null,
+                        },
+                      ),
+                      if (me != null && me.isAdmin)
+                        ListTile(
+                          leading: const Icon(
+                            Icons.admin_panel_settings_outlined,
+                          ),
+                          title: const Text('Admin'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const AdminScreen(),
+                            ),
+                          ),
                         ),
-                      ],
-                      selected: {_themeMode},
-                      onSelectionChanged: (s) => _setThemeMode(s.first),
+                    ],
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.logout),
+                  title: const Text('Sign out'),
+                  onTap: _deleting ? null : Account.instance.signOut,
+                ),
+                ListTile(
+                  leading: Icon(
+                    Icons.delete_outline,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  title: Text(
+                    'Delete account',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
                     ),
                   ),
-                  const _SectionHeader('Units'),
-                  const ListTile(title: Text('Speed')),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.lg,
+                  trailing: _deleting
+                      ? const SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : null,
+                  onTap: _deleting ? null : _deleteAccount,
+                ),
+                const _Section('Your pitch'),
+                ListTile(
+                  leading: const Icon(Icons.straighten),
+                  title: const Text('Pitch length and stumps'),
+                  subtitle: Text(pitchSetupLine(_pitch)),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _editPitch,
+                ),
+                const _Section('Display'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.lg,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ValueListenableBuilder<ThemeMode>(
+                        valueListenable: ThemeController.instance.themeMode,
+                        builder: (context, mode, _) =>
+                            SegmentedButton<ThemeMode>(
+                              expandedInsets: EdgeInsets.zero,
+                              showSelectedIcon: false,
+                              segments: const [
+                                ButtonSegment(
+                                  value: ThemeMode.system,
+                                  label: Text('Auto'),
+                                ),
+                                ButtonSegment(
+                                  value: ThemeMode.light,
+                                  label: Text('Light'),
+                                ),
+                                ButtonSegment(
+                                  value: ThemeMode.dark,
+                                  label: Text('Dark'),
+                                ),
+                              ],
+                              selected: {mode},
+                              onSelectionChanged: (s) => ThemeController
+                                  .instance
+                                  .setThemeMode(s.first),
+                            ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      SegmentedButton<SpeedUnit>(
+                        expandedInsets: EdgeInsets.zero,
+                        showSelectedIcon: false,
+                        segments: const [
+                          ButtonSegment(
+                            value: SpeedUnit.kmh,
+                            label: Text('km/h'),
+                          ),
+                          ButtonSegment(
+                            value: SpeedUnit.mph,
+                            label: Text('mph'),
+                          ),
+                        ],
+                        selected: {_speedUnit},
+                        onSelectionChanged: (s) {
+                          setState(() => _speedUnit = s.first);
+                          AppSettings.setSpeedUnit(s.first);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const _Section('Storage'),
+                SwitchListTile(
+                  value: _autoDeleteSource,
+                  onChanged: (v) {
+                    setState(() => _autoDeleteSource = v);
+                    AppSettings.setAutoDeleteSource(v);
+                  },
+                  title: const Text('Delete recordings once sent'),
+                  subtitle: const Text(
+                    'Clips you record in the app are removed after the ball is '
+                    'sent. The trimmed clip stays with its review.',
+                  ),
+                ),
+                const _Section('Help'),
+                ListTile(
+                  leading: const Icon(Icons.help_outline),
+                  title: const Text('How to film'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const FilmingGuideScreen(),
                     ),
-                    child: SegmentedButton<SpeedUnit>(
-                      expandedInsets: EdgeInsets.zero,
-                      segments: const [
-                        ButtonSegment(
-                          value: SpeedUnit.kmh,
-                          label: Text('km/h'),
-                        ),
-                        ButtonSegment(value: SpeedUnit.mph, label: Text('mph')),
-                      ],
-                      selected: {_speedUnit},
-                      onSelectionChanged: (s) => _setSpeedUnit(s.first),
-                    ),
                   ),
-                  const _SectionHeader('Pitch'),
-                  ListTile(
-                    title: const Text('Pitch length'),
-                    subtitle: Text(
-                      _pitchLength == AppSettings.fullPitchM
-                          ? '${_pitchLength.toStringAsFixed(2)} m, full size'
-                          : '${_pitchLength.toStringAsFixed(2)} m',
-                    ),
-                    trailing: const Icon(Icons.edit_outlined),
-                    onTap: _editPitchLength,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.code),
+                  title: const Text('Source code'),
+                  subtitle: const Text('Free software under AGPL-3.0'),
+                  trailing: const Icon(Icons.open_in_new),
+                  onTap: () => _open('https://github.com/kafle1/pocket-drs'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.privacy_tip_outlined),
+                  title: const Text('Privacy policy'),
+                  trailing: const Icon(Icons.open_in_new),
+                  onTap: () => _open(
+                    'https://github.com/kafle1/pocket-drs/blob/main/docs/privacy-policy.md',
                   ),
-                  const _SectionHeader('Storage'),
-                  SwitchListTile(
-                    value: _autoDeleteSource,
-                    onChanged: _setAutoDelete,
-                    title: const Text('Delete recordings after analysis'),
-                    subtitle: const Text(
-                      'Clips you record in the app are removed once you '
-                      'leave the result.',
-                    ),
-                  ),
-                  const _SectionHeader('About'),
-                  const ListTile(
-                    title: Text('Pocket DRS'),
-                    subtitle: Text('Version $_version'),
-                  ),
-                  ListTile(
-                    title: const Text('Source code'),
-                    subtitle: const Text('Free software under AGPL-3.0'),
-                    trailing: const Icon(Icons.open_in_new),
-                    onTap: () => _open('https://github.com/kafle1/pocket-drs'),
-                  ),
-                  ListTile(
-                    title: const Text('Privacy policy'),
-                    trailing: const Icon(Icons.open_in_new),
-                    onTap: () => _open(
-                      'https://github.com/kafle1/pocket-drs/blob/main/docs/privacy-policy.md',
-                    ),
-                  ),
-                ]),
-              ),
+                ),
+                const ListTile(
+                  leading: Icon(Icons.info_outline),
+                  title: Text('Pocket DRS'),
+                  subtitle: Text('Version $_version'),
+                ),
+              ],
             ),
-        ],
-      ),
     );
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.label);
-
+class _Section extends StatelessWidget {
+  const _Section(this.label);
   final String label;
 
   @override
@@ -200,95 +307,16 @@ class _SectionHeader extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
+        AppSpacing.xl,
         AppSpacing.lg,
-        AppSpacing.lg,
-        AppSpacing.xs,
+        AppSpacing.sm,
       ),
       child: Text(
-        label,
-        style: theme.textTheme.titleSmall?.copyWith(
-          color: theme.colorScheme.primary,
-        ),
+        label.toUpperCase(),
+        style: AppTheme.caps(
+          theme.textTheme.labelSmall,
+        )?.copyWith(color: theme.colorScheme.primary),
       ),
-    );
-  }
-}
-
-class _PitchLengthDialog extends StatefulWidget {
-  const _PitchLengthDialog({required this.initial});
-
-  final double initial;
-
-  @override
-  State<_PitchLengthDialog> createState() => _PitchLengthDialogState();
-}
-
-class _PitchLengthDialogState extends State<_PitchLengthDialog> {
-  late final _controller = TextEditingController(
-    text: widget.initial.toStringAsFixed(2),
-  );
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  // commas too, since many keyboards use them as the decimal mark; NaN fails the range check
-  double? get _value {
-    final v = double.tryParse(_controller.text.trim().replaceAll(',', '.'));
-    return v != null && v >= AppSettings.minPitchM && v <= AppSettings.maxPitchM
-        ? v
-        : null;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final v = _value;
-    return AlertDialog(
-      title: const Text('Pitch length'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Measure from the batter\'s stumps to the bowler\'s stumps. '
-            'This sets the scale for ball speed and the 3D view.',
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          TextField(
-            controller: _controller,
-            autofocus: true,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              suffixText: 'm',
-              helperText: 'A full pitch is 20.12 m (22 yards)',
-              errorText: v == null
-                  ? 'Enter ${AppSettings.minPitchM.toStringAsFixed(0)} to '
-                        '${AppSettings.maxPitchM.toStringAsFixed(0)} m'
-                  : null,
-            ),
-            onChanged: (_) => setState(() {}),
-            onSubmitted: (_) {
-              if (_value != null) Navigator.pop(context, _value);
-            },
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, AppSettings.fullPitchM),
-          child: const Text('Full size'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: v == null ? null : () => Navigator.pop(context, v),
-          child: const Text('Save'),
-        ),
-      ],
     );
   }
 }

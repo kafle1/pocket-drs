@@ -69,6 +69,14 @@ flutter {
     source = "../.."
 }
 
+// 1.11 needs compileSdk 36, which this project already uses
+val media3 = "1.11.1"
+dependencies {
+    implementation("androidx.media3:media3-transformer:$media3")
+    implementation("androidx.media3:media3-effect:$media3")
+    implementation("androidx.media3:media3-common:$media3")
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17

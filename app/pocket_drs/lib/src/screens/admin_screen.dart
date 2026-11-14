@@ -43,7 +43,7 @@ String _outcome(Map<String, Object?> j) => switch (j['status']) {
   _ => 'Checking',
 };
 
-/// Admin panel: stats, people, phones and recent reviews.
+/// Admin panel: stats, people and recent reviews.
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
 
@@ -55,7 +55,7 @@ class _AdminScreenState extends State<AdminScreen>
     with SingleTickerProviderStateMixin {
   final _api = PocketDrsApi();
   final _search = TextEditingController();
-  late final _tabs = TabController(length: 3, vsync: this);
+  late final _tabs = TabController(length: 2, vsync: this);
   Timer? _debounce;
   // bumped on each load, so a slow older load can't overwrite a newer one
   int _load = 0;
@@ -66,7 +66,6 @@ class _AdminScreenState extends State<AdminScreen>
   String? _reviewsOf;
   Map<String, Object?>? _stats;
   List<Map<String, Object?>> _users = const [];
-  List<Map<String, Object?>> _devices = const [];
   List<Map<String, Object?>> _jobs = const [];
 
   @override
@@ -93,21 +92,17 @@ class _AdminScreenState extends State<AdminScreen>
     final q = _search.text;
     try {
       final users = _api.adminUsers(q);
-      final devices = _api.adminDevices(q);
       final jobs = _api.adminJobs(_reviewsOf);
       // if one fails first, the others' errors still need a listener
       users.ignore();
-      devices.ignore();
       jobs.ignore();
       final stats = await _api.adminStats();
       final u = await users;
-      final d = await devices;
       final j = await jobs;
       if (!mounted || load != _load) return;
       setState(() {
         _stats = stats;
         _users = u;
-        _devices = d;
         _jobs = j;
         _loading = false;
       });
@@ -134,7 +129,7 @@ class _AdminScreenState extends State<AdminScreen>
 
   void _showReviews(String? email) {
     setState(() => _reviewsOf = email);
-    _tabs.animateTo(2);
+    _tabs.animateTo(1);
     _refresh();
   }
 
@@ -160,15 +155,10 @@ class _AdminScreenState extends State<AdminScreen>
     }
   }
 
-  Future<void> _setUser(
-    String email,
-    String action, {
-    String? plan,
-    bool resetUsed = false,
-  }) => _act(
+  Future<void> _setUser(String email, String action, String plan) => _act(
     action,
     'Saved for $email.',
-    () => _api.adminUpdateUser(email, plan: plan, resetUsed: resetUsed),
+    () => _api.adminUpdateUser(email, plan),
   );
 
   Future<void> _addPerson() async {
@@ -207,7 +197,7 @@ class _AdminScreenState extends State<AdminScreen>
       _say("That doesn't look like an email address.");
       return;
     }
-    await _setUser(e, 'add_premium', plan: 'premium');
+    await _setUser(e, 'add_premium', 'premium');
   }
 
   @override
@@ -234,7 +224,6 @@ class _AdminScreenState extends State<AdminScreen>
           controller: _tabs,
           tabs: const [
             Tab(text: 'People'),
-            Tab(text: 'Phones'),
             Tab(text: 'Reviews'),
           ],
         ),
@@ -290,7 +279,6 @@ class _AdminScreenState extends State<AdminScreen>
               controller: _tabs,
               children: [
                 _list(_users, 'Nobody matches.', _userTile),
-                _list(_devices, 'No phones yet.', _deviceTile),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -345,11 +333,10 @@ class _AdminScreenState extends State<AdminScreen>
     final email = '${u['email'] ?? ''}';
     final plan = '${u['plan'] ?? 'free'}';
     final name = '${u['name'] ?? ''}';
-    final limit = Account.instance.me.value?.freeLimit ?? 5;
     final planText = switch (plan) {
       'admin' => 'Admin',
       'premium' => 'Premium',
-      _ => 'Free, ${u['used'] ?? 0} of $limit used',
+      _ => 'Free',
     };
     return ListTile(
       title: Text(email, overflow: TextOverflow.ellipsis),
@@ -364,11 +351,7 @@ class _AdminScreenState extends State<AdminScreen>
           : PopupMenuButton<String>(
               tooltip: 'Change plan',
               enabled: !_acting,
-              onSelected: (v) => switch (v) {
-                'premium' => _setUser(email, 'make_premium', plan: 'premium'),
-                'free' => _setUser(email, 'make_free', plan: 'free'),
-                _ => _setUser(email, 'reset_used', resetUsed: true),
-              },
+              onSelected: (v) => _setUser(email, 'make_$v', v),
               itemBuilder: (_) => [
                 if (plan == 'premium')
                   const PopupMenuItem(value: 'free', child: Text('Make free'))
@@ -377,36 +360,7 @@ class _AdminScreenState extends State<AdminScreen>
                     value: 'premium',
                     child: Text('Make premium'),
                   ),
-                const PopupMenuItem(
-                  value: 'reset',
-                  child: Text('Reset free reviews'),
-                ),
               ],
-            ),
-    );
-  }
-
-  Widget _deviceTile(Map<String, Object?> d) {
-    final id = '${d['device_id'] ?? ''}';
-    final last = '${d['last_email'] ?? ''}';
-    final limit = Account.instance.me.value?.freeLimit ?? 5;
-    return ListTile(
-      title: Text(id.length > 20 ? '${id.substring(0, 20)}...' : id),
-      subtitle: Text(
-        '${d['used'] ?? 0} of $limit free used. '
-        'Last used by ${last.isEmpty ? 'nobody' : last}, ${_day(d['last_seen'])}.',
-      ),
-      trailing: id.isEmpty
-          ? null
-          : TextButton(
-              onPressed: _acting
-                  ? null
-                  : () => _act(
-                      'reset_device',
-                      'Phone reset.',
-                      () => _api.adminResetDevice(id),
-                    ),
-              child: const Text('Reset'),
             ),
     );
   }
